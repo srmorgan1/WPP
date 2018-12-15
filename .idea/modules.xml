@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/../IBSolono/.idea/IBSolono.iml" filepath="$PROJECT_DIR$/../IBSolono/.idea/IBSolono.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/WPP.iml" filepath="$PROJECT_DIR$/.idea/WPP.iml" />
+    </modules>
+  </component>
+</project>
