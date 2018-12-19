@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as et
 from dateutil import parser
 import sqlite3
+import argparse
 import pandas as pd
 import numpy as np
 from collections import defaultdict
@@ -12,8 +13,9 @@ import sys
 import os
 import re
 
-# NB: These must be set to the correct locations
+# NB: This must be set to the correct location
 WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
+
 WPP_INPUT_DIR = WPP_ROOT_DIR + '/Inputs'
 WPP_LOG_DIR = WPP_ROOT_DIR + '/Logs'
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
@@ -254,8 +256,9 @@ AVAILABLE_FUNDS = 'Available Funds'
 SC_FUND = 'SC Fund'
 
 # Regular expressions
-PBT_REGEX_SPECIAL_CASES = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\w{2,4})(?:$|\s+|,)', re.ASCII)
 PBT_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,)')
+PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,)')
+PBT_REGEX_SPECIAL_CASES = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\w{2,5})(?:$|\s+|,)', re.ASCII)
 PBT_REGEX_NO_HYPHENS = re.compile(r'(?:^|\s+|,)(\d\d\d)\s{0,1}(\d\d)\s{0,1}(\d\d\d)(?:$|\s+|,)')
 PT_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,)')
 PB_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,)')
@@ -298,6 +301,12 @@ def get_single_value(db_cursor, sql, args_tuple):
         return value[0]
     else:
         return None
+
+
+def get_data(db_cursor, sql, args_tuple):
+    db_cursor.execute(sql, args_tuple)
+    values = db_cursor.fetchall()
+    return values if values else None
 
 
 def get_id(db_cursor, sql, args_tuple):
@@ -366,8 +375,13 @@ def create_and_index_tables(db_conn):
         sys.exit(1)
 
 
-def getMatchingFiles(file_path):
-    files = glob.glob(file_path)
+def getMatchingFiles(file_paths):
+    files = []
+    if not isinstance(file_paths, list):
+        file_paths = [file_paths]
+
+    for file_path in file_paths:
+        files.extend(glob.glob(file_path))
     return sorted(files, key=os.path.getctime)
 
 
@@ -411,15 +425,28 @@ def matchTransactionRef(tenant_name, transaction_reference):
     if tenant_name:
         lcss = getLongestCommonSubstring(tenant_name.lower(), transaction_reference.lower())
         # Assume that if the transaction reference has a substring matching
-        # one in the tenant name of more than 4 chars, then this is a match.
+        # one in the tenant name of >= 4 chars, then this is a match.
         return len(lcss) >= 4
     else:
         return False
 
 
 def recodeSpecialReferenceCases(property_ref, block_ref, tenant_ref):
+    # Block 020-03 belongs to a different property group, call this 020A.
     if property_ref == '020' and block_ref == '020-03':
         property_ref = '020A'
+    # Remove 'DC' from parsed tenant references paid by debit card
+    if tenant_ref is not None and tenant_ref[-2:] == 'DC':
+        tenant_ref = tenant_ref[:-2]
+    return property_ref, block_ref, tenant_ref
+
+
+def getPropertyBlockAndTenantRefsFromRegexMatch(match):
+    property_ref, block_ref, tenant_ref = None, None, None
+    if match:
+        property_ref = match.group(1)
+        block_ref = '{}-{}'.format(match.group(1), match.group(2))
+        tenant_ref = '{}-{}-{}'.format(match.group(1), match.group(2), match.group(3))
     return property_ref, block_ref, tenant_ref
 
 
@@ -433,15 +460,13 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
     # Try to match property, block and tenant
     match = re.search(PBT_REGEX, description)
     if match:
-        property_ref = match.group(1)
-        block_ref = '{}-{}'.format(match.group(1), match.group(2))
-        tenant_ref = '{}-{}-{}'.format(match.group(1), match.group(2), match.group(3))
+        property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
     else:
         # Try to match property, block and tenant special cases
         match = re.search(PBT_REGEX_SPECIAL_CASES, description)
         if match:
             property_ref = match.group(1)
-            if (property_ref in ['094', '095', '099']) or (property_ref in ['020', '022', '053', '064'] and match.group(3)[-1] != 'Z'):
+            if (property_ref in ['094', '095', '096', '099', '124']) or (property_ref in ['020', '022', '039', '053', '064'] and match.group(3)[-1] != 'Z'):
                 block_ref = '{}-{}'.format(match.group(1), match.group(2))
                 tenant_ref = '{}-{}-{}'.format(match.group(1), match.group(2), match.group(3))
             else:
@@ -459,19 +484,23 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
                     #tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
                     # block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
                 else:
-                    # Match without hyphens. This case can only come from parsed transaction references.
+                    # Match without hyphens, or with no terminating space.
+                    # These cases can only come from parsed transaction references.
                     # in which case we can double check that the data exists in and matches the database
                     match = re.search(PBT_REGEX_NO_HYPHENS, description)
                     if match:
-                        property_ref = match.group(1)
-                        block_ref = '{}-{}'.format(match.group(1), match.group(2))
-                        tenant_ref = '{}-{}-{}'.format(match.group(1), match.group(2), match.group(3))
-                        if db_cursor:
-                            tenant_name = checkTenantExists(db_cursor, tenant_ref)
-                            if tenant_name:
-                                if not matchTransactionRef(tenant_name, reference): return None, None, None
-                            else:
-                                return None, None, None
+                        property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+                    else:
+                        match = re.search(PBT_REGEX_NO_TERMINATING_SPACE, description)
+                        if match:
+                            property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+
+                    if match and db_cursor:
+                        tenant_name = checkTenantExists(db_cursor, tenant_ref)
+                        if tenant_name:
+                            if not matchTransactionRef(tenant_name, reference): return None, None, None
+                        else:
+                            return None, None, None
                     else:
                         # Match property reference only
                         match = re.search(P_REGEX, description)
@@ -645,14 +674,12 @@ def importPropertiesFile(db_conn, properties_xls_file):
         for index, row in properties_df.iterrows():
             reference = row['Reference']
             tenant_name = row['Name']
+            # If the property reference begins with a '9' or contains a 'Y' or 'Z',then ignore this data
+            if reference is None or reference[0] == '9' or 'Y' in reference.upper() or 'Z' in reference.upper(): continue
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(reference)
-            # If the property reference was anything other than three numbers,
-            # or if it begins with a '9' or contains a 'Y' or 'Z',then ignore this data
             if (property_ref, block_ref, tenant_ref) == (None, None, None):
                 log('\tINFO: will not add tenant with reference {}'.format(reference))
                 continue
-            if property_ref is None or property_ref[0] == '9'\
-                    or 'Y' in property_ref.upper() or 'Z' in property_ref.upper(): continue
             property_id = get_id_from_ref(csr, 'Properties', 'property', property_ref)
             if not property_id:
                 csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
@@ -914,8 +941,8 @@ def importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_xls_file):
     at_date_str = ' '.join(produced_date_cell_value.split()[-3:])
     at_date = parser.parse(at_date_str).strftime('%Y-%m-%d')
     today = datetime.today()
-    if at_date != today:
-        print_and_log('WARNING: Qube Balances Excel file produced on {}'.format(at_date))
+    #if at_date != today:
+    #    print_and_log('WARNING: Qube Balances Excel file produced on {}'.format(at_date))
 
     # Read in the data table from the spreadsheet
     qube_eod_balances_df = pd.read_excel(qube_eod_balances_xls_file, usecols='B:G', skiprows=4)
@@ -989,7 +1016,7 @@ def importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_xls_file):
                         charges_id = get_id(csr, SELECT_CHARGES_SQL, (fund_id, category_id, type_id_available_funds, block_id, at_date))
                         if not charges_id:
                             csr.execute(INSERT_CHARGES_SQL, (fund_id, category_id, type_id_available_funds, at_date, available_funds, block_id))
-                            log("\tAdding charge {}".format(str((fund, category, type, at_date, block_ref, available_funds))))
+                            log("\tAdding charge {}".format(str((fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds))))
                             num_charges_added_to_db += 1
 
                         if property_code_or_fund in ['Service Charge', 'Tenant Recharge']:
@@ -997,14 +1024,14 @@ def importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_xls_file):
                             charges_id = get_id(csr, SELECT_CHARGES_SQL, (fund_id, category_id, type_id_auth_creditors, block_id, at_date))
                             if not charges_id:
                                 csr.execute(INSERT_CHARGES_SQL, (fund_id, category_id, type_id_auth_creditors, at_date, auth_creditors, block_id))
-                                log("\tAdding charge for {}".format(str((fund, category, type, at_date, block_ref, auth_creditors))))
+                                log("\tAdding charge for {}".format(str((fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors))))
                                 num_charges_added_to_db += 1
 
                             # Add SC Fund charge
                             charges_id = get_id(csr, SELECT_CHARGES_SQL, (fund_id, category_id, type_id_sc_fund, block_id, at_date))
                             if not charges_id:
                                 csr.execute(INSERT_CHARGES_SQL, (fund_id, category_id, type_id_sc_fund, at_date, sc_fund, block_id))
-                                log("\tAdding charge for {}".format(str((fund, category, type, at_date, block_ref, sc_fund))))
+                                log("\tAdding charge for {}".format(str((fund, category, SC_FUND, at_date, block_ref, sc_fund))))
                                 num_charges_added_to_db += 1
                     else:
                         log('WARNING: cannot determine the block for the Qube balances from block reference {}'.format(block_ref))
@@ -1067,23 +1094,15 @@ def importAllData(db_conn):
         print_and_log("Cannot find Properties file matching {}".format(properties_file_pattern))
     print_and_log()
 
-    qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube End of Day Balances*.xlsx')
-    qube_eod_balances_file = getLatestMatchingFile(qube_eod_balances_file_pattern)
-    if qube_eod_balances_file:
-        print_and_log('Importing Qube balances from file {}'.format(qube_eod_balances_file))
-        charges = importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file)
+    qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube*Balances*.xlsx')
+    qube_eod_balances_files = getMatchingFiles(qube_eod_balances_file_pattern)
+    if qube_eod_balances_files:
+        for qube_eod_balances_file in qube_eod_balances_files:
+            print_and_log('Importing Qube balances from file {}'.format(qube_eod_balances_file))
+            charges = importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file)
     else:
         print_and_log("Cannot find Qube EOD Balances file matching {}".format(qube_eod_balances_file_pattern))
     print_and_log()
-
-    # account_numbers_file_pattern = os.path.join(WPP_INPUT_DIR, 'Accounts.xlsx')
-    # account_numbers_file = getLatestMatchingFile(account_numbers_file_pattern)
-    # if account_numbers_file:
-    #     print_and_log('Importing Block bank account numbers from file {}'.format(account_numbers_file))
-    #     importBlockBankAccountNumbers(db_conn, account_numbers_file)
-    # else:
-    #     print_and_log("Cannot find account numbers file matching {}".format(properties_file_pattern))
-    # print_and_log()
 
     accounts_file_pattern = os.path.join(WPP_INPUT_DIR, 'Accounts.xlsx')
     accounts_file = getLatestMatchingFile(accounts_file_pattern)
@@ -1104,8 +1123,8 @@ def importAllData(db_conn):
         print_and_log("Cannot find bank account transactions file matching {}".format(bos_statement_file_pattern))
     print_and_log()
 
-    eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'EOD BalancesReport_*.xml')
-    eod_balances_xml_files = getMatchingFiles(eod_balances_file_pattern)
+    eod_balances_file_patterns = [os.path.join(WPP_INPUT_DIR, f) for f in ['EOD BalancesReport_*.xml', 'EndOfDayBalanceExtract_*.xml']]
+    eod_balances_xml_files = getMatchingFiles(eod_balances_file_patterns)
     if eod_balances_xml_files:
         for eod_balances_xml_file in eod_balances_xml_files:
             print_and_log('Importing Bank Account balances from file {}'.format(eod_balances_xml_file))
@@ -1116,12 +1135,25 @@ def importAllData(db_conn):
 
     add_misc_data_to_db(db_conn)
 
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-v', '--verbose', type=str, help='Generate verbose log file.')
+    args = parser.parse_args()
+    return args
+
+
 def main():
     import time
     start_time = time.time()
+
+    # Get command line arguments
+    args = get_args()
+
     os.makedirs(WPP_INPUT_DIR, exist_ok=True)
     os.makedirs(WPP_LOG_DIR, exist_ok=True)
-    print_and_log('Beginning Import of data into the database\n')
+
+    print_and_log('Beginning Import of data into the database, at {}\n'.format(start_time))
 
     db_conn = get_or_create_db(WPP_DB_FILE)
     charges = importAllData(db_conn)
@@ -1130,7 +1162,7 @@ def main():
     #time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    print_and_log('Done in {} seconds.'.format(round(elapsed_time, 1)))
+    print_and_log('Done in {} seconds.'.format(round(elapsed_time, 1)), end='\n')
     #input("Press enter to end.")
 
 if __name__ == "__main__":

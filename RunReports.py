@@ -5,9 +5,11 @@ import sqlite3
 import pandas as pd
 import calendar
 import copy
+import sys
 
-# NB: These must be set to the correct locations
+# NB: This must be set to the correct location
 WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
+
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
 WPP_REPORT_DIR = WPP_ROOT_DIR + '/Reports'
 WPP_DB_FILE = WPP_DB_DIR + r'/WPP_DB.db'
@@ -154,8 +156,8 @@ SELECT
     a.'SC Fund',
     a.Reserve,
     a.Admin,
-    a.'Qube Total',
     a.'Qube GR',
+    a.'Qube Total',
     b.BOS,
     b.'BOS GR',
     (a.'Qube Total' - b.BOS) as 'Discrepancy',
@@ -175,8 +177,8 @@ SELECT
     a.'SC Fund',
     a.Reserve,
     a.Admin,
-    a.'Qube Total',
     a.'Qube GR',
+    a.'Qube Total',
     b.BOS,
     b.'BOS GR',
     (a.'Qube Total' - b.BOS) as 'Discrepancy',
@@ -253,8 +255,8 @@ def runReports(db_conn, args):
     start_date = '{}-{}-{}'.format(year, month, '1')
     end_date = '{}-{}-{}'.format(year, month, last_day_of_month)
 
-    bos_date = args.bos_date if args.bos_date else dt.date.today() - dt.timedelta(1)
-    qube_date = args.qube_date if args.qube_date else dt.date.today()
+    bos_date = parser.parse(args.bos_date) if args.bos_date else dt.date.today() - dt.timedelta(1)
+    qube_date = parser.parse(args.qube_date) if args.qube_date else dt.date.today()
 
     # Create a Pandas Excel writer using XlsxWriter as the engine.
     excel_report_file = WPP_REPORT_FILE.format(qube_date)
@@ -307,7 +309,13 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-q', '--bos_date', type=str, help='Bank Of Scotland Transactions date')
     parser.add_argument('-b', '--qube_date', type=str, help='Qube Balances date')
+    parser.add_argument('-v', '--verbose', type=str, help='Generate verbose log file.')
     args = parser.parse_args()
+
+    if len(sys.argv) == 1:
+        print('''RunReports.py [--bos_date YYYY-MM-DD] [--qube_date YYYY-MM-DD] [--verbose]''')
+        sys.exit(0)
+
     return args
 
 def main():
@@ -316,6 +324,9 @@ def main():
 
     # Get command line arguments
     args = get_args()
+
+    os.makedirs(WPP_INPUT_DIR, exist_ok=True)
+    os.makedirs(WPP_LOG_DIR, exist_ok=True)
 
     print('Running Reports')
     try:
