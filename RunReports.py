@@ -20,6 +20,32 @@ WPP_DB_FILE = WPP_DB_DIR + r'/WPP_DB.db'
 WPP_REPORT_FILE = WPP_REPORT_DIR + r'/WPP_Report_{}.xlsx'
 WPP_LOG_FILE = WPP_LOG_DIR + r'/Log_RunReports_{}.txt'
 
+# Set up holiday calendar
+from pandas.tseries.holiday import (
+    AbstractHolidayCalendar, DateOffset, EasterMonday,
+    GoodFriday, Holiday, MO,
+    next_monday, next_monday_or_tuesday)
+from pandas.tseries.offsets import CDay
+
+class EnglandAndWalesHolidayCalendar(AbstractHolidayCalendar):
+    rules = [
+        Holiday('New Years Day', month=1, day=1, observance=next_monday),
+        GoodFriday,
+        EasterMonday,
+        Holiday('Early May bank holiday',
+                month=5, day=1, offset=DateOffset(weekday=MO(1))),
+        Holiday('Spring bank holiday',
+                month=5, day=31, offset=DateOffset(weekday=MO(-1))),
+        Holiday('Summer bank holiday',
+                month=8, day=31, offset=DateOffset(weekday=MO(-1))),
+        Holiday('Christmas Day', month=12, day=25, observance=next_monday),
+        Holiday('Boxing Day',
+                month=12, day=26, observance=next_monday_or_tuesday)
+    ]
+
+
+BUSINESS_DAY = CDay(calendar=EnglandAndWalesHolidayCalendar())
+
 #
 # Set up Logging
 #
@@ -248,13 +274,15 @@ def run_sql_query(db_conn, sql, args_tuple):
         return df
     except db_conn.Error as err:
         logging.error(str(err))
-        traceback.print_tb(ex.__traceback__)
+        #traceback.print_tb(ex.__traceback__)
+        logging.exception(err)
         logging.error('The SQL that caused the failure is:')
         logging.error(sql)
         return None
     except Exception as ex:
         logging.error(str(ex))
-        traceback.print_tb(ex.__traceback__)
+        #traceback.print_tb(ex.__traceback__)
+        logging.exception(ex)
         return None
 
 def get_single_value(db_cursor, sql, args_tuple=()):
@@ -278,7 +306,7 @@ def add_extra_rows(df):
     row = copy.copy(df[select])
     row['Name'] = row['Name'] + ' GR'
     row[['Qube Total', 'BOS', 'Discrepancy']] = row[['GR', 'BOS GR', 'Discrepancy GR']]
-    row[['SC Fund', 'Reserve', 'Admin']] = [0.0, 0.0, 0.0]
+    row[['SC Fund', 'Reserve', 'Admin', 'GR']] = [0.0, 0.0, 0.0, 0.0]
     row.reset_index()
 
     qube_total, qube_gr = None, None
@@ -334,7 +362,7 @@ def runReports(db_conn, args):
     end_date = '{}-{}-{}'.format(year, month, last_day_of_month)
 
     qube_date = parser.parse(args.qube_date).strftime('%Y-%m-%d') if args.qube_date else dt.date.today().strftime('%Y-%m-%d')
-    bos_date = parser.parse(args.bos_date).strftime('%Y-%m-%d') if args.bos_date else (parser.parse(qube_date) - dt.timedelta(1)).strftime('%Y-%m-%d')
+    bos_date = parser.parse(args.bos_date).strftime('%Y-%m-%d') if args.bos_date else (parser.parse(qube_date) - BUSINESS_DAY).strftime('%Y-%m-%d')
     logging.info('Qube Date: {}'.format(qube_date))
     logging.info('Bank Of Scotland Transactions and Account Balances Date: {}'.format(bos_date))
 

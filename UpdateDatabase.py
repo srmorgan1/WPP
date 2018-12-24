@@ -4,7 +4,6 @@ import sqlite3
 import argparse
 import logging
 import pandas as pd
-import numpy as np
 import traceback
 from collections import defaultdict
 from datetime import datetime
@@ -24,6 +23,32 @@ WPP_LOG_DIR = WPP_ROOT_DIR + '/Logs'
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
 WPP_DB_FILE = WPP_DB_DIR + r'/WPP_DB.db'
 WPP_LOG_FILE = WPP_LOG_DIR + r'/Log_UpdateDatabase_{}.txt'
+
+# Set up holiday calendar
+from pandas.tseries.holiday import (
+    AbstractHolidayCalendar, DateOffset, EasterMonday,
+    GoodFriday, Holiday, MO,
+    next_monday, next_monday_or_tuesday)
+from pandas.tseries.offsets import CDay
+
+class EnglandAndWalesHolidayCalendar(AbstractHolidayCalendar):
+    rules = [
+        Holiday('New Years Day', month=1, day=1, observance=next_monday),
+        GoodFriday,
+        EasterMonday,
+        Holiday('Early May bank holiday',
+                month=5, day=1, offset=DateOffset(weekday=MO(1))),
+        Holiday('Spring bank holiday',
+                month=5, day=31, offset=DateOffset(weekday=MO(-1))),
+        Holiday('Summer bank holiday',
+                month=8, day=31, offset=DateOffset(weekday=MO(-1))),
+        Holiday('Christmas Day', month=12, day=25, observance=next_monday),
+        Holiday('Boxing Day',
+                month=12, day=26, observance=next_monday_or_tuesday)
+    ]
+
+
+BUSINESS_DAY = CDay(calendar=EnglandAndWalesHolidayCalendar())
 
 #
 # Set up Logging
@@ -129,7 +154,7 @@ CREATE TABLE Accounts (
     property_or_block   TEXT,
     client_ref          TEXT,
     account_name        TEXT  NOT NULL,
-    block_id             INTEGER
+    block_id            INTEGER REFERENCES Blocks (ID)
 );
 '''
 
@@ -1082,12 +1107,9 @@ def importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_xls_file):
         logging.error('The spreadsheet {} does not look like a Qube balances report.')
         return None
 
-    # Get date that the Qube report was produced from the spreadsheet
+    # Get date that the Qube report was produced from the spreadsheet, and calculate the Qube COB date from that
     at_date_str = ' '.join(produced_date_cell_value.split()[-3:])
-    at_date = parser.parse(at_date_str).strftime('%Y-%m-%d')
-    today = datetime.today()
-    #if at_date != today:
-    #    logging.warning('Qube Balances Excel file produced on {}'.format(at_date))
+    at_date = (parser.parse(at_date_str) - BUSINESS_DAY).strftime('%Y-%m-%d')
 
     # Read in the data table from the spreadsheet
     qube_eod_balances_df = pd.read_excel(qube_eod_balances_xls_file, usecols='B:G', skiprows=4)

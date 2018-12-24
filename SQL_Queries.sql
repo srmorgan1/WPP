@@ -169,3 +169,29 @@ ORDER BY block_id;
 select Properties.property_name, Blocks.block_name, Key_fund.value as 'Fund', Key_category.value as 'Category', Key_type.value as 'Type', amount
 from Charges, Properties, Blocks, Key_fund, Key_category, Key_type
 where Properties.ID = Blocks.property_id and Blocks.ID = Charges.block_id and Key_fund.ID = fund_id and Key_category.ID = category_id and Key_type.ID = type_id and block_id in (122, 123, 197) and fund_id in (1,2)
+
+
+
+SELECT
+    Blocks.block_ref,
+    --case when account_type in ('CL', 'RE') then current_balance end as 'BOS Non-GR',
+    --case when account_type = 'GR' then current_balance end as 'BOS GR',
+    current_balance as BOS
+FROM
+    Accounts, AccountBalances, Blocks
+WHERE
+    AccountBalances.account_id = Accounts.ID
+    AND Accounts.block_id = Blocks.ID
+    AND AccountBalances.at_date = '2018-11-29'
+    AND Blocks.block_ref = '071-01'
+    AND Blocks.type = 'B'
+
+select
+    pay_date, block_ref, block_name, tenant_name, description, amount
+    from Transactions, Tenants, Blocks
+where
+    Transactions.tenant_id = Tenants.ID
+    and Tenants.block_id = Blocks.ID
+    --and Blocks.block_ref = '020-03'
+    and pay_date = '2018-11-29'
+    order by Blocks.block_ref
