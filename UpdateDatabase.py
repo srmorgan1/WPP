@@ -19,10 +19,12 @@ WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
 CLIENT_CREDIT_ACCOUNT_NUMBER = '06000792'
 
 WPP_INPUT_DIR = WPP_ROOT_DIR + '/Inputs'
+WPP_REPORT_DIR = WPP_ROOT_DIR + '/Reports'
 WPP_LOG_DIR = WPP_ROOT_DIR + '/Logs'
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
 WPP_DB_FILE = WPP_DB_DIR + r'/WPP_DB.db'
 WPP_LOG_FILE = WPP_LOG_DIR + r'/Log_UpdateDatabase_{}.txt'
+WPP_EXCEL_LOG_FILE = WPP_REPORT_DIR + r'/Data_Import_Issues_{}.xlsx'
 
 # Set up holiday calendar
 from pandas.tseries.holiday import (
@@ -86,8 +88,7 @@ CREATE_PROPERTIES_TABLE = '''
 CREATE TABLE Properties (
     ID               INTEGER PRIMARY KEY AUTOINCREMENT,
     property_ref     TEXT  NOT NULL,
-    property_name     TEXT,
-    number_of_blocks INTEGER
+    property_name     TEXT
 );
 '''
 
@@ -96,8 +97,7 @@ CREATE TABLE Blocks (
     ID                INTEGER PRIMARY KEY AUTOINCREMENT,
     block_ref         TEXT NOT NULL,
     block_name        TEXT,
-    type              TEXT,
-    number_of_tenants INTEGER,
+    type              TEXT
     property_id       INTEGER REFERENCES Properties (ID)
 );
 '''
@@ -189,8 +189,7 @@ CREATE TABLE Key_{} (
 CREATE_PROPERTIES_INDEX = '''
 CREATE UNIQUE INDEX Index_Properties ON Properties (
     property_ref,
-    property_name,
-    number_of_blocks
+    property_name
 );
 '''
 
@@ -199,8 +198,7 @@ CREATE UNIQUE INDEX Index_Blocks ON Blocks (
     block_ref,
     property_id,
     block_name,
-    type,
-    number_of_tenants
+    type
 );
 '''
 
@@ -278,8 +276,8 @@ CREATE UNIQUE INDEX Index_Key_{0} ON Key_{0} (
 #
 # SQL
 #
-INSERT_PROPERTY_SQL = "INSERT INTO Properties (property_ref, property_name, number_of_blocks) VALUES (?, Null, 0);"
-INSERT_BLOCK_SQL = "INSERT INTO Blocks (block_ref, block_name, type, number_of_tenants, property_id) VALUES (?, Null, ?, 0, ?);"
+INSERT_PROPERTY_SQL = "INSERT INTO Properties (property_ref, property_name) VALUES (?, Null);"
+INSERT_BLOCK_SQL = "INSERT INTO Blocks (block_ref, block_name, type, property_id) VALUES (?, Null, ?, ?);"
 INSERT_TENANT_SQL = "INSERT INTO Tenants (tenant_ref, tenant_name, block_id) VALUES (?, ?, ?);"
 INSERT_SUGGESTED_TENANT_SQL = "INSERT INTO SuggestedTenants (tenant_id, transaction_id) VALUES (?, ?);"
 INSERT_TRANSACTION_SQL = "INSERT INTO Transactions (sort_code, account_number, type, amount, description, pay_date, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?);"
@@ -634,12 +632,12 @@ def getTenantID(csr, tenant_ref):
 
 
 def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
+    errors_list = []
     with open(transactions_xml_file) as f:
         xml = f.read()
         schema = 'PreviousDayTransactionExtract'
         xsd = 'https://isite.bankofscotland.co.uk/Schemas/{}.xsd'.format(schema)
         xml = re.sub(r'''<({})\s+(xmlns=(?:'|")){}(?:'|")\s*>'''.format(schema, xsd), r'<\1>', xml)
-        #xml = xml.replace(' xmlns="https://isite.bankofscotland.co.uk/Schemas/PreviousDayTransactionExtract.xsd"', '')
     tree = et.fromstring(xml)
 
     num_transactions_added_to_db = 0
@@ -675,7 +673,8 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
                             num_transactions_added_to_db += 1
                     else:
                         logging.warning("Cannot find tenant with reference '{}'. Ignoring transaction {}".format(
-                                tenant_ref, str((sort_code, account_number, transaction_type, amount, description, pay_date))))
+                                tenant_ref, str((pay_date, sort_code, account_number, transaction_type, amount, description))))
+                        errors_list.append([pay_date, sort_code, account_number, transaction_type, amount, description, "Cannot find tenant with reference '{}'".format(tenant_ref)])
                 #elif property_ref:
                     # TODO: check if the property only has one block, if so we set block_ref to '01' and upload.
                     # TODO: else check if there is only one property with this tenant ref. If so, we then know the block and can upload (at least as a suggestion)
@@ -688,11 +687,14 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
                 #pass
             else:
                 logging.warning("Cannot determine tenant from description '{}'. Ignoring transaction {}".format(
-                    description, str((sort_code, account_number, transaction_type, amount, description, pay_date))))
+                    description, str((pay_date, sort_code, account_number, transaction_type, amount, description))))
+                errors_list.append([pay_date, sort_code, account_number, transaction_type, amount, description, 'Cannot determine tenant from description'])
 
         csr.execute('end')
         db_conn.commit()
         logging.info("{} Bank Of Scotland transactions added to the database.".format(num_transactions_added_to_db))
+        return errors_list
+
     except db_conn.Error as err:
         logging.error(str(err))
         logging.error('The data which caused the failure is: ' + str((sort_code, account_number, transaction_type, amount, description, pay_date, tenant_id)))
@@ -1255,6 +1257,12 @@ def add_misc_data_to_db(db_conn):
 
 
 def importAllData(db_conn):
+    # Create a Pandas Excel writer using XlsxWriter as the engine.
+    today = datetime.today().strftime('%Y-%m-%d')
+    excel_log_file = WPP_EXCEL_LOG_FILE.format(today)
+    logging.info('Creating Excel spreadsheet report file {}'.format(excel_log_file))
+    excel_writer = pd.ExcelWriter(excel_log_file, engine='xlsxwriter')
+
     irregular_transaction_refs_file_pattern = os.path.join(WPP_INPUT_DIR, '001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx')
     irregular_transaction_refs_file = getLatestMatchingFile(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
@@ -1294,10 +1302,15 @@ def importAllData(db_conn):
 
     bos_statement_file_pattern = os.path.join(WPP_INPUT_DIR, 'PreviousDayTransactionExtract_*.xml')
     bos_statement_xml_files= getMatchingFiles(bos_statement_file_pattern)
+    errors_list = []
     if bos_statement_xml_files:
         for bos_statement_xml_file in bos_statement_xml_files:
             logging.info('Importing Bank Account Transactions from file {}'.format(bos_statement_xml_file))
-            importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
+            errors = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file, excel_writer)
+            errors_list.extend(errors)
+        columns = ['Payment Date', 'Sort Code', 'Account Number', 'Transaction Type', 'Amount', 'Description', 'Reason']
+        errors_df = pd.DataFrame(errors_list, columns=columns)
+        errors_df.to_excel(excel_writer, sheet_name='Unrecognised Transactions', index=False, float_format='%.2f')
     else:
         logging.error("Cannot find bank account transactions file matching {}".format(bos_statement_file_pattern))
     print_and_log('')
@@ -1313,7 +1326,7 @@ def importAllData(db_conn):
     print_and_log('')
 
     add_misc_data_to_db(db_conn)
-
+    excel_writer.close()
 
 def get_args():
     parser = argparse.ArgumentParser()
