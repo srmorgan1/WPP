@@ -16,12 +16,13 @@ import re
 
 # NB: These must be set to the correct values
 WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
+#WPP_ROOT_DIR = r'Z:/AutoBOSShelleyAngeAndSandra'
 CLIENT_CREDIT_ACCOUNT_NUMBER = '06000792'
 
-WPP_INPUT_DIR = WPP_ROOT_DIR + '/Inputs'
-WPP_REPORT_DIR = WPP_ROOT_DIR + '/Reports'
-WPP_LOG_DIR = WPP_ROOT_DIR + '/Logs'
-WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
+WPP_INPUT_DIR = WPP_ROOT_DIR + r'/Inputs'
+WPP_REPORT_DIR = WPP_ROOT_DIR + r'/Reports'
+WPP_LOG_DIR = WPP_ROOT_DIR + r'/Logs'
+WPP_DB_DIR = WPP_ROOT_DIR + r'/Database'
 WPP_DB_FILE = WPP_DB_DIR + r'/WPP_DB.db'
 WPP_LOG_FILE = WPP_LOG_DIR + r'/Log_UpdateDatabase_{}.txt'
 WPP_EXCEL_LOG_FILE = WPP_REPORT_DIR + r'/Data_Import_Issues_{}.xlsx'
@@ -64,6 +65,7 @@ class STDErrFilter(logging.Filter):
         return not record.levelno == logging.INFO | record.levelno == logging.DEBUG
 
 today = datetime.today()
+os.makedirs(WPP_LOG_DIR, exist_ok=True)
 log_file = WPP_LOG_FILE.format(today.strftime('%Y-%m-%d'))
 #logFormatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%Y-%m-%d %H:%M:%S")
 logFormatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%H:%M:%S")
@@ -1343,7 +1345,7 @@ def main():
     args = get_args()
 
     os.makedirs(WPP_INPUT_DIR, exist_ok=True)
-    os.makedirs(WPP_LOG_DIR, exist_ok=True)
+    os.makedirs(WPP_REPORT_DIR, exist_ok=True)
 
     print_and_log('Beginning Import of data into the database, at {}\n'.format(datetime.today()))
 

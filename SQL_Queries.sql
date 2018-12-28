@@ -195,3 +195,8 @@ where
     --and Blocks.block_ref = '020-03'
     and pay_date = '2018-11-29'
     order by Blocks.block_ref
+
+
+select * from Transactions where description like '%DC%'
+select * from Transactions where type = 'SO'
+select distinct(type) from Transactions

@@ -12,6 +12,7 @@ import os
 
 # NB: This must be set to the correct location
 WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
+#WPP_ROOT_DIR = r'Z:/AutoBOSShelleyAngeAndSandra'
 
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
 WPP_REPORT_DIR = WPP_ROOT_DIR + '/Reports'
@@ -58,6 +59,7 @@ class STDErrFilter(logging.Filter):
         return not record.levelno == logging.INFO | record.levelno == logging.DEBUG
 
 today = dt.datetime.today()
+os.makedirs(WPP_LOG_DIR, exist_ok=True)
 log_file = WPP_LOG_FILE.format(today.strftime('%Y-%m-%d'))
 logFormatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%H:%M:%S")
 logger = logging.getLogger()
@@ -86,6 +88,7 @@ FROM
 WHERE
     Transactions.tenant_id = Tenants.ID
     AND pay_date BETWEEN ? AND ?
+    AND Transactions.type != 'PAY'
 GROUP BY tenant_ref
 ORDER BY tenant_ref;
 '''
@@ -97,13 +100,53 @@ SELECT
     sum(amount) AS 'Total Paid SC',
     Accounts.account_number as 'Account Number'
 FROM
-    Transactions, Tenants, Blocks, Accounts
+    Transactions
+    INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
+    INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
+    LEFT OUTER JOIN Accounts ON Accounts.block_id = Blocks.ID
 WHERE
-    Transactions.tenant_id = Tenants.ID
-    AND Tenants.block_id = Blocks.ID
-    AND Accounts.block_id = Blocks.ID
-    AND pay_date BETWEEN ? AND ?
-GROUP BY block_ref
+    pay_date BETWEEN ? AND ?
+    AND Transactions.type != 'PAY'
+    AND Accounts.account_type = 'CL'
+GROUP BY block_ref, account_type
+ORDER BY block_ref, account_type;
+'''
+
+SELECT_NON_PAY_TYPE_TRANSACTIONS = '''
+SELECT
+    block_ref AS 'Block',
+    block_name as 'Block Name',
+    description as 'Description',
+    amount as 'Amount',
+    Accounts.account_number as 'Account Number',
+    Accounts.account_type as 'Account Type'
+FROM
+    Transactions
+    INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
+    INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
+    LEFT OUTER JOIN Accounts ON Accounts.block_id = Blocks.ID
+WHERE
+    pay_date BETWEEN ? AND ?
+    AND Transactions.type != 'PAY'
+ORDER BY block_ref, description;
+'''
+
+SELECT_PAY_TYPE_TRANSACTIONS = '''
+SELECT
+    block_ref AS 'Block',
+    block_name as 'Block Name',
+    description as 'Description',
+    amount as 'Amount',
+    Accounts.account_number as 'Account Number',
+    Accounts.account_type as 'Account Type'
+FROM
+    Transactions
+    INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
+    INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
+    LEFT OUTER JOIN Accounts ON Accounts.block_id = Blocks.ID
+WHERE
+    pay_date BETWEEN ? AND ?
+    AND Transactions.type = 'PAY'
 ORDER BY block_ref;
 '''
 
@@ -306,7 +349,7 @@ def add_extra_rows(df):
     row = copy.copy(df[select])
     row['Name'] = row['Name'] + ' GR'
     row[['Qube Total', 'BOS', 'Discrepancy']] = row[['GR', 'BOS GR', 'Discrepancy GR']]
-    row[['SC Fund', 'Reserve', 'Admin', 'GR']] = [0.0, 0.0, 0.0, 0.0]
+    row[['Property / Block', 'SC Fund', 'Reserve', 'Admin']] = ['050-01A', 0.0, 0.0, 0.0]
     row.reset_index()
 
     qube_total, qube_gr = None, None
@@ -326,6 +369,8 @@ def add_extra_rows(df):
         pass
     if bos is not None and bos_gr is not None:
         df.loc[select, ['BOS']] = bos - bos_gr
+
+    df.loc[select, 'GR'] = 0.0
     df = df.append(row)
     return df
 
@@ -361,8 +406,8 @@ def runReports(db_conn, args):
     start_date = '{}-{}-{}'.format(year, month, '1')
     end_date = '{}-{}-{}'.format(year, month, last_day_of_month)
 
-    qube_date = parser.parse(args.qube_date).strftime('%Y-%m-%d') if args.qube_date else dt.date.today().strftime('%Y-%m-%d')
-    bos_date = parser.parse(args.bos_date).strftime('%Y-%m-%d') if args.bos_date else (parser.parse(qube_date) - BUSINESS_DAY).strftime('%Y-%m-%d')
+    qube_date = parser.parse(args.qube_date).strftime('%Y-%m-%d') if args.qube_date else (dt.date.today() - BUSINESS_DAY).strftime('%Y-%m-%d')
+    bos_date = parser.parse(args.bos_date).strftime('%Y-%m-%d') if args.bos_date else qube_date
     logging.info('Qube Date: {}'.format(qube_date))
     logging.info('Bank Of Scotland Transactions and Account Balances Date: {}'.format(bos_date))
 
@@ -374,6 +419,27 @@ def runReports(db_conn, args):
     excel_report_file = WPP_REPORT_FILE.format(qube_date)
     logging.info('Creating Excel spreadsheet report file {}'.format(excel_report_file))
     excel_writer = pd.ExcelWriter(excel_report_file, engine='xlsxwriter')
+
+    # Run SC total transactions by block (COMREC) report for given run date
+    logging.info('Running Total Services Charges Paid By Block on {} report'.format(bos_date))
+    logging.debug(SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL)
+    df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL, (bos_date,) * 2)
+    df = add_column_totals(df)
+    df.to_excel(excel_writer, sheet_name='COMREC {}'.format(bos_date), index=False, float_format='%.2f')
+
+    # Non-DC/PAY type transactions
+    logging.info('Running Transactions {} report'.format(bos_date))
+    logging.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
+    df = run_sql_query(db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2)
+    df = add_column_totals(df)
+    df.to_excel(excel_writer, sheet_name='Transactions', index=False, float_format='%.2f')
+
+    # DC/PAY type transactions
+    logging.info('Running DC & PAY Transactions {} report'.format(bos_date))
+    logging.debug(SELECT_PAY_TYPE_TRANSACTIONS)
+    df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2)
+    df = add_column_totals(df)
+    df.to_excel(excel_writer, sheet_name='DC & PAY Transactions', index=False, float_format='%.2f')
 
     # Run Qube BOS By Block report for given run date
     logging.info('Running Qube BOS By Block report for {}'.format(qube_date))
@@ -406,13 +472,6 @@ def runReports(db_conn, args):
     df = add_column_totals(df)
     df.drop(['BOS GR', 'Discrepancy GR'], axis=1, inplace=True)
     df.to_excel(excel_writer, sheet_name='Qube BOS {}'.format(qube_date), index=False, float_format='%.2f')
-
-    # Run SC total transactions by block (COMREC) report for given run date
-    logging.info('Running Total Services Charges Paid By Block on {} report'.format(bos_date))
-    logging.debug(SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL)
-    df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL, (bos_date,) * 2)
-    df = add_column_totals(df)
-    df.to_excel(excel_writer, sheet_name='Total SC By Block {}'.format(bos_date), index=False, float_format='%.2f')
 
     # Run SC total transactions by tenant report for given run date
     logging.info('Running Total SC Paid By Tenant in {} report'.format(bos_date))
@@ -459,7 +518,7 @@ def main():
     time.strftime("%S", time.gmtime(elapsed_time))
 
     logging.info('Done in {} seconds.'.format(round(elapsed_time, 1)))
-    # input("Press enter to end.")
+    #input("Press enter to end.")
 
 
 if __name__ == "__main__":
