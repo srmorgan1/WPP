@@ -11,8 +11,10 @@ import sys
 import os
 
 # NB: This must be set to the correct location
-WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
-#WPP_ROOT_DIR = r'Z:/AutoBOSShelleyAngeAndSandra'
+if os.name == 'posix':
+    WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
+else:
+    WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
 
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
 WPP_REPORT_DIR = WPP_ROOT_DIR + '/Reports'
@@ -128,6 +130,7 @@ FROM
 WHERE
     pay_date BETWEEN ? AND ?
     AND Transactions.type != 'PAY'
+    AND Accounts.account_type = 'CL'
 ORDER BY block_ref, description;
 '''
 
@@ -169,7 +172,7 @@ WHERE
     AND Key_type.ID = Charges.type_id
     AND
     (
-    (Key_fund.value = 'Service Charge' AND Key_category.value like '%Service Charge%' AND Key_type.value = 'SC Fund') OR
+    (Key_fund.value = 'Service Charge' AND (Key_category.value like '%Service Charge%' OR Key_category.value = 'Roof Replacement Reserves') AND Key_type.value = 'SC Fund') OR
     (Key_fund.value = 'Reserve' AND Key_type.value = 'Available Funds') OR
     (Key_fund.value = 'Tenant Recharge' AND Key_category.value like '%Tenant Recharge%' AND Key_type.value = 'SC Fund') OR
     (Key_fund.value = 'Rent' AND Key_category.value = 'Ground Rent' AND Key_type.value = 'Available Funds') OR

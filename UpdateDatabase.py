@@ -15,8 +15,10 @@ import os
 import re
 
 # NB: These must be set to the correct values
-WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
-#WPP_ROOT_DIR = r'Z:/AutoBOSShelleyAngeAndSandra'
+if os.name == 'posix':
+    WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
+else:
+    WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
 CLIENT_CREDIT_ACCOUNT_NUMBER = '06000792'
 
 WPP_INPUT_DIR = WPP_ROOT_DIR + r'/Inputs'
@@ -99,7 +101,7 @@ CREATE TABLE Blocks (
     ID                INTEGER PRIMARY KEY AUTOINCREMENT,
     block_ref         TEXT NOT NULL,
     block_name        TEXT,
-    type              TEXT
+    type              TEXT,
     property_id       INTEGER REFERENCES Properties (ID)
 );
 '''
@@ -307,6 +309,7 @@ SELECT_ALL_IRREGULAR_TRANSACTION_REFS_SQL = "select tenant_ref, transaction_ref_
 UPDATE_BLOCK_ACCOUNT_NUMBER_SQL = "UPDATE Blocks SET account_number = ? WHERE ID = ? AND account_number IS Null;"
 UPDATE_PROPERTY_DETAILS_SQL = "UPDATE Properties SET property_name = ? WHERE property_ref = ?;"
 UPDATE_BLOCK_NAME_SQL = "UPDATE Blocks SET block_name = ? WHERE ID = ?;"
+UPDATE_TENANT_NAME_SQL = "UPDATE Tenants SET tenant_name = ? WHERE ID = ?;"
 
 # Charge types
 AUTH_CREDITORS = 'Auth Creditors'
@@ -435,6 +438,7 @@ def create_and_index_tables(db_conn):
         db_conn.commit()
     except db_conn.Error as err:
         logging.error(err)
+        logging.exception(err)
         csr.execute('rollback')
         sys.exit(1)
 
@@ -828,6 +832,9 @@ def importPropertiesFile(db_conn, properties_xls_file):
                 csr.execute(INSERT_TENANT_SQL, (tenant_ref, tenant_name, block_id))
                 logging.debug("\tAdding tenant {} to the database".format(tenant_ref))
                 num_tenants_added_to_db += 1
+            else:
+                csr.execute(UPDATE_TENANT_NAME_SQL, (tenant_name, tenant_id))
+                logging.info('Updated tenant name to {} for tenant reference {}'.format(tenant_name, tenant_id))
         csr.execute('end')
         db_conn.commit()
         logging.info("{} properties added to the database.".format(num_properties_added_to_db))
@@ -1283,7 +1290,7 @@ def importAllData(db_conn):
         logging.error("Cannot find Properties file matching {}".format(properties_file_pattern))
     print_and_log('')
 
-    qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube*Balances*.xlsx')
+    qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube*EOD*.xlsx')
     qube_eod_balances_files = getMatchingFiles(qube_eod_balances_file_pattern)
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
@@ -1308,7 +1315,7 @@ def importAllData(db_conn):
     if bos_statement_xml_files:
         for bos_statement_xml_file in bos_statement_xml_files:
             logging.info('Importing Bank Account Transactions from file {}'.format(bos_statement_xml_file))
-            errors = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file, excel_writer)
+            errors = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
             errors_list.extend(errors)
         columns = ['Payment Date', 'Sort Code', 'Account Number', 'Transaction Type', 'Amount', 'Description', 'Reason']
         errors_df = pd.DataFrame(errors_list, columns=columns)
