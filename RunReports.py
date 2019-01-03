@@ -97,60 +97,80 @@ ORDER BY tenant_ref;
 
 SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL = '''
 SELECT
-    block_ref AS 'Block',
-    block_name as 'Block Name',
+    block_ref AS Reference,
+    block_name as 'Name',
     sum(amount) AS 'Total Paid SC',
     Accounts.account_number as 'Account Number'
 FROM
     Transactions
     INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
     INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
+    INNER JOIN Properties ON Blocks.property_id = Properties.ID
     LEFT OUTER JOIN Accounts ON Accounts.block_id = Blocks.ID
 WHERE
     pay_date BETWEEN ? AND ?
     AND Transactions.type != 'PAY'
     AND Accounts.account_type = 'CL'
-GROUP BY block_ref, account_type
-ORDER BY block_ref, account_type;
+    AND Properties.property_name IS NULL
+GROUP BY block_ref --, account_type
+--ORDER BY block_ref;
+'''
+
+SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL = '''
+SELECT
+    property_ref AS Reference,
+    property_name as 'Name',
+    sum(amount) AS 'Total Paid SC',
+    Accounts.account_number as 'Account Number'
+FROM
+    Transactions
+    INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
+    INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
+    INNER JOIN Properties ON Blocks.property_id = Properties.ID
+    LEFT OUTER JOIN Accounts ON Accounts.block_id = (SELECT ID FROM Blocks b where b.block_ref = (property_ref || '-00'))
+WHERE
+    pay_date BETWEEN ? AND ?
+    AND Transactions.type != 'PAY'
+    AND Accounts.account_type = 'CL'
+    AND Properties.property_name NOT NULL
+GROUP BY property_ref
+--ORDER BY property_ref;
 '''
 
 SELECT_NON_PAY_TYPE_TRANSACTIONS = '''
 SELECT
     block_ref AS 'Block',
     block_name as 'Block Name',
+    Transactions.type as 'Payment Type',
     description as 'Description',
-    amount as 'Amount',
-    Accounts.account_number as 'Account Number',
-    Accounts.account_type as 'Account Type'
+    amount as 'Amount'
 FROM
     Transactions
     INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
     INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
-    LEFT OUTER JOIN Accounts ON Accounts.block_id = Blocks.ID
+    INNER JOIN Properties ON Blocks.property_id = Properties.ID
 WHERE
     pay_date BETWEEN ? AND ?
     AND Transactions.type != 'PAY'
-    AND Accounts.account_type = 'CL'
-ORDER BY block_ref, description;
+ORDER BY block_ref, Transactions.type, description;
 '''
 
 SELECT_PAY_TYPE_TRANSACTIONS = '''
 SELECT
     block_ref AS 'Block',
     block_name as 'Block Name',
+    Transactions.type as 'Payment Type',
     description as 'Description',
-    amount as 'Amount',
-    Accounts.account_number as 'Account Number',
-    Accounts.account_type as 'Account Type'
+    amount as 'Amount'
 FROM
     Transactions
     INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
     INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
-    LEFT OUTER JOIN Accounts ON Accounts.block_id = Blocks.ID
+    INNER JOIN Properties ON Blocks.property_id = Properties.ID
 WHERE
     pay_date BETWEEN ? AND ?
     AND Transactions.type = 'PAY'
-ORDER BY block_ref;
+ORDER BY block_ref, Transactions.type, description;
 '''
 
 QUBE_BOS_REPORT_BY_BLOCK_SQL = '''
@@ -293,6 +313,29 @@ LEFT OUTER JOIN
 ON a.property_id = b.property_id;
 '''
 
+BLOCKS_NOT_IN_COMREC_REPORT = '''
+SELECT DISTINCT
+    block_ref AS 'Block'
+FROM
+    Transactions
+    INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
+    INNER JOIN Blocks ON Tenants.block_id = Blocks.ID
+    INNER JOIN Properties ON Blocks.property_id = Properties.ID
+WHERE
+    pay_date BETWEEN ? AND ?
+    AND Transactions.type != 'PAY'
+    AND block_ref NOT IN
+    (
+        -- Doesn't have a block account in the Accounts table
+        SELECT DISTINCT block_ref FROM Accounts, Blocks WHERE Accounts.property_or_block = 'B' AND Accounts.block_id = Blocks.ID ORDER BY block_ref
+    )
+    AND property_ref NOT IN
+    (
+        -- And also ddoesn't have an estate (-00) account
+        SELECT DISTINCT property_ref FROM Accounts, Blocks, Properties WHERE Blocks.block_ref LIKE '%-00' AND Accounts.block_id = Blocks.ID AND Blocks.property_id = Properties.ID ORDER BY property_ref
+    )
+ORDER BY block_ref
+'''
 
 def join_sql_queries(query_sql, sql1, sql2):
     sql1 = sql1.replace(';', '')
@@ -302,15 +345,18 @@ def join_sql_queries(query_sql, sql1, sql2):
     return sql
 
 
-def union_sql_queries(sql1, sql2):
+def union_sql_queries(sql1, sql2, order_by_clause = None):
     sql1 = sql1.replace(';', '')
     sql2 = sql2.replace(';', '')
 
     sql = '''
     {}
     UNION ALL
-    {};
+    {}
     '''.format(sql1, sql2)
+    if order_by_clause:
+        sql += ' ' + order_by_clause
+    sql += ';'
     return sql
 
 
@@ -409,8 +455,8 @@ def runReports(db_conn, args):
     start_date = '{}-{}-{}'.format(year, month, '1')
     end_date = '{}-{}-{}'.format(year, month, last_day_of_month)
 
-    qube_date = parser.parse(args.qube_date).strftime('%Y-%m-%d') if args.qube_date else (dt.date.today() - BUSINESS_DAY).strftime('%Y-%m-%d')
-    bos_date = parser.parse(args.bos_date).strftime('%Y-%m-%d') if args.bos_date else qube_date
+    qube_date = parser.parse(args.qube_date, dayfirst=True).strftime('%Y-%m-%d') if args.qube_date else (dt.date.today() - BUSINESS_DAY).strftime('%Y-%m-%d')
+    bos_date = parser.parse(args.bos_date, dayfirst=True).strftime('%Y-%m-%d') if args.bos_date else qube_date
     logging.info('Qube Date: {}'.format(qube_date))
     logging.info('Bank Of Scotland Transactions and Account Balances Date: {}'.format(bos_date))
 
@@ -424,11 +470,16 @@ def runReports(db_conn, args):
     excel_writer = pd.ExcelWriter(excel_report_file, engine='xlsxwriter')
 
     # Run SC total transactions by block (COMREC) report for given run date
-    logging.info('Running Total Services Charges Paid By Block on {} report'.format(bos_date))
-    logging.debug(SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL)
-    df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL, (bos_date,) * 2)
+    logging.info('Running COMREC report for {}'.format(bos_date))
+    sql = union_sql_queries(SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL, SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL, 'ORDER BY Reference')
+    logging.debug(sql)
+    df = run_sql_query(db_conn, sql, (bos_date,) * 4)
     df = add_column_totals(df)
     df.to_excel(excel_writer, sheet_name='COMREC {}'.format(bos_date), index=False, float_format='%.2f')
+    df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date,) * 2)
+    blocks = df['Block'].tolist()
+    if len(blocks) > 0:
+        logging.info('Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}'.format(', '.join(blocks)))
 
     # Non-DC/PAY type transactions
     logging.info('Running Transactions {} report'.format(bos_date))
