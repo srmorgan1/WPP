@@ -449,14 +449,13 @@ def runReports(db_conn, args):
     today = dt.date.today()
     year = int(today.strftime('%Y'))
     month = int(today.strftime('%m'))
-    month = 11
     month_name = today.strftime('%b')
     last_day_of_month = calendar.monthrange(year, month)[-1]
     start_date = '{}-{}-{}'.format(year, month, '1')
     end_date = '{}-{}-{}'.format(year, month, last_day_of_month)
 
-    qube_date = parser.parse(args.qube_date, dayfirst=True).strftime('%Y-%m-%d') if args.qube_date else (dt.date.today() - BUSINESS_DAY).strftime('%Y-%m-%d')
-    bos_date = parser.parse(args.bos_date, dayfirst=True).strftime('%Y-%m-%d') if args.bos_date else qube_date
+    qube_date = parser.parse(args.qube_date, dayfirst=False).strftime('%Y-%m-%d') if args.qube_date else (dt.date.today() - BUSINESS_DAY).strftime('%Y-%m-%d')
+    bos_date = parser.parse(args.bos_date, dayfirst=False).strftime('%Y-%m-%d') if args.bos_date else qube_date
     logging.info('Qube Date: {}'.format(qube_date))
     logging.info('Bank Of Scotland Transactions and Account Balances Date: {}'.format(bos_date))
 

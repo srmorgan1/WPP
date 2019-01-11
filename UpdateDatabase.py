@@ -7,7 +7,7 @@ import pandas as pd
 import traceback
 from collections import defaultdict
 from datetime import datetime
-#from zipfile import ZipFile
+import zipfile
 import xlrd
 import glob
 import sys
@@ -324,9 +324,11 @@ PBT_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,
 PBT_REGEX2 = re.compile(r'(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
 PBT_REGEX3 = re.compile(r'(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
 PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,|/)')
+PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r'(?:^|\s*|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,|/)')
 PBT_REGEX_SPECIAL_CASES = re.compile(r'(?:^|\s+|,)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)', re.ASCII)
 PBT_REGEX_NO_HYPHENS = re.compile(r'(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\d\d\d)(?:$|\s+|,|/)')
-PBT_REGEX_FWD_SLASHES = re.compile(r'(?:^|\s+|,)(\d\d\d)/(\d\d)/(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
+PBT_REGEX_NO_HYPHENS_SPECIAL_CASES = re.compile(r'(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\w{3})(?:$|\s+|,|/)', re.ASCII)
+PBT_REGEX_FWD_SLASHES = re.compile(r'(?:^|\s+|,)(\d\d\d)/0?(\d\d)/(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
 PT_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,|/)')
 PB_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,|/)')
 P_REGEX = re.compile(r'(?:^|\s+)(\d\d\d)(?:$|\s+)')
@@ -448,7 +450,36 @@ def create_and_index_tables(db_conn):
         sys.exit(1)
 
 
-def getMatchingFiles(file_paths):
+def open_files(file_paths):
+    files = []
+    for file_path in file_paths:
+        ext = os.path.splitext(file_path)
+        if ext == '.zip':
+            # A zip file may contain multiple zipped files
+            zfile = zipfile.ZipFile(file_path)
+            for finfo in zfile.infolist():
+                if '__MACOSX' not in finfo.filename:
+                    files.append(zfile.open(finfo))
+        else:
+            files.append(open(file_path))
+    return files
+
+
+def open_file(file_path):
+    ext = os.path.splitext(file_path)
+    if ext[1].lower() == '.zip':
+        # A zip file may contain multiple zipped files, however we only want the first one
+        zfile = zipfile.ZipFile(file_path)
+        files = [finfo for finfo in zfile.infolist() if '__MACOSX' not in finfo.filename]
+        if len(files) > 1:
+            raise ValueError('Zip file {} must contain only only one zipped file'.format(file_path))
+        else:
+            return zfile.open(files[0])
+    else:
+        return open(file_path)
+
+
+def getMatchingFileNames(file_paths):
     files = []
     if not isinstance(file_paths, list):
         file_paths = [file_paths]
@@ -458,7 +489,7 @@ def getMatchingFiles(file_paths):
     return sorted(files, key=os.path.getctime)
 
 
-def getLatestMatchingFile(file_path):
+def getLatestMatchingFileName(file_path):
     files = glob.glob(file_path)
     if files:
         return max(files ,key=os.path.getctime)
@@ -466,7 +497,7 @@ def getLatestMatchingFile(file_path):
         return None
 
 
-def getLatestMatchingFileInDir(wpp_dir, file_name_glob):
+def getLatestMatchingFileNameInDir(wpp_dir, file_name_glob):
     files = glob.glob(os.path.join(wpp_dir, file_name_glob))
     if files:
         return max(files ,key=os.path.getctime)
@@ -495,16 +526,22 @@ def checkTenantExists(db_cursor, tenant_ref):
 
 
 def matchTransactionRef(tenant_name, transaction_reference):
-    tnm = re.sub(r'[_\W]+', ' ', tenant_name).lower()
-    tnm = re.sub(r'\s+and\s+', '', tnm).strip()
-    trf = re.sub(r'[_\W]+', ' ', transaction_reference).lower()
-    trf = re.sub(r'\s+and\s+', '', trf).strip()
+    tnm = re.sub(r'(?:^|\s+)mr?s?\s+', '', tenant_name.lower())
+    tnm = re.sub(r'\s+and\s+', '', tnm)
+    tnm = re.sub(r'(?:^|\s+)\w\s+', ' ', tnm)
+    tnm = re.sub(r'[_\W]+', ' ', tnm).strip()
+
+    trf = re.sub(r'(?:^|\s+)mr?s?\s+', '', transaction_reference.lower())
+    trf = re.sub(r'\s+and\s+', '', trf)
+    trf = re.sub(r'(?:^|\s+)\w\s+', ' ', trf)
+    trf = re.sub(r'\d', '', trf)
+    trf = re.sub(r'[_\W]+', ' ', trf).strip()
 
     if tenant_name:
         lcss = getLongestCommonSubstring(tnm, trf)
         # Assume that if the transaction reference has a substring matching
         # one in the tenant name of >= 4 chars, then this is a match.
-        return len(lcss) >= 3
+        return len(lcss) >= 4
     else:
         return False
 
@@ -523,11 +560,15 @@ def correctKnownCommonErrors(property_ref, block_ref, tenant_ref):
     return property_ref, block_ref, tenant_ref
 
 
-def recodeSpecialReferenceCases(property_ref, block_ref, tenant_ref):
+def recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref):
     if property_ref == '020' and block_ref == '020-03':
         # Block 020-03 belongs to a different property group, call this 020A.
         property_ref = '020A'
-    elif property_ref == '101' and block_ref == '101-02':
+    return property_ref, block_ref, tenant_ref
+
+
+def recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref):
+    if property_ref == '101' and block_ref == '101-02':
         # Block 101-02 is wrong, change this to 101-01
         block_ref = '101-01'
         tenant_ref = tenant_ref.replace('101-02', '101-01')
@@ -551,12 +592,13 @@ def doubleCheckTenantRef(db_cursor, tenant_ref, reference):
         return False
 
 
-def postProcessPropertyBlckTenantRefs(property_ref, block_ref, tenant_ref):
+def postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref):
     # Ignore some property and tenant references, and recode special cases
     # e.g. Block 020-03 belongs to a different property than the other 020-xx blocks.
     if tenant_ref is not None and ('Z' in tenant_ref or 'Y' in tenant_ref): return None, None, None
     elif property_ref is not None and property_ref.isnumeric() and int(property_ref) >= 900: return None, None, None
-    property_ref, block_ref, tenant_ref = recodeSpecialReferenceCases(property_ref, block_ref, tenant_ref)
+    property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref)
+    property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref)
     return property_ref, block_ref, tenant_ref
 
 
@@ -566,8 +608,8 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
     if type(reference) != str:
         return None, None, None
 
-    if '101-02-' in reference:
-        print(reference)
+    #if '094-' in reference:
+    #    print(reference)
 
     # Try to match property, block and tenant
     description = str(reference).strip()
@@ -640,17 +682,14 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
                                         # Match without hyphens, or with no terminating space.
                                         # These cases can only come from parsed transaction references.
                                         # in which case we can double check that the data exists in and matches the database.
-                                        match = re.search(PBT_REGEX_NO_HYPHENS, description)
+                                        match = re.search(PBT_REGEX_NO_HYPHENS, description) or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description) or \
+                                                re.search(PBT_REGEX_NO_TERMINATING_SPACE, description) or re.search(PBT_REGEX_NO_BEGINNING_SPACE, description)
                                         if match:
                                             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-                                        else:
-                                            match = re.search(PBT_REGEX_NO_TERMINATING_SPACE, description)
-                                            if match:
-                                                property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-
-                                        if match and db_cursor:
-                                            if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                                return None, None, None
+                                            if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                                                if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                                    return None, None, None
                                         #else:
                                         #    # Match property reference only
                                         #    match = re.search(P_REGEX, description)
@@ -658,7 +697,7 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
                                         #        property_ref = match.group(1)
                                         #    else:
                                         #        return None, None, None
-    return postProcessPropertyBlckTenantRefs(property_ref, block_ref, tenant_ref)
+    return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)
 
 
 def getTenantID(csr, tenant_ref):
@@ -668,8 +707,10 @@ def getTenantID(csr, tenant_ref):
 
 def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
     errors_list = []
-    with open(transactions_xml_file) as f:
+    with open_file(transactions_xml_file) as f:
         xml = f.read()
+        if type(xml) == bytes: xml = str(xml, 'utf-8')
+        xml = xml.replace('\n', '')
         schema = 'PreviousDayTransactionExtract'
         xsd = 'https://isite.bankofscotland.co.uk/Schemas/{}.xsd'.format(schema)
         xml = re.sub(r'''<({})\s+(xmlns=(?:'|")){}(?:'|")\s*>'''.format(schema, xsd), r'<\1>', xml)
@@ -745,8 +786,9 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
 
 
 def importBankOfScotlandBalancesXMLFile(db_conn, balances_xml_file):
-    with open(balances_xml_file) as f:
+    with open_file(balances_xml_file) as f:
         xml = f.read()
+        if type(xml) == bytes: xml = str(xml, 'utf-8')
         xml = xml.replace('\n', '')
         for schema in ['BalanceDetailedReport', 'EndOfDayBalanceExtract']:
             xsd = 'https://isite.bankofscotland.co.uk/Schemas/{}.xsd'.format(schema)
@@ -1361,7 +1403,7 @@ def importAllData(db_conn):
     excel_writer = pd.ExcelWriter(excel_log_file, engine='xlsxwriter')
 
     irregular_transaction_refs_file_pattern = os.path.join(WPP_INPUT_DIR, '001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx')
-    irregular_transaction_refs_file = getLatestMatchingFile(irregular_transaction_refs_file_pattern)
+    irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
         logging.info('Importing irregular transaction references from file {}'.format(irregular_transaction_refs_file))
         importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file)
@@ -1370,7 +1412,7 @@ def importAllData(db_conn):
     print_and_log('')
 
     properties_file_pattern = os.path.join(WPP_INPUT_DIR, 'Properties*.xlsx')
-    properties_xls_file = getLatestMatchingFile(properties_file_pattern)
+    properties_xls_file = getLatestMatchingFileName(properties_file_pattern)
     if properties_xls_file:
         logging.info('Importing Properties from file {}'.format(properties_xls_file))
         importPropertiesFile(db_conn, properties_xls_file)
@@ -1379,7 +1421,7 @@ def importAllData(db_conn):
     print_and_log('')
 
     estates_file_pattern = os.path.join(WPP_INPUT_DIR, 'Estates*.xlsx')
-    estates_xls_file = getLatestMatchingFile(estates_file_pattern)
+    estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logging.info('Importing Estates from file {}'.format(estates_xls_file))
         importEstatesFile(db_conn, estates_xls_file)
@@ -1388,7 +1430,7 @@ def importAllData(db_conn):
     print_and_log('')
 
     qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube*EOD*.xlsx')
-    qube_eod_balances_files = getMatchingFiles(qube_eod_balances_file_pattern)
+    qube_eod_balances_files = getMatchingFileNames(qube_eod_balances_file_pattern)
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
             logging.info('Importing Qube balances from file {}'.format(qube_eod_balances_file))
@@ -1398,7 +1440,7 @@ def importAllData(db_conn):
     print_and_log('')
 
     accounts_file_pattern = os.path.join(WPP_INPUT_DIR, 'Accounts.xlsx')
-    accounts_file = getLatestMatchingFile(accounts_file_pattern)
+    accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logging.info('Importing bank accounts from file {}'.format(accounts_file))
         importBankAccounts(db_conn, accounts_file)
@@ -1406,8 +1448,8 @@ def importAllData(db_conn):
         logging.error("ERROR: Cannot find account numbers file matching {}".format(accounts_file_pattern))
     print_and_log('')
 
-    bos_statement_file_pattern = os.path.join(WPP_INPUT_DIR, 'PreviousDayTransactionExtract_*.xml')
-    bos_statement_xml_files= getMatchingFiles(bos_statement_file_pattern)
+    bos_statement_file_pattern = [os.path.join(WPP_INPUT_DIR, f) for f in ['PreviousDayTransactionExtract_*.xml', 'PreviousDayTransactionExtract_*.zip']]
+    bos_statement_xml_files = getMatchingFileNames(bos_statement_file_pattern)
     errors_list = []
     if bos_statement_xml_files:
         for bos_statement_xml_file in bos_statement_xml_files:
@@ -1421,8 +1463,8 @@ def importAllData(db_conn):
         logging.error("Cannot find bank account transactions file matching {}".format(bos_statement_file_pattern))
     print_and_log('')
 
-    eod_balances_file_patterns = [os.path.join(WPP_INPUT_DIR, f) for f in ['EOD BalancesReport_*.xml', 'EndOfDayBalanceExtract_*.xml']]
-    eod_balances_xml_files = getMatchingFiles(eod_balances_file_patterns)
+    eod_balances_file_patterns = [os.path.join(WPP_INPUT_DIR, f) for f in ['EOD BalancesReport_*.xml', 'EndOfDayBalanceExtract_*.xml', 'EndOfDayBalanceExtract_*.zip']]
+    eod_balances_xml_files = getMatchingFileNames(eod_balances_file_patterns)
     if eod_balances_xml_files:
         for eod_balances_xml_file in eod_balances_xml_files:
             logging.info('Importing Bank Account balances from file {}'.format(eod_balances_xml_file))
