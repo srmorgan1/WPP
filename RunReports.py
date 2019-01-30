@@ -141,9 +141,11 @@ SELECT_NON_PAY_TYPE_TRANSACTIONS = '''
 SELECT
     block_ref AS 'Block',
     block_name as 'Block Name',
+    tenant_ref as 'Tenant Reference',
+    tenant_name as 'Tenant Name',
+    amount as 'Amount',
     Transactions.type as 'Payment Type',
-    description as 'Description',
-    amount as 'Amount'
+    description as 'Description'
 FROM
     Transactions
     INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
@@ -159,9 +161,11 @@ SELECT_PAY_TYPE_TRANSACTIONS = '''
 SELECT
     block_ref AS 'Block',
     block_name as 'Block Name',
+    tenant_ref as 'Tenant Reference',
+    tenant_name as 'Tenant Name',
+    amount as 'Amount',
     Transactions.type as 'Payment Type',
-    description as 'Description',
-    amount as 'Amount'
+    description as 'Description'
 FROM
     Transactions
     INNER JOIN Tenants ON Transactions.tenant_id = Tenants.ID
