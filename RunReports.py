@@ -74,7 +74,7 @@ handler.setFormatter(logFormatter)
 handler.addFilter(STDOutFilter())
 logger.addHandler(handler)
 
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 #
 # SQL
@@ -485,14 +485,14 @@ def runReports(db_conn, args):
         logging.info('Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}'.format(', '.join(blocks)))
 
     # Non-DC/PAY type transactions
-    logging.info('Running Transactions {} report'.format(bos_date))
+    logging.info('Running Transactions report for {}'.format(bos_date))
     logging.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2)
     df = add_column_totals(df)
     df.to_excel(excel_writer, sheet_name='Transactions', index=False, float_format='%.2f')
 
     # DC/PAY type transactions
-    logging.info('Running DC & PAY Transactions {} report'.format(bos_date))
+    logging.info('Running DC & PAY Transactions report for {}'.format(bos_date))
     logging.debug(SELECT_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2)
     df = add_column_totals(df)
@@ -531,7 +531,7 @@ def runReports(db_conn, args):
     df.to_excel(excel_writer, sheet_name='Qube BOS {}'.format(qube_date), index=False, float_format='%.2f')
 
     # Run SC total transactions by tenant report for given run date
-    logging.info('Running Total SC Paid By Tenant in {} report'.format(bos_date))
+    logging.info('Running Total SC Paid By Tenant on {} report'.format(bos_date))
     logging.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
     df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date,) * 2)
     df = add_column_totals(df)
@@ -575,6 +575,7 @@ def main():
     time.strftime("%S", time.gmtime(elapsed_time))
 
     logging.info('Done in {} seconds.'.format(round(elapsed_time, 1)))
+    logging.info('----------------------------------------------------------------------------------------')
     #input("Press enter to end.")
 
 

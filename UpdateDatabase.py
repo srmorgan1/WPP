@@ -127,13 +127,12 @@ CREATE TABLE SuggestedTenants (
 CREATE_TRANSACTIONS_TABLE = '''
 CREATE TABLE Transactions (
     ID             INTEGER PRIMARY KEY AUTOINCREMENT,
-    sort_code      TEXT  NOT NULL,
-    account_number TEXT  NOT NULL,
     type           TEXT  NOT NULL,
     amount         DOUBLE  NOT NULL,
     description    TEXT,
     pay_date       DATE    NOT NULL,
-    tenant_id      INTEGER REFERENCES Tenants (ID) 
+    tenant_id      INTEGER REFERENCES Tenants (ID),
+    account_id     INTEGER REFERENCES Accounts (ID) 
 );
 '''
 
@@ -226,8 +225,7 @@ CREATE UNIQUE INDEX Index_Transactions ON Transactions (
     tenant_id,
     description,
     pay_date,
-    sort_code,
-    account_number,
+    account_id,
     type,
     amount
 );
@@ -285,7 +283,7 @@ INSERT_BLOCK_SQL = "INSERT INTO Blocks (block_ref, block_name, type, property_id
 INSERT_BLOCK_SQL2 = "INSERT INTO Blocks (block_ref, block_name, type, property_id) VALUES (?, ?, ?, ?);"
 INSERT_TENANT_SQL = "INSERT INTO Tenants (tenant_ref, tenant_name, block_id) VALUES (?, ?, ?);"
 INSERT_SUGGESTED_TENANT_SQL = "INSERT INTO SuggestedTenants (tenant_id, transaction_id) VALUES (?, ?);"
-INSERT_TRANSACTION_SQL = "INSERT INTO Transactions (sort_code, account_number, type, amount, description, pay_date, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?);"
+INSERT_TRANSACTION_SQL = "INSERT INTO Transactions (type, amount, description, pay_date, tenant_id, account_id) VALUES (?, ?, ?, ?, ?, ?);"
 INSERT_CHARGES_SQL = "INSERT INTO Charges (fund_id, category_id, type_id, at_date, amount, block_id) VALUES (?, ?, ?, ?, ?, ?);"
 INSERT_BANK_ACCOUNT_SQL = "INSERT INTO Accounts (sort_code, account_number, account_type, property_or_block, client_ref, account_name, block_id) VALUES (?, ?, ?, ?, ?, ?, ?);"
 INSERT_BANK_ACCOUNT_BALANCE_SQL = "INSERT INTO AccountBalances (current_balance, available_balance, at_date, account_id) VALUES (?, ?, ?, ?);"
@@ -297,7 +295,7 @@ SELECT_LAST_RECORD_ID_SQL = "SELECT seq FROM sqlite_sequence WHERE name = ?;"
 SELECT_ID_FROM_REF_SQL = "SELECT ID FROM {} WHERE {}_ref = '{}';"
 SELECT_ID_FROM_KEY_TABLE_SQL = "SELECT ID FROM Key_{} WHERE value = ?;"
 SELECT_PROPERTY_ID_FROM_REF_SQL = "SELECT ID FROM Properties WHERE property_ref = ? AND property_name IS NULL;"
-SELECT_TRANSACTION_SQL = "SELECT ID FROM Transactions WHERE tenant_id = ? AND description = ? AND pay_date = ? AND sort_code = ? and account_number = ? and type = ? AND amount between (?-0.005) and (?+0.005);"
+SELECT_TRANSACTION_SQL = "SELECT ID FROM Transactions WHERE tenant_id = ? AND description = ? AND pay_date = ? AND account_id = ? and type = ? AND amount between (?-0.005) and (?+0.005);"
 SELECT_CHARGES_SQL = "SELECT ID FROM Charges WHERE fund_id = ? AND category_id = ? and type_id = ? and block_id = ? and at_date = ?;"
 SELECT_BANK_ACCOUNT_SQL = "SELECT ID FROM Blocks WHERE ID = ? AND account_number IS Null;"
 SELECT_BANK_ACCOUNT_SQL1 = "SELECT ID FROM Accounts WHERE sort_code = ? AND account_number = ?;"
@@ -325,7 +323,7 @@ PBT_REGEX2 = re.compile(r'(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|
 PBT_REGEX3 = re.compile(r'(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
 PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,|/)')
 PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r'(?:^|\s*|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,|/)')
-PBT_REGEX_SPECIAL_CASES = re.compile(r'(?:^|\s+|,)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)', re.ASCII)
+PBT_REGEX_SPECIAL_CASES = re.compile(r'(?:^|\s+|,|\.)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)', re.ASCII)
 PBT_REGEX_NO_HYPHENS = re.compile(r'(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\d\d\d)(?:$|\s+|,|/)')
 PBT_REGEX_NO_HYPHENS_SPECIAL_CASES = re.compile(r'(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\w{3})(?:$|\s+|,|/)', re.ASCII)
 PBT_REGEX_FWD_SLASHES = re.compile(r'(?:^|\s+|,)(\d\d\d)/0?(\d\d)/(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
@@ -564,6 +562,8 @@ def recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref):
     if property_ref == '020' and block_ref == '020-03':
         # Block 020-03 belongs to a different property group, call this 020A.
         property_ref = '020A'
+    elif property_ref == '064' and block_ref == '064-01':
+        property_ref = '064A'
     return property_ref, block_ref, tenant_ref
 
 
@@ -717,6 +717,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
     tree = et.fromstring(xml)
 
     num_transactions_added_to_db = 0
+    num_import_errors = 0
     tenant_id = None
 
     try:
@@ -740,15 +741,17 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
             # If uniquely identified the property, block and tenant, save in the DB
             if tenant_ref:
                 if property_ref and block_ref:
+                    account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
                     tenant_id = get_id_from_ref(csr, 'Tenants', 'tenant', tenant_ref)
                     if tenant_id:
-                        transaction_id = get_id(csr, SELECT_TRANSACTION_SQL, (tenant_id, description, pay_date, sort_code, account_number, transaction_type, amount, amount))
+                        transaction_id = get_id(csr, SELECT_TRANSACTION_SQL, (tenant_id, description, pay_date, account_id, transaction_type, amount, amount))
                         if not transaction_id:
-                            csr.execute(INSERT_TRANSACTION_SQL, (sort_code, account_number, transaction_type, amount, description, pay_date, tenant_id))
+                            csr.execute(INSERT_TRANSACTION_SQL, (transaction_type, amount, description, pay_date, tenant_id, account_id))
                             logging.debug("\tAdding transaction {}".format(str((sort_code, account_number, transaction_type, amount, description, pay_date, tenant_ref))))
                             num_transactions_added_to_db += 1
                     else:
-                        logging.warning("Cannot find tenant with reference '{}'. Ignoring transaction {}".format(
+                        num_import_errors += 1
+                        logging.debug("Cannot find tenant with reference '{}'. Ignoring transaction {}".format(
                                 tenant_ref, str((pay_date, sort_code, account_number, transaction_type, amount, description))))
                         errors_list.append([pay_date, sort_code, account_number, transaction_type, float(amount), description, "Cannot find tenant with reference '{}'".format(tenant_ref)])
                 #elif property_ref:
@@ -762,12 +765,15 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
                 # Maybe the last part should go in the report script
                 #pass
             else:
-                logging.warning("Cannot determine tenant from description '{}'. Ignoring transaction {}".format(
+                num_import_errors += 1
+                logging.debug("Cannot determine tenant from description '{}'. Ignoring transaction {}".format(
                     description, str((pay_date, sort_code, account_number, transaction_type, amount, description))))
                 errors_list.append([pay_date, sort_code, account_number, transaction_type, float(amount), description, 'Cannot determine tenant from description'])
 
         csr.execute('end')
         db_conn.commit()
+        if num_import_errors:
+            logging.info("Unable to import {} transactions into the database. See the Data_Import_Issues Excel file for details. Add tenant references to 001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again.".format(num_import_errors))
         logging.info("{} Bank Of Scotland transactions added to the database.".format(num_transactions_added_to_db))
         return errors_list
 
@@ -1138,38 +1144,60 @@ def importBankAccounts(db_conn, bank_accounts_file):
             client_ref = row['Client Reference']
             account_name = row['Account Name']
 
-            if property_or_block.upper() == 'PROPERTY' or property_or_block.lower() == 'P':
-                property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
-                if block_ref[-2:] == '00':
-                    block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
-                    id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-                    if not id:
-                        csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, 'P', client_ref, account_name, block_id))
-                        logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
-                        num_bank_accounts_added_to_db += 1
-                else:
-                    raise ValueError('Block reference ({}) for an estate must end in 00, for bank account ({}, {})'.format(reference, sort_code, account_number))
-            elif property_or_block.upper() == 'BLOCK' or property_or_block.lower() == 'B':
-                block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
-                id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-                if not id:
-                    csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, 'B', client_ref, account_name, block_id))
-                    logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
-                    num_bank_accounts_added_to_db += 1
+            property_block = None
+            if property_or_block.upper() == 'PROPERTY' or property_or_block.upper() == 'P':
+                property_block = 'P'
+            elif property_or_block.upper() == 'BLOCK' or property_or_block.upper() == 'B':
+                property_block = 'B'
+            elif property_or_block == '' or property_or_block == None:
+                property_block = ''
             else:
                 raise ValueError('Unknown property/block type {} for bank account ({}, {})'.format(property_or_block, sort_code, account_number))
+
+            property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
+
+            if property_block == 'P' and block_ref[-2:] != '00':
+                raise ValueError('Block reference ({}) for an estate must end in 00, for bank account ({}, {})'.format(reference, sort_code, account_number))
+
+            block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
+            id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
+            if not id:
+                csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, property_block, client_ref, account_name, block_id))
+                logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
+                num_bank_accounts_added_to_db += 1
+
+            # if property_or_block.upper() == 'PROPERTY' or property_or_block.upper() == 'P':
+            #     property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
+            #     if block_ref[-2:] == '00':
+            #         block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
+            #         id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
+            #         if not id:
+            #             csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, 'P', client_ref, account_name, block_id))
+            #             logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
+            #             num_bank_accounts_added_to_db += 1
+            #     else:
+            #         raise ValueError('Block reference ({}) for an estate must end in 00, for bank account ({}, {})'.format(reference, sort_code, account_number))
+            # elif property_or_block.upper() == 'BLOCK' or property_or_block.upper() == 'B':
+            #     block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
+            #     id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
+            #     if not id:
+            #         csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, 'B', client_ref, account_name, block_id))
+            #         logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
+            #         num_bank_accounts_added_to_db += 1
+            # else:
+            #     raise ValueError('Unknown property/block type {} for bank account ({}, {})'.format(property_or_block, sort_code, account_number))
         csr.execute('end')
         db_conn.commit()
         logging.info("{} bank accounts added to the database.".format(num_bank_accounts_added_to_db))
     except db_conn.Error as err:
         logging.error(str(err))
-        logging.error('The data which caused the failure is: ' + str((reference, sort_code, account_number)))
+        logging.error('The data which caused the failure is: ' + str((reference, sort_code, account_number, account_type, property_or_block)))
         logging.error('No bank accounts have been added to the database')
         csr.execute('rollback')
         raise
     except Exception as ex:
         logging.error(str(ex))
-        logging.error('The data which caused the failure is: ' + str((reference, sort_code, account_number)))
+        logging.error('The data which caused the failure is: ' + str((reference, sort_code, account_number, account_type, property_or_block)))
         logging.error('No bank accounts have been added to the database.')
         csr.execute('rollback')
         raise
@@ -1399,7 +1427,7 @@ def importAllData(db_conn):
     # Create a Pandas Excel writer using XlsxWriter as the engine.
     today = datetime.today().strftime('%Y-%m-%d')
     excel_log_file = WPP_EXCEL_LOG_FILE.format(today)
-    logging.info('Creating Excel spreadsheet report file {}'.format(excel_log_file))
+    logging.debug('Creating Excel spreadsheet report file {}'.format(excel_log_file))
     excel_writer = pd.ExcelWriter(excel_log_file, engine='xlsxwriter')
 
     irregular_transaction_refs_file_pattern = os.path.join(WPP_INPUT_DIR, '001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx')
@@ -1409,7 +1437,7 @@ def importAllData(db_conn):
         importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file)
     else:
         logging.error("Cannot find irregular transaction references file matching {}".format(irregular_transaction_refs_file_pattern))
-    print_and_log('')
+    logging.info('')
 
     properties_file_pattern = os.path.join(WPP_INPUT_DIR, 'Properties*.xlsx')
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern)
@@ -1418,7 +1446,7 @@ def importAllData(db_conn):
         importPropertiesFile(db_conn, properties_xls_file)
     else:
         logging.error("Cannot find Properties file matching {}".format(properties_file_pattern))
-    print_and_log('')
+    logging.info('')
 
     estates_file_pattern = os.path.join(WPP_INPUT_DIR, 'Estates*.xlsx')
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
@@ -1427,7 +1455,7 @@ def importAllData(db_conn):
         importEstatesFile(db_conn, estates_xls_file)
     else:
         logging.error("Cannot find Estates file matching {}".format(estates_file_pattern))
-    print_and_log('')
+    logging.info('')
 
     qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube*EOD*.xlsx')
     qube_eod_balances_files = getMatchingFileNames(qube_eod_balances_file_pattern)
@@ -1437,7 +1465,7 @@ def importAllData(db_conn):
             importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file)
     else:
         logging.error("Cannot find Qube EOD Balances file matching {}".format(qube_eod_balances_file_pattern))
-    print_and_log('')
+    logging.info('')
 
     accounts_file_pattern = os.path.join(WPP_INPUT_DIR, 'Accounts.xlsx')
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
@@ -1446,7 +1474,7 @@ def importAllData(db_conn):
         importBankAccounts(db_conn, accounts_file)
     else:
         logging.error("ERROR: Cannot find account numbers file matching {}".format(accounts_file_pattern))
-    print_and_log('')
+    logging.info('')
 
     bos_statement_file_pattern = [os.path.join(WPP_INPUT_DIR, f) for f in ['PreviousDayTransactionExtract_*.xml', 'PreviousDayTransactionExtract_*.zip']]
     bos_statement_xml_files = getMatchingFileNames(bos_statement_file_pattern)
@@ -1461,7 +1489,7 @@ def importAllData(db_conn):
         errors_df.to_excel(excel_writer, sheet_name='Unrecognised Transactions', index=False, float_format='%.2f')
     else:
         logging.error("Cannot find bank account transactions file matching {}".format(bos_statement_file_pattern))
-    print_and_log('')
+    logging.info('')
 
     eod_balances_file_patterns = [os.path.join(WPP_INPUT_DIR, f) for f in ['EOD BalancesReport_*.xml', 'EndOfDayBalanceExtract_*.xml', 'EndOfDayBalanceExtract_*.zip']]
     eod_balances_xml_files = getMatchingFileNames(eod_balances_file_patterns)
@@ -1471,7 +1499,7 @@ def importAllData(db_conn):
             importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_file)
     else:
         logging.error("Cannot find bank account balances file matching one of {}".format(','.join(eod_balances_file_patterns)))
-    print_and_log('')
+    logging.info('')
 
     add_misc_data_to_db(db_conn)
     excel_writer.close()
@@ -1493,17 +1521,16 @@ def main():
     os.makedirs(WPP_INPUT_DIR, exist_ok=True)
     os.makedirs(WPP_REPORT_DIR, exist_ok=True)
 
-    print_and_log('Beginning Import of data into the database, at {}\n'.format(datetime.today()))
+    logging.info('Beginning Import of data into the database, at {}\n'.format(datetime.today().strftime('%Y-%m-%d %H:%M:%S')))
 
     db_conn = get_or_create_db(WPP_DB_FILE)
     importAllData(db_conn)
 
     elapsed_time = time.time() - start_time
-    #time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    print_and_log('Done in {} seconds.'.format(round(elapsed_time, 1)))
-    print_and_log('--------------------------------------------')
+    logging.info('Done in {} seconds.'.format(round(elapsed_time, 1)))
+    logging.info('----------------------------------------------------------------------------------------')
     #input("Press enter to end.")
 
 if __name__ == "__main__":
