@@ -602,20 +602,41 @@ def postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref):
     return property_ref, block_ref, tenant_ref
 
 
+def checkForIrregularTenantRefInDatabase(reference, db_cursor):
+    # Look for known irregular transaction refs which we know some tenants use
+    if db_cursor:
+        tenant_ref = get_single_value(db_cursor, SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL, (reference,))
+        if tenant_ref:
+            return getPropertyBlockAndTenantRefs(tenant_ref)    # Parse tenant reference
+        # else:
+        #    transaction_ref_data = get_data(db_cursor, SELECT_ALL_IRREGULAR_TRANSACTION_REFS_SQL)
+        #    for tenant_ref, transaction_ref_pattern in transaction_ref_data:
+        #        pass
+    return None, None, None
+
+
 def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
     property_ref, block_ref, tenant_ref = None, None, None
 
     if type(reference) != str:
         return None, None, None
 
-    #if '094-' in reference:
+    #if 'CYNTHIA LANG' in reference:
     #    print(reference)
 
     # Try to match property, block and tenant
     description = str(reference).strip()
+
+    # Check the database for irregular transaction references first
+    property_ref, block_ref, tenant_ref = checkForIrregularTenantRefInDatabase(description, db_cursor)
+    if property_ref and block_ref and tenant_ref: return property_ref, block_ref, tenant_ref
+
+    # Then check various regular expression rules
     match = re.search(PBT_REGEX, description)
     if match:
         property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+        #if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
+        #    return None, None, None
     else:
         match = re.search(PBT_REGEX_FWD_SLASHES, description)
         if match:
@@ -669,34 +690,24 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
                                 #tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
                                 # block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
                             else:
-                                # Look for known irregular transaction refs which we know some tenants use
-                                if db_cursor:
-                                    tenant_ref = get_single_value(db_cursor, SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL, (reference,))
-                                    if tenant_ref:
-                                        return getPropertyBlockAndTenantRefs(tenant_ref)
-                                    #else:
-                                    #    transaction_ref_data = get_data(db_cursor, SELECT_ALL_IRREGULAR_TRANSACTION_REFS_SQL)
-                                    #    for tenant_ref, transaction_ref_pattern in transaction_ref_data:
-                                    #        pass
-                                    else:
-                                        # Match without hyphens, or with no terminating space.
-                                        # These cases can only come from parsed transaction references.
-                                        # in which case we can double check that the data exists in and matches the database.
-                                        match = re.search(PBT_REGEX_NO_HYPHENS, description) or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description) or \
-                                                re.search(PBT_REGEX_NO_TERMINATING_SPACE, description) or re.search(PBT_REGEX_NO_BEGINNING_SPACE, description)
-                                        if match:
-                                            property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-                                            if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                                                if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                                    return None, None, None
-                                        #else:
-                                        #    # Match property reference only
-                                        #    match = re.search(P_REGEX, description)
-                                        #    if match:
-                                        #        property_ref = match.group(1)
-                                        #    else:
-                                        #        return None, None, None
+                                # Match without hyphens, or with no terminating space.
+                                # These cases can only come from parsed transaction references.
+                                # in which case we can double check that the data exists in and matches the database.
+                                match = re.search(PBT_REGEX_NO_HYPHENS, description) or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description) or \
+                                        re.search(PBT_REGEX_NO_TERMINATING_SPACE, description) or re.search(PBT_REGEX_NO_BEGINNING_SPACE, description)
+                                if match:
+                                    property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+                                    if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                        property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                                        if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                            return None, None, None
+                                #else:
+                                #    # Match property reference only
+                                #    match = re.search(P_REGEX, description)
+                                #    if match:
+                                #        property_ref = match.group(1)
+                                #    else:
+                                #        return None, None, None
     return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)
 
 
@@ -1166,26 +1177,6 @@ def importBankAccounts(db_conn, bank_accounts_file):
                 logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
                 num_bank_accounts_added_to_db += 1
 
-            # if property_or_block.upper() == 'PROPERTY' or property_or_block.upper() == 'P':
-            #     property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
-            #     if block_ref[-2:] == '00':
-            #         block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
-            #         id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-            #         if not id:
-            #             csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, 'P', client_ref, account_name, block_id))
-            #             logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
-            #             num_bank_accounts_added_to_db += 1
-            #     else:
-            #         raise ValueError('Block reference ({}) for an estate must end in 00, for bank account ({}, {})'.format(reference, sort_code, account_number))
-            # elif property_or_block.upper() == 'BLOCK' or property_or_block.upper() == 'B':
-            #     block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
-            #     id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-            #     if not id:
-            #         csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, 'B', client_ref, account_name, block_id))
-            #         logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
-            #         num_bank_accounts_added_to_db += 1
-            # else:
-            #     raise ValueError('Unknown property/block type {} for bank account ({}, {})'.format(property_or_block, sort_code, account_number))
         csr.execute('end')
         db_conn.commit()
         logging.info("{} bank accounts added to the database.".format(num_bank_accounts_added_to_db))
