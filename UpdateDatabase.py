@@ -18,7 +18,9 @@ import re
 if os.name == 'posix':
     WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
 else:
-    WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
+    #WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
+    #WPP_ROOT_DIR = os.path.normpath(os.path.join(sys.path[0], os.pardir))
+    WPP_ROOT_DIR = r'\\SBS\public\qube\iSite\AutoBOSShelleyAngeAndSandra'
 CLIENT_CREDIT_ACCOUNT_NUMBER = '06000792'
 
 WPP_INPUT_DIR = WPP_ROOT_DIR + r'/Inputs'
@@ -319,8 +321,9 @@ SC_FUND = 'SC Fund'
 
 # Regular expressions
 PBT_REGEX = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
-PBT_REGEX2 = re.compile(r'(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
-PBT_REGEX3 = re.compile(r'(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
+PBT_REGEX2 = re.compile(r'(?:^|\s+|,)(\d\d\d)\s-\s(\d\d)\s-\s(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
+PBT_REGEX3 = re.compile(r'(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
+PBT_REGEX4 = re.compile(r'(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)')
 PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r'(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,|/)')
 PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r'(?:^|\s*|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,|/)')
 PBT_REGEX_SPECIAL_CASES = re.compile(r'(?:^|\s+|,|\.)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)', re.ASCII)
@@ -456,6 +459,7 @@ def open_files(file_paths):
             # A zip file may contain multiple zipped files
             zfile = zipfile.ZipFile(file_path)
             for finfo in zfile.infolist():
+                # Mac OSX zip files contain a directory we don't want
                 if '__MACOSX' not in finfo.filename:
                     files.append(zfile.open(finfo))
         else:
@@ -463,6 +467,7 @@ def open_files(file_paths):
     return files
 
 
+# Open a file, which can be within a zip file
 def open_file(file_path):
     ext = os.path.splitext(file_path)
     if ext[1].lower() == '.zip':
@@ -616,12 +621,13 @@ def checkForIrregularTenantRefInDatabase(reference, db_cursor):
 
 
 def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
+    #TODO: refactor to use chain of responsibilty pattern here instead of nested ifs
     property_ref, block_ref, tenant_ref = None, None, None
 
     if type(reference) != str:
         return None, None, None
 
-    #if 'CYNTHIA LANG' in reference:
+    #if 'COM' in reference:
     #    print(reference)
 
     # Try to match property, block and tenant
@@ -644,70 +650,76 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
             if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
                 return None, None, None
         else:
-            match = re.search(PBT_REGEX2, description)  # Match tenant with 2 digits
+            match = re.search(PBT_REGEX2, description)  # Match tenant with spaces between hyphens
             if match:
                 property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
                 if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                    tenant_ref = '{}-{}-0{}'.format(match.group(1), match.group(2), match.group(3))
-                    if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                        return None, None, None
+                    return None, None, None
             else:
-                match = re.search(PBT_REGEX3, description)  # Match property with 2 digits
+                match = re.search(PBT_REGEX3, description)  # Match tenant with 2 digits
                 if match:
                     property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-                    if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
-                        property_ref = '0{}'.format(match.group(1))
-                        block_ref = '{}-{}'.format(property_ref, match.group(2))
-                        tenant_ref = '{}-{}'.format(block_ref, match.group(3))
-                        if not checkTenantExists(db_cursor, tenant_ref):
+                    if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                        tenant_ref = '{}-{}-0{}'.format(match.group(1), match.group(2), match.group(3))
+                        if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
                             return None, None, None
                 else:
-                    # Try to match property, block and tenant special cases
-                    match = re.search(PBT_REGEX_SPECIAL_CASES, description)
+                    match = re.search(PBT_REGEX4, description)  # Match property with 2 digits
                     if match:
-                        property_ref = match.group(1)
-                        block_ref = '{}-{}'.format(match.group(1), match.group(2))
-                        tenant_ref = '{}-{}-{}'.format(match.group(1), match.group(2), match.group(3))
-                        if db_cursor:
-                            tenant_ref = removeDCReferencePostfix(tenant_ref)
-                            if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                                if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                    return None, None, None
-                        elif not ((property_ref in ['093', '094', '095', '096', '099', '124']) or (property_ref in ['020', '022', '039', '053', '064'] and match.group(3)[-1] != 'Z')):
-                            return None, None, None
+                        property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+                        if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
+                            property_ref = '0{}'.format(match.group(1))
+                            block_ref = '{}-{}'.format(property_ref, match.group(2))
+                            tenant_ref = '{}-{}'.format(block_ref, match.group(3))
+                            if not checkTenantExists(db_cursor, tenant_ref):
+                                return None, None, None
                     else:
-                        match = re.search(PB_REGEX, description)
+                        # Try to match property, block and tenant special cases
+                        match = re.search(PBT_REGEX_SPECIAL_CASES, description)
                         if match:
                             property_ref = match.group(1)
                             block_ref = '{}-{}'.format(match.group(1), match.group(2))
+                            tenant_ref = '{}-{}-{}'.format(match.group(1), match.group(2), match.group(3))
+                            if db_cursor:
+                                tenant_ref = removeDCReferencePostfix(tenant_ref)
+                                if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                    property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                                    if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                        return None, None, None
+                            elif not ((property_ref in ['093', '094', '095', '096', '099', '124', '132']) or (property_ref in ['020', '022', '039', '053', '064'] and match.group(3)[-1] != 'Z')):
+                                return None, None, None
                         else:
-                            # Prevent this case from matching for now, or move to the end of the match blocks
-                            match = re.search(PT_REGEX, description) and False
+                            match = re.search(PB_REGEX, description)
                             if match:
-                                pass
-                                #property_ref = match.group(1)
-                                #tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
-                                # block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
+                                property_ref = match.group(1)
+                                block_ref = '{}-{}'.format(match.group(1), match.group(2))
                             else:
-                                # Match without hyphens, or with no terminating space.
-                                # These cases can only come from parsed transaction references.
-                                # in which case we can double check that the data exists in and matches the database.
-                                match = re.search(PBT_REGEX_NO_HYPHENS, description) or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description) or \
-                                        re.search(PBT_REGEX_NO_TERMINATING_SPACE, description) or re.search(PBT_REGEX_NO_BEGINNING_SPACE, description)
+                                # Prevent this case from matching for now, or move to the end of the match blocks
+                                match = re.search(PT_REGEX, description) and False
                                 if match:
-                                    property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-                                    if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                        property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                                        if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                            return None, None, None
-                                #else:
-                                #    # Match property reference only
-                                #    match = re.search(P_REGEX, description)
-                                #    if match:
-                                #        property_ref = match.group(1)
-                                #    else:
-                                #        return None, None, None
+                                    pass
+                                    #property_ref = match.group(1)
+                                    #tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
+                                    # block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
+                                else:
+                                    # Match without hyphens, or with no terminating space.
+                                    # These cases can only come from parsed transaction references.
+                                    # in which case we can double check that the data exists in and matches the database.
+                                    match = re.search(PBT_REGEX_NO_HYPHENS, description) or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description) or \
+                                            re.search(PBT_REGEX_NO_TERMINATING_SPACE, description) or re.search(PBT_REGEX_NO_BEGINNING_SPACE, description)
+                                    if match:
+                                        property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+                                        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                            property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                                            if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                                return None, None, None
+                                    #else:
+                                    #    # Match property reference only
+                                    #    match = re.search(P_REGEX, description)
+                                    #    if match:
+                                    #        property_ref = match.group(1)
+                                    #    else:
+                                    #        return None, None, None
     return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)
 
 
@@ -892,7 +904,7 @@ def importPropertiesFile(db_conn, properties_xls_file):
         for index, row in properties_df.iterrows():
             reference = row['Reference']
             tenant_name = row['Name']
-            # If the property reference begins with a '9' or contains a 'Y' or 'Z',then ignore this data
+            # If the tenant reference begins with a '9' or contains a 'Y' or 'Z',then ignore this data
             if reference is None or reference[0] == '9' or 'Y' in reference.upper() or 'Z' in reference.upper(): continue
 
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(reference)
@@ -1140,6 +1152,7 @@ def importBankAccounts(db_conn, bank_accounts_file):
     # Read Excel spreadsheet into dataframe
     bank_accounts_df = pd.read_excel(bank_accounts_file, 'Accounts', dtype=str)
     bank_accounts_df.replace('nan', '', inplace=True)
+    bank_accounts_df.fillna('', inplace=True)
 
     num_bank_accounts_added_to_db = 0
 
@@ -1172,7 +1185,7 @@ def importBankAccounts(db_conn, bank_accounts_file):
 
             block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
             id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-            if not id:
+            if sort_code and account_number and not id:
                 csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, property_block, client_ref, account_name, block_id))
                 logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
                 num_bank_accounts_added_to_db += 1
@@ -1198,6 +1211,7 @@ def importIrregularTransactionReferences(db_conn, anomalous_refs_file):
     # Read Excel spreadsheet into dataframe
     anomalous_refs_df = pd.read_excel(anomalous_refs_file, 'Sheet1', dtype=str)
     anomalous_refs_df.replace('nan', '', inplace=True)
+    anomalous_refs_df.fillna('', inplace=True)
 
     num_anomalous_refs_added_to_db = 0
     tenant_reference = ''
@@ -1210,7 +1224,7 @@ def importIrregularTransactionReferences(db_conn, anomalous_refs_file):
             payment_reference_pattern = row['Payment Reference Pattern'].strip()
 
             id = get_id(csr, SELECT_IRREGULAR_TRANSACTION_REF_ID_SQL, (tenant_reference, payment_reference_pattern))
-            if not id:
+            if tenant_reference and not id:
                 csr.execute(INSERT_IRREGULAR_TRANSACTION_REF_SQL, (tenant_reference, payment_reference_pattern))
                 logging.debug('\tAdding irregular transaction reference pattern ({}) for tenant {}'.format(tenant_reference, payment_reference_pattern))
                 num_anomalous_refs_added_to_db += 1
@@ -1233,7 +1247,7 @@ def importIrregularTransactionReferences(db_conn, anomalous_refs_file):
 
 
 def calculateSCFund(auth_creditors, available_funds, property_ref, block_ref):
-    # This should be encoded in a user-supplied rules spreadsheet for generality
+    # TODO: This should be encoded in a user-supplied rules spreadsheet for generality
     if property_ref == '035':
         return available_funds
     else:
@@ -1431,7 +1445,8 @@ def importAllData(db_conn):
     logging.info('')
 
     properties_file_pattern = os.path.join(WPP_INPUT_DIR, 'Properties*.xlsx')
-    properties_xls_file = getLatestMatchingFileName(properties_file_pattern)
+    tenants_file_pattern = os.path.join(WPP_INPUT_DIR, 'Tenants*.xlsx')
+    properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
         logging.info('Importing Properties from file {}'.format(properties_xls_file))
         importPropertiesFile(db_conn, properties_xls_file)

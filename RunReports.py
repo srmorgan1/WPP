@@ -14,7 +14,9 @@ import os
 if os.name == 'posix':
     WPP_ROOT_DIR = r'/Users/steve/Work/WPP'
 else:
-    WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
+    #WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
+    #WPP_ROOT_DIR = os.path.normpath(os.path.join(sys.path[0], os.pardir))
+    WPP_ROOT_DIR = r'\\SBS\public\qube\iSite\AutoBOSShelleyAngeAndSandra'
 
 WPP_DB_DIR = WPP_ROOT_DIR + '/Database'
 WPP_REPORT_DIR = WPP_ROOT_DIR + '/Reports'
@@ -391,7 +393,7 @@ def get_single_value(db_cursor, sql, args_tuple=()):
 
 
 def add_column_totals(df):
-    if len(df > 0):
+    if len(df) > 0:
         df = df.append(df.sum(numeric_only=True).rename('Total'))
         df.iloc[-1:, 0] = 'TOTAL'
     return df
@@ -541,8 +543,8 @@ def runReports(db_conn, args):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-q', '--bos_date', type=str, help='Bank Of Scotland Transactions date')
-    parser.add_argument('-b', '--qube_date', type=str, help='Qube Balances date')
+    parser.add_argument('-b', '--bos_date', type=str, help='Bank Of Scotland Transactions date')
+    parser.add_argument('-q', '--qube_date', type=str, help='Qube Balances date')
     parser.add_argument('-v', '--verbose', type=str, help='Generate verbose log file.')
     args = parser.parse_args()
 
