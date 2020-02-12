@@ -627,7 +627,7 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
     if type(reference) != str:
         return None, None, None
 
-    #if 'COM' in reference:
+    #if '133-' in reference:
     #    print(reference)
 
     # Try to match property, block and tenant
@@ -686,7 +686,7 @@ def getPropertyBlockAndTenantRefs(reference, db_cursor = None):
                                     property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
                                     if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
                                         return None, None, None
-                            elif not ((property_ref in ['093', '094', '095', '096', '099', '124', '132']) or (property_ref in ['020', '022', '039', '053', '064'] and match.group(3)[-1] != 'Z')):
+                            elif not ((property_ref in ['093', '094', '095', '096', '099', '124', '132', '133', '134']) or (property_ref in ['020', '022', '039', '053', '064'] and match.group(3)[-1] != 'Z')):
                                 return None, None, None
                         else:
                             match = re.search(PB_REGEX, description)
