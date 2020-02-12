@@ -730,6 +730,8 @@ def getTenantID(csr, tenant_ref):
 
 def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
     errors_list = []
+    duplicate_transactions = []
+
     with open_file(transactions_xml_file) as f:
         xml = f.read()
         if type(xml) == bytes: xml = str(xml, 'utf-8')
@@ -772,6 +774,8 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
                             csr.execute(INSERT_TRANSACTION_SQL, (transaction_type, amount, description, pay_date, tenant_id, account_id))
                             logging.debug("\tAdding transaction {}".format(str((sort_code, account_number, transaction_type, amount, description, pay_date, tenant_ref))))
                             num_transactions_added_to_db += 1
+                        else:
+                            duplicate_transactions.append([pay_date, transaction_type, float(amount), tenant_ref, description])
                     else:
                         num_import_errors += 1
                         logging.debug("Cannot find tenant with reference '{}'. Ignoring transaction {}".format(
@@ -798,7 +802,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
         if num_import_errors:
             logging.info("Unable to import {} transactions into the database. See the Data_Import_Issues Excel file for details. Add tenant references to 001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again.".format(num_import_errors))
         logging.info("{} Bank Of Scotland transactions added to the database.".format(num_transactions_added_to_db))
-        return errors_list
+        return errors_list, duplicate_transactions
 
     except db_conn.Error as err:
         logging.error(str(err))
@@ -1485,14 +1489,19 @@ def importAllData(db_conn):
     bos_statement_file_pattern = [os.path.join(WPP_INPUT_DIR, f) for f in ['PreviousDayTransactionExtract_*.xml', 'PreviousDayTransactionExtract_*.zip']]
     bos_statement_xml_files = getMatchingFileNames(bos_statement_file_pattern)
     errors_list = []
+    duplicate_transactions = []
     if bos_statement_xml_files:
         for bos_statement_xml_file in bos_statement_xml_files:
             logging.info('Importing Bank Account Transactions from file {}'.format(bos_statement_xml_file))
-            errors = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
+            errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
             errors_list.extend(errors)
-        columns = ['Payment Date', 'Sort Code', 'Account Number', 'Transaction Type', 'Amount', 'Description', 'Reason']
-        errors_df = pd.DataFrame(errors_list, columns=columns)
+            duplicate_transactions.extend(duplicates)
+        errors_columns = ['Payment Date', 'Sort Code', 'Account Number', 'Transaction Type', 'Amount', 'Description', 'Reason']
+        duplicates_columns = ['Payment Date', 'Transaction Type', 'Amount', 'Tenant Reference', 'Description']
+        errors_df = pd.DataFrame(errors_list, columns=errors_columns)
+        duplicates_df = pd.DataFrame(duplicate_transactions, columns=duplicates_columns)
         errors_df.to_excel(excel_writer, sheet_name='Unrecognised Transactions', index=False, float_format='%.2f')
+        duplicates_df.to_excel(excel_writer, sheet_name='Duplicate Transactions', index=False, float_format='%.2f')
     else:
         logging.error("Cannot find bank account transactions file matching {}".format(bos_statement_file_pattern))
     logging.info('')
