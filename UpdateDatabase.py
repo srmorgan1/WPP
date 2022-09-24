@@ -801,7 +801,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file):
         db_conn.commit()
         if num_import_errors:
             logging.info("Unable to import {} transactions into the database. See the Data_Import_Issues Excel file for details. Add tenant references to 001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again.".format(num_import_errors))
-        logging.info("{} Bank Of Scotland transactions added to the database.".format(num_transactions_added_to_db))
+        logging.info(f"{num_transactions_added_to_db} Bank Of Scotland transactions added to the database.")
         return errors_list, duplicate_transactions
 
     except db_conn.Error as err:
@@ -848,7 +848,7 @@ def importBankOfScotlandBalancesXMLFile(db_conn, balances_xml_file):
                 elif client_ref and 'BANK' in client_ref.upper(): account_type = 'CL'
                 elif client_ref and 'RES' in client_ref.upper(): account_type = 'RE'
                 else: account_type = 'NA'
-                #elif client_ref: raise ValueError('Cannot determine account type from client reference {}'.format(client_ref))
+                #elif client_ref: raise ValueError(f'Cannot determine account type from client reference {client_ref}')
 
                 current_balance = balance.find('CurrentBalance').text
                 available_balance = balance.find('AvailableBalance').text
@@ -870,7 +870,7 @@ def importBankOfScotlandBalancesXMLFile(db_conn, balances_xml_file):
 
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} Bank Of Scotland account balances added to the database.".format(num_balances_added_to_db))
+        logging.info(f"{num_balances_added_to_db} Bank Of Scotland account balances added to the database.")
 
         #accounts_df = pd.DataFrame(accounts, columns=['Sort Code', 'Account Number', 'Account Type', 'PropertyOrBlock', 'Client Reference', 'Account Name'])
         #ef = WPP_INPUT_DIR + r'/accounts_temp.xlsx'
@@ -913,12 +913,12 @@ def importPropertiesFile(db_conn, properties_xls_file):
 
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(reference)
             if (property_ref, block_ref, tenant_ref) == (None, None, None):
-                logging.warning('\tUnable to parse tenant reference {}, will not add to the database.'.format(reference))
+                logging.warning(f'\tUnable to parse tenant reference {reference}, will not add to the database.')
                 continue
             property_id = get_id_from_ref(csr, 'Properties', 'property', property_ref)
             if not property_id:
                 csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
-                logging.debug("\tAdding property {} to the database".format(property_ref))
+                logging.debug(f"\tAdding property {property_ref} to the database")
                 num_properties_added_to_db += 1
                 property_id = get_last_insert_id(csr, 'Properties')
 
@@ -929,25 +929,25 @@ def importPropertiesFile(db_conn, properties_xls_file):
                 else:
                     block_type = 'B'
                 csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-                logging.debug("\tAdding block {} to the database".format(block_ref))
+                logging.debug(f"\tAdding block {block_ref} to the database")
                 num_blocks_added_to_db += 1
                 block_id = get_last_insert_id(csr, 'Blocks')
 
             tenant_id = get_id_from_ref(csr, 'Tenants', 'tenant', tenant_ref)
             if tenant_ref and not tenant_id:
                 csr.execute(INSERT_TENANT_SQL, (tenant_ref, tenant_name, block_id))
-                logging.debug("\tAdding tenant {} to the database".format(tenant_ref))
+                logging.debug(f"\tAdding tenant {tenant_ref} to the database")
                 num_tenants_added_to_db += 1
             else:
                 old_tenant_name = get_single_value(csr, SELECT_TENANT_NAME_BY_ID_SQL, (tenant_id,))
                 if tenant_name and tenant_name != old_tenant_name:
                     csr.execute(UPDATE_TENANT_NAME_SQL, (tenant_name, tenant_id))
-                    logging.info('Updated tenant name to {} for tenant reference {}'.format(tenant_name, tenant_ref))
+                    logging.info(f'Updated tenant name to {tenant_name} for tenant reference {tenant_ref}')
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} properties added to the database.".format(num_properties_added_to_db))
-        logging.info("{} blocks added to the database.".format(num_blocks_added_to_db))
-        logging.info("{} tenants added to the database.".format(num_tenants_added_to_db))
+        logging.info(f"{num_properties_added_to_db} properties added to the database.")
+        logging.info(f"{num_blocks_added_to_db} blocks added to the database.")
+        logging.info(f"{num_tenants_added_to_db} tenants added to the database.")
     except db_conn.Error as err:
         logging.error(str(err))
         logging.error('The data which caused the failure is: ' + str((reference, tenant_name, property_ref, block_ref, tenant_ref)))
@@ -995,8 +995,8 @@ def importEstatesFile(db_conn, estates_xls_file):
                     num_blocks_added_to_db += 1
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} estates added to the database.".format(num_estates_added_to_db))
-        logging.info("{} estate blocks added to the database.".format(num_blocks_added_to_db))
+        logging.info(f"{num_estates_added_to_db} estates added to the database.")
+        logging.info(f"{num_blocks_added_to_db} estate blocks added to the database.")
     except db_conn.Error as err:
         logging.error(str(err))
         logging.error('The data which caused the failure is: ' + str((reference, estate_name)))
@@ -1021,22 +1021,22 @@ def addPropertyToDB(db_conn, property_ref, rethrow_exception = False):
             property_id = get_id_from_ref(csr, 'Properties', 'property', property_ref)
             if not property_id:
                 csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
-                logging.debug("\tAdding property {}".format(property_ref))
+                logging.debug(f"\tAdding property {property_ref}")
                 property_id = get_last_insert_id(csr, 'Properties')
 
         csr.execute('end')
         db_conn.commit()
     except db_conn.Error as err:
         logging.error(str(err))
-        logging.error('The data which caused the failure is: ' + property_ref)
-        logging.error('Unable to add property {} to the database'.format(property_ref))
+        logging.error(f'The data which caused the failure is: {property_ref}')
+        logging.error(f'Unable to add property {property_ref} to the database')
         logging.exception(err)
         csr.execute('rollback')
         if rethrow_exception: raise
     except Exception as ex:
         logging.error(str(ex))
         logging.exception(ex)
-        logging.error('Unable to add property {} to the database'.format(property_ref))
+        logging.error(f'Unable to add property {property_ref} to the database')
         csr.execute('rollback')
         if rethrow_exception: raise
     return property_id
@@ -1058,7 +1058,7 @@ def addBlockToDB(db_conn, property_ref, block_ref, rethrow_exception = False):
                         block_type = 'B'
                     property_id = get_id_from_ref(csr, 'Properties', 'property', property_ref)
                     csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-                    logging.debug("\tAdding block {}".format(block_ref))
+                    logging.debug(f"\tAdding block {block_ref}")
                     block_id = get_last_insert_id(csr, 'Blocks')
 
         csr.execute('end')
@@ -1092,7 +1092,7 @@ def addTenantToDB(db_conn, block_ref, tenant_ref, tenant_name, rethrow_exception
                 block_id = get_id_from_ref(csr, 'Blocks', 'block', block_ref)
                 if block_id:
                     csr.execute(INSERT_TENANT_SQL, (tenant_ref, tenant_name, block_id))
-                    logging.debug("\tAdding tenant {}".format(tenant_ref))
+                    logging.debug(f"\tAdding tenant {tenant_ref}")
                     tenant_id = get_last_insert_id(csr, 'Tenants')
 
         csr.execute('end')
@@ -1132,11 +1132,11 @@ def importBlockBankAccountNumbers(db_conn, bos_reconciliations_file):
                 id = get_id(csr, SELECT_BANK_ACCOUNT_SQL, (block_id,))
                 if id:
                     csr.execute(UPDATE_BLOCK_ACCOUNT_NUMBER_SQL, (account_number, block_id))
-                    logging.debug('\tAdding bank account number {} for block {}'.format(account_number, block_id))
+                    logging.debug(f'\tAdding bank account number {account_number} for block {block_id}')
                     num_bank_accounts_added_to_db += 1
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} bank account numbers added to the database.".format(num_bank_accounts_added_to_db))
+        logging.info(f"{num_bank_accounts_added_to_db} bank account numbers added to the database.")
     except db_conn.Error as err:
         logging.error(str(err))
         logging.error('The data which caused the failure is: ' + str((block_ref, account_number)))
@@ -1180,23 +1180,23 @@ def importBankAccounts(db_conn, bank_accounts_file):
             elif property_or_block == '' or property_or_block == None:
                 property_block = ''
             else:
-                raise ValueError('Unknown property/block type {} for bank account ({}, {})'.format(property_or_block, sort_code, account_number))
+                raise ValueError(f'Unknown property/block type {property_or_block} for bank account ({sort_code}, {account_number})')
 
             property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
 
             if property_block == 'P' and block_ref[-2:] != '00':
-                raise ValueError('Block reference ({}) for an estate must end in 00, for bank account ({}, {})'.format(reference, sort_code, account_number))
+                raise ValueError(f'Block reference ({reference}) for an estate must end in 00, for bank account ({sort_code}, {account_number})')
 
             block_id = get_id_from_ref(csr, 'Blocks', 'block', reference)
             id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
             if sort_code and account_number and not id:
                 csr.execute(INSERT_BANK_ACCOUNT_SQL, (sort_code, account_number, account_type, property_block, client_ref, account_name, block_id))
-                logging.debug('\tAdding bank account ({}, {}) for property {}'.format(sort_code, account_number, reference))
+                logging.debug(f'\tAdding bank account ({sort_code}, {account_number}) for property {reference}')
                 num_bank_accounts_added_to_db += 1
 
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} bank accounts added to the database.".format(num_bank_accounts_added_to_db))
+        logging.info(f"{num_bank_accounts_added_to_db} bank accounts added to the database.")
     except db_conn.Error as err:
         logging.error(str(err))
         logging.error('The data which caused the failure is: ' + str((reference, sort_code, account_number, account_type, property_or_block)))
@@ -1230,22 +1230,22 @@ def importIrregularTransactionReferences(db_conn, anomalous_refs_file):
             id = get_id(csr, SELECT_IRREGULAR_TRANSACTION_REF_ID_SQL, (tenant_reference, payment_reference_pattern))
             if tenant_reference and not id:
                 csr.execute(INSERT_IRREGULAR_TRANSACTION_REF_SQL, (tenant_reference, payment_reference_pattern))
-                logging.debug('\tAdding irregular transaction reference pattern ({}) for tenant {}'.format(tenant_reference, payment_reference_pattern))
+                logging.debug(f'\tAdding irregular transaction reference pattern ({tenant_reference}) for tenant {payment_reference_pattern}')
                 num_anomalous_refs_added_to_db += 1
                 
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} irregular transaction reference patterns added to the database.".format(num_anomalous_refs_added_to_db))
+        logging.info(f"{num_anomalous_refs_added_to_db} irregular transaction reference patterns added to the database.")
     except db_conn.Error as err:
         logging.error(str(err))
-        logging.error('The data which caused the failure is: ' + str((tenant_reference, payment_reference_pattern)))
         logging.error('No irregular transaction reference patterns have been added to the database')
+        logging.error('The data which caused the failure is: ' + str((tenant_reference, payment_reference_pattern)))
         csr.execute('rollback')
         raise
     except Exception as ex:
         logging.error(str(ex))
-        logging.error('The data which caused the failure is: ' + str((tenant_reference, payment_reference_pattern)))
         logging.error('No irregular transaction reference patterns have been added to the database.')
+        logging.error('The data which caused the failure is: ' + str((tenant_reference, payment_reference_pattern)))
         csr.execute('rollback')
         raise
 
@@ -1342,14 +1342,14 @@ def importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_xls_file):
                             else:
                                 block_type = 'B'
                             csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-                            logging.debug("\tAdding block {}".format(block_ref))
+                            logging.debug(f"\tAdding block {block_ref}")
                             block_id = get_id_from_ref(csr, 'Blocks', 'block', block_ref)
 
                     if block_id:
                         # Update block name
                         if not get_id(csr, SELECT_BLOCK_NAME_SQL, (block_ref,)):
                             csr.execute(UPDATE_BLOCK_NAME_SQL, (block_name, block_id))
-                            logging.debug("\tAdding block name {} for block reference {}".format(block_name, block_ref))
+                            logging.debug(f"\tAdding block name {block_name} for block reference {block_ref}")
 
                         # Add available funds charge
                         charges_id = get_id(csr, SELECT_CHARGES_SQL, (fund_id, category_id, type_id_available_funds, block_id, at_date))
@@ -1373,17 +1373,17 @@ def importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_xls_file):
                                 logging.debug("\tAdding charge for {}".format(str((fund, category, SC_FUND, at_date, block_ref, sc_fund))))
                                 num_charges_added_to_db += 1
                     else:
-                        logging.warning('Cannot determine the block for the Qube balances from block reference {}'.format(block_ref))
+                        logging.warning(f'Cannot determine the block for the Qube balances from block reference {block_ref}')
 
                 elif property_code_or_fund == 'Property Totals':
                     found_property = False
             else:
                 pass
-                #logging.info("Ignoring data with block reference '{}'".format(property_code_or_fund))
+                #logging.info(f"Ignoring data with block reference '{property_code_or_fund}'")
 
         csr.execute('end')
         db_conn.commit()
-        logging.info("{} charges added to the database.".format(num_charges_added_to_db))
+        logging.info(f"{num_charges_added_to_db} charges added to the database.")
     except db_conn.Error as err:
         logging.error(str(err))
         logging.error('The data which caused the failure is: ' + str((block_ref, fund, category, at_date, auth_creditors, block_id)))
@@ -1436,54 +1436,54 @@ def importAllData(db_conn):
     # Create a Pandas Excel writer using XlsxWriter as the engine.
     today = datetime.today().strftime('%Y-%m-%d')
     excel_log_file = WPP_EXCEL_LOG_FILE.format(today)
-    logging.debug('Creating Excel spreadsheet report file {}'.format(excel_log_file))
+    logging.debug(f'Creating Excel spreadsheet report file {excel_log_file}')
     excel_writer = pd.ExcelWriter(excel_log_file, engine='xlsxwriter')
 
     irregular_transaction_refs_file_pattern = os.path.join(WPP_INPUT_DIR, '001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx')
     irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
-        logging.info('Importing irregular transaction references from file {}'.format(irregular_transaction_refs_file))
+        logging.info(f'Importing irregular transaction references from file {irregular_transaction_refs_file}')
         importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file)
     else:
-        logging.error("Cannot find irregular transaction references file matching {}".format(irregular_transaction_refs_file_pattern))
+        logging.error(f"Cannot find irregular transaction references file matching {irregular_transaction_refs_file_pattern}")
     logging.info('')
 
     properties_file_pattern = os.path.join(WPP_INPUT_DIR, 'Properties*.xlsx')
     tenants_file_pattern = os.path.join(WPP_INPUT_DIR, 'Tenants*.xlsx')
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
-        logging.info('Importing Properties from file {}'.format(properties_xls_file))
+        logging.info(f'Importing Properties from file {properties_xls_file}')
         importPropertiesFile(db_conn, properties_xls_file)
     else:
-        logging.error("Cannot find Properties file matching {}".format(properties_file_pattern))
+        logging.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logging.info('')
 
     estates_file_pattern = os.path.join(WPP_INPUT_DIR, 'Estates*.xlsx')
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
-        logging.info('Importing Estates from file {}'.format(estates_xls_file))
+        logging.info(f'Importing Estates from file {estates_xls_file}')
         importEstatesFile(db_conn, estates_xls_file)
     else:
-        logging.error("Cannot find Estates file matching {}".format(estates_file_pattern))
+        logging.error(f"Cannot find Estates file matching {estates_file_pattern}")
     logging.info('')
 
     qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, 'Qube*EOD*.xlsx')
     qube_eod_balances_files = getMatchingFileNames(qube_eod_balances_file_pattern)
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
-            logging.info('Importing Qube balances from file {}'.format(qube_eod_balances_file))
+            logging.info(f'Importing Qube balances from file {qube_eod_balances_file}')
             importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file)
     else:
-        logging.error("Cannot find Qube EOD Balances file matching {}".format(qube_eod_balances_file_pattern))
+        logging.error(f"Cannot find Qube EOD Balances file matching {qube_eod_balances_file_pattern}")
     logging.info('')
 
     accounts_file_pattern = os.path.join(WPP_INPUT_DIR, 'Accounts.xlsx')
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
-        logging.info('Importing bank accounts from file {}'.format(accounts_file))
+        logging.info(f'Importing bank accounts from file {accounts_file}')
         importBankAccounts(db_conn, accounts_file)
     else:
-        logging.error("ERROR: Cannot find account numbers file matching {}".format(accounts_file_pattern))
+        logging.error(f"ERROR: Cannot find account numbers file matching {accounts_file_pattern}")
     logging.info('')
 
     bos_statement_file_pattern = [os.path.join(WPP_INPUT_DIR, f) for f in ['PreviousDayTransactionExtract_*.xml', 'PreviousDayTransactionExtract_*.zip']]
@@ -1492,7 +1492,7 @@ def importAllData(db_conn):
     duplicate_transactions = []
     if bos_statement_xml_files:
         for bos_statement_xml_file in bos_statement_xml_files:
-            logging.info('Importing Bank Account Transactions from file {}'.format(bos_statement_xml_file))
+            logging.info(f'Importing Bank Account Transactions from file {bos_statement_xml_file}')
             errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
             errors_list.extend(errors)
             duplicate_transactions.extend(duplicates)
@@ -1503,14 +1503,14 @@ def importAllData(db_conn):
         errors_df.to_excel(excel_writer, sheet_name='Unrecognised Transactions', index=False, float_format='%.2f')
         duplicates_df.to_excel(excel_writer, sheet_name='Duplicate Transactions', index=False, float_format='%.2f')
     else:
-        logging.error("Cannot find bank account transactions file matching {}".format(bos_statement_file_pattern))
+        logging.error(f"Cannot find bank account transactions file matching {bos_statement_file_pattern}")
     logging.info('')
 
     eod_balances_file_patterns = [os.path.join(WPP_INPUT_DIR, f) for f in ['EOD BalancesReport_*.xml', 'EndOfDayBalanceExtract_*.xml', 'EndOfDayBalanceExtract_*.zip']]
     eod_balances_xml_files = getMatchingFileNames(eod_balances_file_patterns)
     if eod_balances_xml_files:
         for eod_balances_xml_file in eod_balances_xml_files:
-            logging.info('Importing Bank Account balances from file {}'.format(eod_balances_xml_file))
+            logging.info(f'Importing Bank Account balances from file {eod_balances_xml_file}')
             importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_file)
     else:
         logging.error("Cannot find bank account balances file matching one of {}".format(','.join(eod_balances_file_patterns)))

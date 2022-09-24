@@ -436,17 +436,17 @@ def checkDataIsPresent(db_conn, qube_date, bos_date):
     csr = db_conn.cursor()
     sql = 'select count(ID) from Transactions where pay_date = ?'
     count = get_single_value(csr, sql, (bos_date,))
-    logging.info('{} Bank Of Scotland transactions found for date {}'.format(count, bos_date))
+    logging.info(f'{count} Bank Of Scotland transactions found for date {bos_date}')
     ret_val = ret_val and count
 
     sql = 'select count(ID) from AccountBalances where at_date = ?'
     count = get_single_value(csr, sql, (bos_date,))
-    logging.info('{} Bank Of Scotland account balance records found for date {}'.format(count, bos_date))
+    logging.info(f'{count} Bank Of Scotland account balance records found for date {bos_date}')
     ret_val = ret_val and count
 
     sql = 'select count(ID) from Charges where at_date = ?'
     count = get_single_value(csr, sql, (qube_date,))
-    logging.info('{} Qube charge records found for date {}'.format(count, qube_date))
+    logging.info(f'{count} Qube charge records found for date {qube_date}')
     ret_val = ret_val and count
     return ret_val
 
@@ -462,20 +462,20 @@ def runReports(db_conn, args):
 
     qube_date = parser.parse(args.qube_date, dayfirst=False).strftime('%Y-%m-%d') if args.qube_date else (dt.date.today() - BUSINESS_DAY).strftime('%Y-%m-%d')
     bos_date = parser.parse(args.bos_date, dayfirst=False).strftime('%Y-%m-%d') if args.bos_date else qube_date
-    logging.info('Qube Date: {}'.format(qube_date))
-    logging.info('Bank Of Scotland Transactions and Account Balances Date: {}'.format(bos_date))
+    logging.info(f'Qube Date: {qube_date}')
+    logging.info(f'Bank Of Scotland Transactions and Account Balances Date: {bos_date}')
 
     if not checkDataIsPresent(db_conn, qube_date, bos_date):
-        logging.error('The required data is not in the database. Unable to run the reports for Qube date {} and BoS transactions date {}'.format(qube_date, bos_date))
+        logging.error(f'The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}')
         sys.exit(1)
 
     # Create a Pandas Excel writer using XlsxWriter as the engine.
     excel_report_file = WPP_REPORT_FILE.format(qube_date)
-    logging.info('Creating Excel spreadsheet report file {}'.format(excel_report_file))
+    logging.info(f'Creating Excel spreadsheet report file {excel_report_file}')
     excel_writer = pd.ExcelWriter(excel_report_file, engine='xlsxwriter')
 
     # Run SC total transactions by block (COMREC) report for given run date
-    logging.info('Running COMREC report for {}'.format(bos_date))
+    logging.info(f'Running COMREC report for {bos_date}')
     sql = union_sql_queries(SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL, SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL, 'ORDER BY Reference')
     logging.debug(sql)
     df = run_sql_query(db_conn, sql, (bos_date,) * 4)
@@ -487,21 +487,21 @@ def runReports(db_conn, args):
         logging.info('Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}'.format(', '.join(blocks)))
 
     # Non-DC/PAY type transactions
-    logging.info('Running Transactions report for {}'.format(bos_date))
+    logging.info(f'Running Transactions report for {bos_date}')
     logging.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2)
     df = add_column_totals(df)
     df.to_excel(excel_writer, sheet_name='Transactions', index=False, float_format='%.2f')
 
     # DC/PAY type transactions
-    logging.info('Running DC & PAY Transactions report for {}'.format(bos_date))
+    logging.info(f'Running DC & PAY Transactions report for {bos_date}')
     logging.debug(SELECT_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2)
     df = add_column_totals(df)
     df.to_excel(excel_writer, sheet_name='DC & PAY Transactions', index=False, float_format='%.2f')
 
     # Run Qube BOS By Block report for given run date
-    # logging.info('Running Qube BOS By Block report for {}'.format(qube_date))
+    # logging.info(f'Running Qube BOS By Block report for {qube_date}')
     qube_by_block_sql = join_sql_queries(QUBE_BOS_SHEET_BY_BLOCK_SQL, QUBE_BOS_REPORT_BY_BLOCK_SQL, BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL)
     # logging.debug(qube_by_block_sql)
     # qube_by_block_df = run_sql_query(db_conn, qube_by_block_sql, (qube_date, qube_date, bos_date))
@@ -512,7 +512,7 @@ def runReports(db_conn, args):
     # qube_by_block_df.to_excel(excel_writer, sheet_name='Qube BOS By Block {}'.format(qube_date), index=False, float_format = '%.2f')
 
     # Run Qube BOS By Property report for given run date
-    # logging.info('Running Qube BOS By Property report for {}'.format(qube_date))
+    # logging.info(f'Running Qube BOS By Property report for {qube_date}')
     qube_by_property_sql = join_sql_queries(QUBE_BOS_SHEET_BY_PROPERTY_SQL, QUBE_BOS_REPORT_BY_PROPERTY_SQL, BOS_ACCOUNT_BALANCES_BY_PROPERTY_SQL)
     # logging.debug(qube_by_property_sql)
     # qube_by_property_df = run_sql_query(db_conn, qube_by_property_sql, (qube_date, qube_date, bos_date))
@@ -522,7 +522,7 @@ def runReports(db_conn, args):
     # qube_by_property_df.to_excel(excel_writer, sheet_name='Qube BOS By Property {}'.format(qube_date), index=False, float_format = '%.2f')
 
     # Run Qube BOS report for given run date
-    logging.info('Running Qube BOS report for {}'.format(qube_date))
+    logging.info(f'Running Qube BOS report for {qube_date}')
     sql = union_sql_queries(qube_by_property_sql, qube_by_block_sql)
     logging.debug(sql)
     df = run_sql_query(db_conn, sql, (qube_date, qube_date, bos_date) + (qube_date, qube_date, bos_date))
@@ -533,7 +533,7 @@ def runReports(db_conn, args):
     df.to_excel(excel_writer, sheet_name='Qube BOS {}'.format(qube_date), index=False, float_format='%.2f')
 
     # Run SC total transactions by tenant report for given run date
-    logging.info('Running Total SC Paid By Tenant on {} report'.format(bos_date))
+    logging.info(f'Running Total SC Paid By Tenant on {bos_date} report')
     logging.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
     df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date,) * 2)
     df = add_column_totals(df)
