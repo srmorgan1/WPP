@@ -8,7 +8,6 @@ from wpp.UpdateDatabase import (
     get_id,
     get_id_from_ref,
     get_id_from_key_table,
-    create_and_index_tables,
     importBankOfScotlandTransactionsXMLFile,
     importBankOfScotlandBalancesXMLFile,
     importPropertiesFile,

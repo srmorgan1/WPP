@@ -4,8 +4,6 @@ import sqlite3
 import argparse
 import logging
 import pandas as pd
-import traceback
-from collections import defaultdict
 from datetime import datetime
 import zipfile
 import glob
@@ -688,7 +686,7 @@ def getPropertyBlockAndTenantRefs(
     # TODO: refactor to use chain of responsibilty pattern here instead of nested ifs
     property_ref, block_ref, tenant_ref = None, None, None
 
-    if type(reference) != str:
+    if not isinstance(reference, str):
         return None, None, None
 
     # if '133-' in reference:
@@ -866,7 +864,7 @@ def getPropertyBlockAndTenantRefs(
 
 def getTenantID(csr: sqlite3.Cursor, tenant_ref: str) -> None:
     # sql = SELECT_TENANT_ID_SQL.format(tenant_ref)
-    result = csr.execute(SELECT_TENANT_ID_SQL, (tenant_ref))
+    csr.execute(SELECT_TENANT_ID_SQL, (tenant_ref))
 
 
 def importBankOfScotlandTransactionsXMLFile(
@@ -877,7 +875,7 @@ def importBankOfScotlandTransactionsXMLFile(
 
     with open_file(transactions_xml_file) as f:
         xml = f.read()
-        if type(xml) == bytes:
+        if type(xml) is bytes:
             xml = str(xml, "utf-8")
         xml = xml.replace("\n", "")
         schema = "PreviousDayTransactionExtract"
@@ -1098,13 +1096,15 @@ def importBankOfScotlandTransactionsXMLFile(
         )
         csr.execute("rollback")
 
+    return [], []
+
 
 def importBankOfScotlandBalancesXMLFile(
     db_conn: sqlite3.Connection, balances_xml_file: str
 ) -> None:
     with open_file(balances_xml_file) as f:
         xml = f.read()
-        if type(xml) == bytes:
+        if isinstance(xml, bytes):
             xml = str(xml, "utf-8")
         xml = xml.replace("\n", "")
         for schema in ["BalanceDetailedReport", "EndOfDayBalanceExtract"]:
@@ -1256,7 +1256,7 @@ def importBankOfScotlandBalancesXMLFile(
         )
         logging.exception(ex)
         csr.execute("rollback")
-        charges = {}
+        # charges = {}
 
 
 def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) -> None:
@@ -1598,7 +1598,7 @@ def importBlockBankAccountNumbers(
         logging.error("No bank account numbers have been added to the database.")
         logging.exception(ex)
         csr.execute("rollback")
-        charges = {}
+        # charges = {}
 
 
 def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> None:
@@ -1631,7 +1631,7 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
                 property_or_block.upper() == "BLOCK" or property_or_block.upper() == "B"
             ):
                 property_block = "B"
-            elif property_or_block == "" or property_or_block == None:
+            elif property_or_block == "" or property_or_block is None:
                 property_block = ""
             else:
                 raise ValueError(
@@ -1640,7 +1640,11 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
 
             property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
 
-            if property_block == "P" and block_ref[-2:] != "00":
+            if (
+                property_block == "P"
+                and block_ref is not None
+                and block_ref[-2:] != "00"
+            ):
                 raise ValueError(
                     f"Block reference ({reference}) for an estate must end in 00, for bank account ({sort_code}, {account_number})"
                 )
@@ -1769,7 +1773,7 @@ def calculateSCFund(
 def importQubeEndOfDayBalancesFile(
     db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str
 ) -> None:
-    nested_dict = lambda: defaultdict(nested_dict)
+    # nested_dict = lambda: defaultdict(nested_dict)
     # charges = nested_dict()
 
     num_charges_added_to_db = 0
@@ -1784,6 +1788,8 @@ def importQubeEndOfDayBalancesFile(
     A1_cell_value = qube_eod_balances_workbook_sheet.cell(1, 1).value
     B1_cell_value = qube_eod_balances_workbook_sheet.cell(1, 2).value
     produced_date_cell_value = qube_eod_balances_workbook_sheet.cell(3, 1).value
+    if not isinstance(produced_date_cell_value, str):
+        raise ValueError(f"The produced date cell value is not a string: {produced_date_cell_value}")
     cell_values_actual = [
         qube_eod_balances_workbook_sheet.cell(5, i + 1).value for i in range(0, 4)
     ]
@@ -2266,6 +2272,7 @@ def main() -> None:
 
     # Get command line arguments
     args = get_args()
+    print(args)
 
     os.makedirs(WPP_INPUT_DIR, exist_ok=True)
     os.makedirs(WPP_REPORT_DIR, exist_ok=True)

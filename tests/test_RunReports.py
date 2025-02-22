@@ -1,5 +1,6 @@
 import pytest
 import os
+import logging
 import pandas as pd
 from unittest.mock import patch, MagicMock
 from datetime import datetime
@@ -10,6 +11,7 @@ from wpp.RunReports import (
     EnglandAndWalesHolidayCalendar,
     STDOutFilter,
     STDErrFilter,
+    get_db_connection,
     join_sql_queries,
     union_sql_queries,
     run_sql_query,
@@ -28,7 +30,7 @@ TEST_DB_FILE = "/Users/steve/Development/PycharmProjects/WPP/tests/test_WPP_DB.d
 @pytest.fixture
 def db_conn():
     # Setup: create a new database connection for testing
-    conn = get_or_create_db(TEST_DB_FILE)
+    conn = get_db_connection(TEST_DB_FILE)
     yield conn
     # Teardown: close the database connection and remove the test database file
     conn.close()
@@ -44,13 +46,13 @@ def test_EnglandAndWalesHolidayCalendar():
 def test_STDOutFilter():
     filter = STDOutFilter()
     record = MagicMock(levelno=logging.INFO)
-    assert filter.filter(record) == True
+    assert filter.filter(record)
 
 
 def test_STDErrFilter():
     filter = STDErrFilter()
     record = MagicMock(levelno=logging.ERROR)
-    assert filter.filter(record) == True
+    assert filter.filter(record)
 
 
 def test_join_sql_queries():
@@ -113,7 +115,7 @@ def test_checkDataIsPresent(mock_get_single_value):
     mock_get_single_value.return_value = 1
     conn = MagicMock()
     result = checkDataIsPresent(conn, "2023-01-01", "2023-01-01")
-    assert result == True
+    assert result
 
 
 @patch("RunReports.run_sql_query")

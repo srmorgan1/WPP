@@ -3,13 +3,11 @@ import argparse
 import datetime as dt
 import sqlite3
 import pandas as pd
-import calendar
 import logging
-import traceback
 import copy
 import sys
 import os
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, cast
 
 from .config import (
     WPP_REPORT_DIR,
@@ -319,6 +317,11 @@ ORDER BY block_ref
 """
 
 
+def get_db_connection(db_file: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_file)
+    return conn
+
+
 def join_sql_queries(query_sql: str, sql1: str, sql2: str) -> str:
     sql1 = sql1.replace(";", "")
     sql2 = sql2.replace(";", "")
@@ -346,7 +349,7 @@ def union_sql_queries(
 
 def run_sql_query(
     db_conn: sqlite3.Connection, sql: str, args_tuple: Tuple
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame:
     try:
         df = pd.read_sql_query(sql, db_conn, params=args_tuple)
         return df
@@ -356,17 +359,17 @@ def run_sql_query(
         logging.exception(err)
         logging.error("The SQL that caused the failure is:")
         logging.error(sql)
-        return None
+        raise
     except Exception as ex:
         logging.error(str(ex))
         # traceback.print_tb(ex.__traceback__)
         logging.exception(ex)
-        return None
+        raise
 
 
 def get_single_value(
     db_cursor: sqlite3.Cursor, sql: str, args_tuple: Tuple = ()
-) -> Optional[int]:
+) -> Optional[Any]:
     db_cursor.execute(sql, args_tuple)
     value = db_cursor.fetchone()
     if value:
@@ -422,26 +425,26 @@ def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
 def checkDataIsPresent(
     db_conn: sqlite3.Connection, qube_date: str, bos_date: str
 ) -> bool:
-    ret_val = True
+    is_data_present = True
 
     csr = db_conn.cursor()
     sql = "select count(ID) from Transactions where pay_date = ?"
-    count = get_single_value(csr, sql, (bos_date,))
+    count: int = cast(int, get_single_value(csr, sql, (bos_date,)))
     logging.info(f"{count} Bank Of Scotland transactions found for date {bos_date}")
-    ret_val = ret_val and count
+    is_data_present = is_data_present and (count > 0)
 
     sql = "select count(ID) from AccountBalances where at_date = ?"
-    count = get_single_value(csr, sql, (bos_date,))
+    count = cast(int, get_single_value(csr, sql, (bos_date,)))
     logging.info(
         f"{count} Bank Of Scotland account balance records found for date {bos_date}"
     )
-    ret_val = ret_val and count
+    is_data_present = is_data_present and (count > 0)
 
     sql = "select count(ID) from Charges where at_date = ?"
-    count = get_single_value(csr, sql, (qube_date,))
+    count = cast(int, get_single_value(csr, sql, (qube_date,)))
     logging.info(f"{count} Qube charge records found for date {qube_date}")
-    ret_val = ret_val and count
-    return ret_val
+    is_data_present = is_data_present and (count > 0)
+    return is_data_present
 
 
 def runReports(db_conn: sqlite3.Connection, args: argparse.Namespace) -> None:
@@ -620,7 +623,7 @@ def main() -> None:
     logging.info("Running Reports")
     try:
         db_conn = sqlite3.connect(WPP_DB_FILE)
-        reports = runReports(db_conn, args)
+        runReports(db_conn, args)
     except Exception as ex:
         logging.error(str(ex))
 

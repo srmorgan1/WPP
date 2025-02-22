@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import logging
-from typing import Optional
 
 # Import the main functions from the scripts
 from wpp.RunReports import main as run_reports_main
