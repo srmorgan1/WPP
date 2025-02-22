@@ -242,6 +242,7 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 
 # My additions for WPP
+.DS_Store
 *.zip
 *Programs_DO_NOT_CHANGE*
 *.spec
