@@ -13,14 +13,14 @@ import re
 from typing import Any, Optional, Tuple, List, Union, IO
 from openpyxl import load_workbook
 
-from .config import (
+from wpp.config import (
     WPP_INPUT_DIR,
     WPP_REPORT_DIR,
     WPP_LOG_DIR,
     WPP_DB_DIR,
     WPP_DB_FILE,
 )
-from .calendars import BUSINESS_DAY
+from wpp.calendars import BUSINESS_DAY
 
 #
 # Constants
@@ -2267,6 +2267,8 @@ def get_args() -> argparse.Namespace:
 
 def main() -> None:
     import time
+    import warnings
+    warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
     start_time = time.time()
 

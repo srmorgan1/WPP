@@ -9,13 +9,13 @@ import sys
 import os
 from typing import Optional, Tuple, Any, cast
 
-from .config import (
+from wpp.config import (
     WPP_REPORT_DIR,
     WPP_LOG_DIR,
     WPP_DB_FILE,
     WPP_REPORT_FILE,
 )
-from .calendars import BUSINESS_DAY
+from wpp.calendars import BUSINESS_DAY
 
 WPP_LOG_FILE = WPP_LOG_DIR + r"/Log_RunReports_{}.txt"
 
@@ -380,7 +380,8 @@ def get_single_value(
 
 def add_column_totals(df: pd.DataFrame) -> pd.DataFrame:
     if len(df) > 0:
-        df = df.append(df.sum(numeric_only=True).rename("Total"))
+        # df = df.append(df.sum(numeric_only=True).rename("Total"))
+        df = pd.concat([df, pd.DataFrame(df.sum(numeric_only=True).rename("Total"))], ignore_index=True)
         df.iloc[-1:, 0] = "TOTAL"
     return df
 
@@ -418,7 +419,8 @@ def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[select, ["BOS"]] = bos - bos_gr
 
     df.loc[select, "GR"] = 0.0
-    df = df.append(row)
+    # df = df.append(row)
+    df = pd.concat([df, row], ignore_index=True)
     return df
 
 
@@ -447,7 +449,7 @@ def checkDataIsPresent(
     return is_data_present
 
 
-def runReports(db_conn: sqlite3.Connection, args: argparse.Namespace) -> None:
+def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> None:
     # Get start and end dates for this calendar month
     # today = dt.date.today()
     # year = int(today.strftime("%Y"))
@@ -457,16 +459,6 @@ def runReports(db_conn: sqlite3.Connection, args: argparse.Namespace) -> None:
     # start_date = "{}-{}-{}".format(year, month, "1")
     # end_date = "{}-{}-{}".format(year, month, last_day_of_month)
 
-    qube_date = (
-        parser.parse(args.qube_date, dayfirst=False).strftime("%Y-%m-%d")
-        if args.qube_date
-        else (dt.date.today() - BUSINESS_DAY).strftime("%Y-%m-%d")
-    )
-    bos_date = (
-        parser.parse(args.bos_date, dayfirst=False).strftime("%Y-%m-%d")
-        if args.bos_date
-        else qube_date
-    )
     logging.info(f"Qube Date: {qube_date}")
     logging.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
 
@@ -609,8 +601,20 @@ def get_args() -> argparse.Namespace:
     #    sys.exit(0)
     return args
 
+def get_run_date_args(args: argparse.Namespace, qube_date: dt.date, bos_date: dt.date) -> Tuple[str, str]:
+    qube_date = qube_date or (
+        parser.parse(args.qube_date, dayfirst=False)
+        if args.qube_date
+        else (dt.date.today() - BUSINESS_DAY)
+    )
+    bos_date = bos_date or (
+        parser.parse(args.bos_date, dayfirst=False)
+        if args.bos_date
+        else qube_date
+    )
+    return qube_date.strftime("%Y-%m-%d"), bos_date.strftime("%Y-%m-%d")
 
-def main() -> None:
+def main(qube_date: dt.date = None, bos_date: dt.date = None) -> None:
     import time
 
     start_time = time.time()
@@ -623,7 +627,8 @@ def main() -> None:
     logging.info("Running Reports")
     try:
         db_conn = sqlite3.connect(WPP_DB_FILE)
-        runReports(db_conn, args)
+        qube_date, bos_date = get_run_date_args(args, qube_date, bos_date)
+        runReports(db_conn, qube_date, bos_date)
     except Exception as ex:
         logging.error(str(ex))
 
