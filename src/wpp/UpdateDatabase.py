@@ -21,6 +21,7 @@ from wpp.config import (
 from wpp.db import get_or_create_db, get_single_value, get_last_insert_id
 from wpp.calendars import BUSINESS_DAY
 from wpp.logger import get_log_file
+
 # from wpp.ref_matcher import getPropertyBlockAndTenantRefs
 from wpp.utils import getLongestCommonSubstring
 
@@ -582,7 +583,7 @@ def importBankOfScotlandTransactionsXMLFile(
                 continue
 
             pay_date = parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
-            
+
             # Parse the description field to determine the property, block and tenant that it belongs to
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(
                 description, csr
@@ -805,7 +806,11 @@ def importBankOfScotlandBalancesXMLFile(
             for balance in reporting_day.iter("BalanceRecord"):
                 sort_code = get_element_text(balance, "SortCode")
                 account_number = get_element_text(balance, "AccountNumber")
-                client_ref = client_ref_element.text if (client_ref_element := balance.find("ClientRef")) is not None else None
+                client_ref = (
+                    client_ref_element.text
+                    if (client_ref_element := balance.find("ClientRef")) is not None
+                    else None
+                )
                 account_name = get_element_text(balance, "LongName")
 
                 account_type = ""

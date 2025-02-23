@@ -45,6 +45,7 @@ def display_latest_log(match_name: str) -> None:
         log_content = file.read()
     st.text(log_content)
 
+
 def delete_db() -> None:
     db_file = get_wpp_db_file()
     if os.path.exists(db_file):
@@ -52,7 +53,8 @@ def delete_db() -> None:
         st.info(f"Deleted existing DB file: {db_file}")
     else:
         st.warning(f"DB file does not exist: {db_file}")
-                        
+
+
 # Streamlit app
 st.title("WPP Management Application")
 

@@ -9,7 +9,7 @@ else:
     # WPP_ROOT_DIR = r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra'
     # WPP_ROOT_DIR = os.path.normpath(os.path.join(sys.path[0], os.pardir))
 
-    
+
 def set_wpp_root_dir(root_dir: str) -> None:
     global WPP_ROOT_DIR
     WPP_ROOT_DIR = root_dir
@@ -40,11 +40,15 @@ def get_wpp_db_file() -> str:
 
 
 def get_wpp_excel_log_file(date: dt.date) -> str:
-    return get_wpp_report_dir() + rf"/Data_Import_Issues_{date.strftime('%Y-%m-%d')}.xlsx"
+    return (
+        get_wpp_report_dir() + rf"/Data_Import_Issues_{date.strftime('%Y-%m-%d')}.xlsx"
+    )
 
 
 def get_wpp_report_file(date: dt.date | dt.datetime) -> str:
-    return get_wpp_report_dir() + rf"/WPP_Report_{date.isoformat().replace('/', '.')}.xlsx"
+    return (
+        get_wpp_report_dir() + rf"/WPP_Report_{date.isoformat().replace('/', '.')}.xlsx"
+    )
 
 
 def get_wpp_update_database_log_file(date: dt.date | dt.datetime) -> str:

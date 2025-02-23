@@ -362,7 +362,9 @@ def checkDataIsPresent(
     return is_data_present
 
 
-def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date) -> None:
+def runReports(
+    db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date
+) -> None:
     # Get start and end dates for this calendar month
     # today = dt.date.today()
     # year = int(today.strftime("%Y"))
@@ -402,7 +404,9 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
         index=False,
         float_format="%.2f",
     )
-    df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger)
+    df = run_sql_query(
+        db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger
+    )
     blocks = df["Block"].tolist()
     if len(blocks) > 0:
         logger.info(
@@ -425,7 +429,9 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
     # DC/PAY type transactions
     logger.info(f"Running DC & PAY Transactions report for {bos_date}")
     logger.debug(SELECT_PAY_TYPE_TRANSACTIONS)
-    df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger)
+    df = run_sql_query(
+        db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger
+    )
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
@@ -470,7 +476,8 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
     df = run_sql_query(
         db_conn,
         sql,
-        (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()) + (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()),
+        (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat())
+        + (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()),
         logger,
     )
     df = add_extra_rows(df)
@@ -529,12 +536,16 @@ def get_run_date_args(
         else (dt.date.today() - BUSINESS_DAY)
     )
     bos_date = bos_date or (
-        parser.parse(args.bos_date, dayfirst=False).date() if args.bos_date else qube_date
+        parser.parse(args.bos_date, dayfirst=False).date()
+        if args.bos_date
+        else qube_date
     )
     return qube_date, bos_date
 
 
-def main(qube_date: Optional[dt.date] = None, bos_date: Optional[dt.date] = None) -> None:
+def main(
+    qube_date: Optional[dt.date] = None, bos_date: Optional[dt.date] = None
+) -> None:
     import time
 
     start_time = time.time()
