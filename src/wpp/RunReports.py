@@ -6,21 +6,21 @@ import pandas as pd
 import copy
 import sys
 import os
-from typing import Tuple, cast
+from typing import Tuple, Optional, cast
 
 from wpp.config import (
-    WPP_REPORT_DIR,
-    WPP_LOG_DIR,
-    WPP_DB_FILE,
-    WPP_REPORT_FILE,
+    get_wpp_report_dir,
+    get_wpp_db_file,
+    get_wpp_report_file,
+    get_wpp_run_reports_log_file,
 )
 from wpp.calendars import BUSINESS_DAY
 from wpp.db import get_single_value, run_sql_query, union_sql_queries, join_sql_queries
 from wpp.logger import get_log_file
 
 # Set up logger
-LOG_FILE = WPP_LOG_DIR + r"/Log_RunReports_{}.txt"
-logger = get_log_file(__name__, LOG_FILE)
+log_file = get_wpp_run_reports_log_file(dt.datetime.today())
+logger = get_log_file(__name__, log_file)
 
 #
 # SQL
@@ -362,7 +362,7 @@ def checkDataIsPresent(
     return is_data_present
 
 
-def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> None:
+def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date) -> None:
     # Get start and end dates for this calendar month
     # today = dt.date.today()
     # year = int(today.strftime("%Y"))
@@ -375,14 +375,14 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     logger.info(f"Qube Date: {qube_date}")
     logger.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
 
-    if not checkDataIsPresent(db_conn, qube_date, bos_date):
+    if not checkDataIsPresent(db_conn, qube_date.isoformat(), bos_date.isoformat()):
         logger.error(
             f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}"
         )
         sys.exit(1)
 
     # Create a Pandas Excel writer using openpyxl as the engine.
-    excel_report_file = WPP_REPORT_FILE.format(qube_date)
+    excel_report_file = get_wpp_report_file(qube_date)
     logger.info(f"Creating Excel spreadsheet report file {excel_report_file}")
     excel_writer = pd.ExcelWriter(excel_report_file, engine="openpyxl")
 
@@ -394,15 +394,15 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
         "ORDER BY Reference",
     )
     logger.debug(sql)
-    df = run_sql_query(db_conn, sql, (bos_date,) * 4, logger)
+    df = run_sql_query(db_conn, sql, (bos_date.isoformat(),) * 4, logger)
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
-        sheet_name="COMREC {}".format(bos_date),
+        sheet_name=f"COMREC {bos_date}",
         index=False,
         float_format="%.2f",
     )
-    df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date,) * 2, logger)
+    df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger)
     blocks = df["Block"].tolist()
     if len(blocks) > 0:
         logger.info(
@@ -415,7 +415,7 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     logger.info(f"Running Transactions report for {bos_date}")
     logger.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(
-        db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2, logger
+        db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger
     )
     df = add_column_totals(df)
     df.to_excel(
@@ -425,7 +425,7 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     # DC/PAY type transactions
     logger.info(f"Running DC & PAY Transactions report for {bos_date}")
     logger.debug(SELECT_PAY_TYPE_TRANSACTIONS)
-    df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2, logger)
+    df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
@@ -442,12 +442,12 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
         BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL,
     )
     # logger.debug(qube_by_block_sql)
-    # qube_by_block_df = run_sql_query(db_conn, qube_by_block_sql, (qube_date, qube_date, bos_date), logger)
+    # qube_by_block_df = run_sql_query(db_conn, qube_by_block_sql, (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()), logger)
     # qube_by_block_df = add_extra_rows(qube_by_block_df)
     # qube_by_block_df = qube_by_block_df.sort_values(by='Property / Block')
     # qube_by_block_df = add_column_totals(qube_by_block_df)
     # qube_by_block_df.drop(['BOS GR', 'Discrepancy GR'], axis=1, inplace=True)
-    # qube_by_block_df.to_excel(excel_writer, sheet_name='Qube BOS By Block {}'.format(qube_date), index=False, float_format = '%.2f')
+    # qube_by_block_df.to_excel(excel_writer, sheet_name=f'Qube BOS By Block {qube_date}', index=False, float_format = '%.2f')
 
     # Run Qube BOS By Property report for given run date
     # logger.info(f'Running Qube BOS By Property report for {qube_date}')
@@ -457,11 +457,11 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
         BOS_ACCOUNT_BALANCES_BY_PROPERTY_SQL,
     )
     # logger.debug(qube_by_property_sql)
-    # qube_by_property_df = run_sql_query(db_conn, qube_by_property_sql, (qube_date, qube_date, bos_date), logger)
+    # qube_by_property_df = run_sql_query(db_conn, qube_by_property_sql, (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()), logger)
     # qube_by_property_df = qube_by_property_df.sort_values(by='Property / Block')
     # qube_by_property_df = add_column_totals(qube_by_property_df)
     # qube_by_property_df.drop(['BOS GR', 'Discrepancy GR'], axis=1, inplace=True)
-    # qube_by_property_df.to_excel(excel_writer, sheet_name='Qube BOS By Property {}'.format(qube_date), index=False, float_format = '%.2f')
+    # qube_by_property_df.to_excel(excel_writer, sheet_name=f'Qube BOS By Property {qube_date}', index=False, float_format = '%.2f')
 
     # Run Qube BOS report for given run date
     logger.info(f"Running Qube BOS report for {qube_date}")
@@ -470,7 +470,7 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     df = run_sql_query(
         db_conn,
         sql,
-        (qube_date, qube_date, bos_date) + (qube_date, qube_date, bos_date),
+        (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()) + (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()),
         logger,
     )
     df = add_extra_rows(df)
@@ -479,7 +479,7 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     df.drop(["BOS GR", "Discrepancy GR"], axis=1, inplace=True)
     df.to_excel(
         excel_writer,
-        sheet_name="Qube BOS {}".format(qube_date),
+        sheet_name=f"Qube BOS {qube_date}",
         index=False,
         float_format="%.2f",
     )
@@ -488,12 +488,12 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     logger.info(f"Running Total SC Paid By Tenant on {bos_date} report")
     logger.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
     df = run_sql_query(
-        db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date,) * 2, logger
+        db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date.isoformat(),) * 2, logger
     )
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
-        sheet_name="Total SC By Tenant {}".format(bos_date),
+        sheet_name=f"Total SC By Tenant {bos_date}",
         index=False,
         float_format="%.2f",
     )
@@ -521,20 +521,20 @@ def get_args() -> argparse.Namespace:
 
 
 def get_run_date_args(
-    args: argparse.Namespace, qube_date: dt.date, bos_date: dt.date
-) -> Tuple[str, str]:
+    args: argparse.Namespace, qube_date: Optional[dt.date], bos_date: Optional[dt.date]
+) -> Tuple[dt.date, dt.date]:
     qube_date = qube_date or (
-        parser.parse(args.qube_date, dayfirst=False)
+        parser.parse(args.qube_date, dayfirst=False).date()
         if args.qube_date
         else (dt.date.today() - BUSINESS_DAY)
     )
     bos_date = bos_date or (
-        parser.parse(args.bos_date, dayfirst=False) if args.bos_date else qube_date
+        parser.parse(args.bos_date, dayfirst=False).date() if args.bos_date else qube_date
     )
-    return qube_date.strftime("%Y-%m-%d"), bos_date.strftime("%Y-%m-%d")
+    return qube_date, bos_date
 
 
-def main(qube_date: dt.date = None, bos_date: dt.date = None) -> None:
+def main(qube_date: Optional[dt.date] = None, bos_date: Optional[dt.date] = None) -> None:
     import time
 
     start_time = time.time()
@@ -542,11 +542,11 @@ def main(qube_date: dt.date = None, bos_date: dt.date = None) -> None:
     # Get command line arguments
     args = get_args()
 
-    os.makedirs(WPP_REPORT_DIR, exist_ok=True)
+    os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
     logger.info("Running Reports")
     try:
-        db_conn = sqlite3.connect(WPP_DB_FILE)
+        db_conn = sqlite3.connect(get_wpp_db_file())
         qube_date, bos_date = get_run_date_args(args, qube_date, bos_date)
         runReports(db_conn, qube_date, bos_date)
     except Exception as ex:

@@ -1,10 +1,11 @@
 import pytest
 import os
+
+from wpp.db import get_data
 from wpp.UpdateDatabase import (
     get_or_create_db,
     get_last_insert_id,
     get_single_value,
-    get_data,
     get_id,
     get_id_from_ref,
     get_id_from_key_table,

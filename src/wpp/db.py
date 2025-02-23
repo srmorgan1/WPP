@@ -5,9 +5,11 @@ import logging
 import pandas as pd
 from typing import Any, Optional, Tuple, List
 
-from wpp.config import WPP_DB_DIR
+from wpp.config import get_wpp_db_dir
 
-
+#
+# SQL
+#
 SELECT_LAST_RECORD_ID_SQL = "SELECT seq FROM sqlite_sequence WHERE name = ?;"
 
 #
@@ -248,7 +250,7 @@ def get_or_create_db(
     db_file: str, logger: logging.Logger = logging.getLogger()
 ) -> sqlite3.Connection:
     init_db = not os.path.exists(db_file)
-    os.makedirs(WPP_DB_DIR, exist_ok=True)
+    os.makedirs(get_wpp_db_dir(), exist_ok=True)
     conn = sqlite3.connect(db_file)
     if init_db:
         _create_and_index_tables(conn, logger)

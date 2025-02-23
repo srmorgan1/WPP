@@ -7,11 +7,13 @@ from datetime import datetime
 
 # FILE: tests/test_RunReports.py
 
+from wpp.calendars import EnglandAndWalesHolidayCalendar
+from wpp.db import get_db_connection
+from wpp.logger import (
+    StdOutFilter,
+    StdErrFilter,
+)
 from wpp.RunReports import (
-    EnglandAndWalesHolidayCalendar,
-    STDOutFilter,
-    STDErrFilter,
-    get_db_connection,
     join_sql_queries,
     union_sql_queries,
     run_sql_query,
@@ -44,13 +46,13 @@ def test_EnglandAndWalesHolidayCalendar():
 
 
 def test_STDOutFilter():
-    filter = STDOutFilter()
+    filter = StdOutFilter()
     record = MagicMock(levelno=logging.INFO)
     assert filter.filter(record)
 
 
 def test_STDErrFilter():
-    filter = STDErrFilter()
+    filter = StdErrFilter()
     record = MagicMock(levelno=logging.ERROR)
     assert filter.filter(record)
 

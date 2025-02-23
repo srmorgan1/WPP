@@ -2,7 +2,7 @@ import logging
 import datetime as dt
 import os
 
-from wpp.config import WPP_LOG_DIR
+from wpp.config import get_wpp_log_dir
 
 
 #
@@ -20,7 +20,7 @@ class StdErrFilter(logging.Filter):
 
 def get_log_file(module_name: str, log_file_name: str):
     today = dt.datetime.today()
-    os.makedirs(WPP_LOG_DIR, exist_ok=True)
+    os.makedirs(get_wpp_log_dir(), exist_ok=True)
     log_file = log_file_name.format(today.strftime("%Y-%m-%d"))
 
     # logFormatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%Y-%m-%d %H:%M:%S")

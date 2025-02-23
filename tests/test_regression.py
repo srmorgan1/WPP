@@ -2,6 +2,7 @@ import os
 import shutil
 import pandas as pd
 from pandas import ExcelFile
+from wpp.config import get_wpp_report_dir
 from wpp.UpdateDatabase import main as update_database_main
 from wpp.RunReports import main as run_reports_main
 
@@ -25,9 +26,9 @@ def compare_excel_files(generated_file: str, reference_file: str) -> None:
 
 def test_regression() -> None:
     # Clean up the Reports directory
-    if os.path.exists(WPP_REPORT_DIR):
-        shutil.rmtree(WPP_REPORT_DIR)
-    os.makedirs(WPP_REPORT_DIR, exist_ok=True)
+    if os.path.exists(get_wpp_report_dir()):
+        shutil.rmtree(get_wpp_report_dir())
+    os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
     # Run UpdateDatabase
     update_database_main()
@@ -36,7 +37,7 @@ def test_regression() -> None:
     run_reports_main()
 
     # Compare generated reports with reference reports
-    generated_reports = sorted(os.listdir(WPP_REPORT_DIR))
+    generated_reports = sorted(os.listdir(get_wpp_report_dir()))
     reference_reports = sorted(os.listdir(REFERENCE_REPORT_DIR))
 
     assert len(generated_reports) == len(reference_reports), (
@@ -44,7 +45,7 @@ def test_regression() -> None:
     )
 
     for generated_report, reference_report in zip(generated_reports, reference_reports):
-        generated_report_path = os.path.join(WPP_REPORT_DIR, generated_report)
+        generated_report_path = os.path.join(get_wpp_report_dir(), generated_report)
         reference_report_path = os.path.join(REFERENCE_REPORT_DIR, reference_report)
 
         assert os.path.basename(generated_report_path) == os.path.basename(

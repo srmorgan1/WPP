@@ -12,14 +12,17 @@ from typing import Any, Optional, Tuple, List, Union, IO
 from openpyxl import load_workbook
 
 from wpp.config import (
-    WPP_INPUT_DIR,
-    WPP_REPORT_DIR,
-    WPP_LOG_DIR,
-    WPP_DB_FILE,
+    get_wpp_input_dir,
+    get_wpp_report_dir,
+    get_wpp_db_file,
+    get_wpp_excel_log_file,
+    get_wpp_update_database_log_file,
 )
 from wpp.db import get_or_create_db, get_single_value, get_last_insert_id
 from wpp.calendars import BUSINESS_DAY
 from wpp.logger import get_log_file
+# from wpp.ref_matcher import getPropertyBlockAndTenantRefs
+from wpp.utils import getLongestCommonSubstring
 
 #
 # Constants
@@ -27,9 +30,8 @@ from wpp.logger import get_log_file
 CLIENT_CREDIT_ACCOUNT_NUMBER = "06000792"
 
 # Set up logger
-LOG_FILE = WPP_LOG_DIR + r"/Log_UpdateDatabase_{}.txt"
-EXCEL_LOG_FILE = WPP_REPORT_DIR + r"/Data_Import_Issues_{}.xlsx"
-logger = get_log_file(__name__, LOG_FILE)
+log_file = get_wpp_update_database_log_file(dt.datetime.today())
+logger = get_log_file(__name__, log_file)
 
 #
 # SQL
@@ -216,25 +218,6 @@ def getLatestMatchingFileNameInDir(wpp_dir: str, file_name_glob: str) -> Optiona
         return None
 
 
-def getLongestCommonSubstring(string1: str, string2: str) -> str:
-    answer = ""
-    len1, len2 = len(string1), len(string2)
-    for i in range(len1):
-        for j in range(len2):
-            lcs_temp = 0
-            match = ""
-            while (
-                (i + lcs_temp < len1)
-                and (j + lcs_temp < len2)
-                and string1[i + lcs_temp] == string2[j + lcs_temp]
-            ):
-                match += string2[j + lcs_temp]
-                lcs_temp += 1
-            if len(match) > len(answer):
-                answer = match
-    return answer
-
-
 def checkTenantExists(db_cursor: sqlite3.Cursor, tenant_ref: str) -> Optional[str]:
     tenant_name = get_single_value(db_cursor, SELECT_TENANT_NAME_SQL, (tenant_ref,))
     return tenant_name
@@ -300,7 +283,7 @@ def recodeSpecialBlockReferenceCases(
 
 def getPropertyBlockAndTenantRefsFromRegexMatch(
     match: re.Match,
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+) -> Tuple[str, str, str]:
     property_ref, block_ref, tenant_ref = None, None, None
     if match:
         property_ref = match.group(1)
@@ -359,6 +342,12 @@ def checkForIrregularTenantRefInDatabase(
 
 
 def getPropertyBlockAndTenantRefs(
+    reference: str, db_cursor: Optional[sqlite3.Cursor] = None
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    return getPropertyBlockAndTenantRefsImpl(reference, db_cursor)
+
+
+def getPropertyBlockAndTenantRefsImpl(
     reference: str, db_cursor: Optional[sqlite3.Cursor] = None
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     # TODO: refactor to use chain of responsibilty pattern here instead of nested ifs
@@ -545,6 +534,14 @@ def getTenantID(csr: sqlite3.Cursor, tenant_ref: str) -> None:
     csr.execute(SELECT_TENANT_ID_SQL, (tenant_ref))
 
 
+# Helper function to get text from an XML element and ensure it is not None
+def get_element_text(parent_element: et.Element, child_element_name: str) -> str:
+    child_element = parent_element.find(child_element_name)
+    if child_element is None or child_element.text is None:
+        raise ValueError(f"Missing or empty field: {child_element_name}")
+    return child_element.text
+
+
 def importBankOfScotlandTransactionsXMLFile(
     db_conn: sqlite3.Connection, transactions_xml_file: str
 ) -> Tuple[List[List[Any]], List[List[Any]]]:
@@ -573,18 +570,19 @@ def importBankOfScotlandTransactionsXMLFile(
         csr = db_conn.cursor()
         csr.execute("begin")
         for transaction in tree.iter("TransactionRecord"):
-            sort_code = transaction.find("SortCode").text
-            account_number = transaction.find("AccountNumber").text
-            transaction_type = transaction.find("TransactionType").text
-            amount = transaction.find("TransactionAmount").text
-            description = transaction.find("TransactionDescription").text
-            pay_date = transaction.find("TransactionPostedDate").text
-            pay_date = parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
+            sort_code = get_element_text(transaction, "SortCode")
+            account_number = get_element_text(transaction, "AccountNumber")
+            transaction_type = get_element_text(transaction, "TransactionType")
+            amount = get_element_text(transaction, "TransactionAmount")
+            description = get_element_text(transaction, "TransactionDescription")
+            pay_date = get_element_text(transaction, "TransactionPostedDate")
 
             # Only load transactions from the client credit account
             if account_number != CLIENT_CREDIT_ACCOUNT_NUMBER:
                 continue
 
+            pay_date = parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
+            
             # Parse the description field to determine the property, block and tenant that it belongs to
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(
                 description, csr
@@ -802,13 +800,14 @@ def importBankOfScotlandBalancesXMLFile(
         csr = db_conn.cursor()
         csr.execute("begin")
         for reporting_day in tree.iter("ReportingDay"):
-            at_date = reporting_day.find("Date").text
+            at_date = get_element_text(reporting_day, "Date")
             at_date = parser.parse(at_date, dayfirst=True).strftime("%Y-%m-%d")
             for balance in reporting_day.iter("BalanceRecord"):
-                sort_code = balance.find("SortCode").text
-                account_number = balance.find("AccountNumber").text
-                client_ref = balance.find("ClientRef").text
-                account_name = balance.find("LongName").text
+                sort_code = get_element_text(balance, "SortCode")
+                account_number = get_element_text(balance, "AccountNumber")
+                client_ref = client_ref_element.text if (client_ref_element := balance.find("ClientRef")) is not None else None
+                account_name = get_element_text(balance, "LongName")
+
                 account_type = ""
                 if client_ref and "RENT" in client_ref.upper():
                     account_type = "GR"
@@ -820,8 +819,8 @@ def importBankOfScotlandBalancesXMLFile(
                     account_type = "NA"
                 # elif client_ref: raise ValueError(f'Cannot determine account type from client reference {client_ref}')
 
-                current_balance = balance.find("CurrentBalance").text
-                available_balance = balance.find("AvailableBalance").text
+                current_balance = get_element_text(balance, "CurrentBalance")
+                available_balance = get_element_text(balance, "AvailableBalance")
 
                 if sort_code and account_number:
                     account_id = get_id(
@@ -886,7 +885,7 @@ def importBankOfScotlandBalancesXMLFile(
         )
 
         # accounts_df = pd.DataFrame(accounts, columns=['Sort Code', 'Account Number', 'Account Type', 'PropertyOrBlock', 'Client Reference', 'Account Name'])
-        # ef = WPP_INPUT_DIR + r'/accounts_temp.xlsx'
+        # ef = get_wpp_input_dir() + r'/accounts_temp.xlsx'
         # excel_writer = pd.ExcelWriter(ef, engine='openpyxl')
         # accounts_df.to_excel(excel_writer, index=False)
         # excel_writer.close()
@@ -1787,13 +1786,12 @@ def add_misc_data_to_db(db_conn: sqlite3.Connection) -> None:
 
 def importAllData(db_conn: sqlite3.Connection) -> None:
     # Create a Pandas Excel writer using openpyxl as the engine.
-    today = dt.datetime.today().strftime("%Y-%m-%d")
-    excel_log_file = EXCEL_LOG_FILE.format(today)
+    excel_log_file = get_wpp_excel_log_file(dt.date.today())
     logger.debug(f"Creating Excel spreadsheet report file {excel_log_file}")
     excel_writer = pd.ExcelWriter(excel_log_file, engine="openpyxl")
 
     irregular_transaction_refs_file_pattern = os.path.join(
-        WPP_INPUT_DIR, "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx"
+        get_wpp_input_dir(), "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx"
     )
     irregular_transaction_refs_file = getLatestMatchingFileName(
         irregular_transaction_refs_file_pattern
@@ -1809,8 +1807,8 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         )
     logger.info("")
 
-    properties_file_pattern = os.path.join(WPP_INPUT_DIR, "Properties*.xlsx")
-    tenants_file_pattern = os.path.join(WPP_INPUT_DIR, "Tenants*.xlsx")
+    properties_file_pattern = os.path.join(get_wpp_input_dir(), "Properties*.xlsx")
+    tenants_file_pattern = os.path.join(get_wpp_input_dir(), "Tenants*.xlsx")
     properties_xls_file = getLatestMatchingFileName(
         properties_file_pattern
     ) or getLatestMatchingFileName(tenants_file_pattern)
@@ -1821,7 +1819,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logger.info("")
 
-    estates_file_pattern = os.path.join(WPP_INPUT_DIR, "Estates*.xlsx")
+    estates_file_pattern = os.path.join(get_wpp_input_dir(), "Estates*.xlsx")
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logger.info(f"Importing Estates from file {estates_xls_file}")
@@ -1830,7 +1828,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Estates file matching {estates_file_pattern}")
     logger.info("")
 
-    qube_eod_balances_file_pattern = os.path.join(WPP_INPUT_DIR, "Qube*EOD*.xlsx")
+    qube_eod_balances_file_pattern = os.path.join(get_wpp_input_dir(), "Qube*EOD*.xlsx")
     qube_eod_balances_files = getMatchingFileNames(qube_eod_balances_file_pattern)
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
@@ -1842,7 +1840,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         )
     logger.info("")
 
-    accounts_file_pattern = os.path.join(WPP_INPUT_DIR, "Accounts.xlsx")
+    accounts_file_pattern = os.path.join(get_wpp_input_dir(), "Accounts.xlsx")
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logger.info(f"Importing bank accounts from file {accounts_file}")
@@ -1854,7 +1852,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.info("")
 
     bos_statement_file_pattern = [
-        os.path.join(WPP_INPUT_DIR, f)
+        os.path.join(get_wpp_input_dir(), f)
         for f in [
             "PreviousDayTransactionExtract_*.xml",
             "PreviousDayTransactionExtract_*.zip",
@@ -1910,7 +1908,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.info("")
 
     eod_balances_file_patterns = [
-        os.path.join(WPP_INPUT_DIR, f)
+        os.path.join(get_wpp_input_dir(), f)
         for f in [
             "EOD BalancesReport_*.xml",
             "EndOfDayBalanceExtract_*.xml",
@@ -1955,8 +1953,8 @@ def main() -> None:
     args = get_args()
     print(args)
 
-    os.makedirs(WPP_INPUT_DIR, exist_ok=True)
-    os.makedirs(WPP_REPORT_DIR, exist_ok=True)
+    os.makedirs(get_wpp_input_dir(), exist_ok=True)
+    os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
     logger.info(
         "Beginning Import of data into the database, at {}\n".format(
@@ -1964,7 +1962,7 @@ def main() -> None:
         )
     )
 
-    db_conn = get_or_create_db(WPP_DB_FILE, logger)
+    db_conn = get_or_create_db(get_wpp_db_file(), logger)
     importAllData(db_conn)
 
     elapsed_time = time.time() - start_time

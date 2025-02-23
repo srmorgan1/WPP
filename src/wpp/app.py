@@ -6,7 +6,7 @@ import datetime as dt
 # Import the main functions from the scripts
 from wpp.RunReports import main as run_reports_main
 from wpp.UpdateDatabase import main as update_database_main
-from wpp.config import WPP_REPORT_DIR, WPP_LOG_DIR
+from wpp.config import get_wpp_report_dir, get_wpp_log_dir
 from wpp.calendars import BUSINESS_DAY
 
 
@@ -14,14 +14,14 @@ from wpp.calendars import BUSINESS_DAY
 def display_latest_report(match_name: str) -> None:
     latest_report = max(
         [
-            os.path.join(WPP_REPORT_DIR, f)
-            for f in os.listdir(WPP_REPORT_DIR)
+            os.path.join(get_wpp_report_dir(), f)
+            for f in os.listdir(get_wpp_report_dir())
             if match_name in f
         ],
         key=os.path.getctime,
     )
     xls = pd.ExcelFile(latest_report)
-    sheet_names = xls.sheet_names
+    sheet_names = [str(n) for n in xls.sheet_names]
     tabs = st.tabs(sheet_names)
     for tab, sheet_name in zip(tabs, sheet_names):
         df = pd.read_excel(xls, sheet_name=sheet_name)
@@ -33,8 +33,8 @@ def display_latest_report(match_name: str) -> None:
 def display_latest_log(match_name: str) -> None:
     latest_log = max(
         [
-            os.path.join(WPP_LOG_DIR, f)
-            for f in os.listdir(WPP_LOG_DIR)
+            os.path.join(get_wpp_log_dir(), f)
+            for f in os.listdir(get_wpp_log_dir())
             if match_name in f
         ],
         key=os.path.getctime,
