@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
+import signal
 import os
 import datetime as dt
+import time
 
 # Import the main functions from the scripts
 from wpp.RunReports import main as run_reports_main
 from wpp.UpdateDatabase import main as update_database_main
-from wpp.config import get_wpp_report_dir, get_wpp_log_dir
+from wpp.config import get_wpp_report_dir, get_wpp_log_dir, get_wpp_db_file
 from wpp.calendars import BUSINESS_DAY
 
 
@@ -43,15 +45,45 @@ def display_latest_log(match_name: str) -> None:
         log_content = file.read()
     st.text(log_content)
 
-
+def delete_db() -> None:
+    db_file = get_wpp_db_file()
+    if os.path.exists(db_file):
+        os.remove(db_file)
+        st.info(f"Deleted existing DB file: {db_file}")
+    else:
+        st.warning(f"DB file does not exist: {db_file}")
+                        
 # Streamlit app
 st.title("WPP Management Application")
 
 # Sidebar for navigation
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Update Database", "Run Reports"])
+st.sidebar.markdown("---")
+if st.sidebar.button("Shut Down The App"):
+    st.info("Shutting down the app... Goodbye!")
+    time.sleep(1)
+    os.kill(os.getpid(), signal.SIGKILL)
+    st.stop()
 
-if page == "Run Reports":
+if page == "Update Database":
+    st.header("Update Database")
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        delete_existing_db = st.checkbox("Delete existing DB", value=True)
+    with col1:
+        if st.button("Update the Database"):
+            try:
+                if delete_existing_db:
+                    delete_db()
+                update_database_main()
+                st.success("UpdateDatabase executed successfully.")
+            except Exception as e:
+                st.error(f"Error updating the database: {e}")
+            st.subheader("Latest Log")
+            display_latest_log("UpdateDatabase")
+
+elif page == "Run Reports":
     st.header("Run Reports")
     run_date = st.date_input("Run Date", dt.date.today() - BUSINESS_DAY)
     if st.button("Run the Reports"):
@@ -64,14 +96,3 @@ if page == "Run Reports":
         display_latest_report("WPP_Report")
         st.subheader("Latest Log")
         display_latest_log("RunReports")
-
-elif page == "Update Database":
-    st.header("Update Database")
-    if st.button("Update the Database"):
-        try:
-            update_database_main()
-            st.success("UpdateDatabase executed successfully.")
-        except Exception as e:
-            st.error(f"Error updating the database: {e}")
-        st.subheader("Latest Log")
-        display_latest_log("UpdateDatabase")
