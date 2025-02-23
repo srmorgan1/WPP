@@ -1015,9 +1015,7 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
             "The data which caused the failure is: "
             + str((reference, tenant_name, property_ref, block_ref, tenant_ref))
         )
-        logger.error(
-            "No properties, blocks or tenants have been added to the database"
-        )
+        logger.error("No properties, blocks or tenants have been added to the database")
         csr.execute("rollback")
         raise
     except Exception as ex:
@@ -1467,7 +1465,9 @@ def importQubeEndOfDayBalancesFile(
     B1_cell_value = qube_eod_balances_workbook_sheet.cell(1, 2).value
     produced_date_cell_value = qube_eod_balances_workbook_sheet.cell(3, 1).value
     if not isinstance(produced_date_cell_value, str):
-        raise ValueError(f"The produced date cell value is not a string: {produced_date_cell_value}")
+        raise ValueError(
+            f"The produced date cell value is not a string: {produced_date_cell_value}"
+        )
     cell_values_actual = [
         qube_eod_balances_workbook_sheet.cell(5, i + 1).value for i in range(0, 4)
     ]
@@ -1946,7 +1946,8 @@ def get_args() -> argparse.Namespace:
 def main() -> None:
     import time
     import warnings
-    warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+
+    warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
     start_time = time.time()
 

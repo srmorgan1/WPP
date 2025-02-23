@@ -13,7 +13,11 @@ from wpp.calendars import BUSINESS_DAY
 # Function to display the latest report
 def display_latest_report(match_name: str) -> None:
     latest_report = max(
-        [os.path.join(WPP_REPORT_DIR, f) for f in os.listdir(WPP_REPORT_DIR) if match_name in f],
+        [
+            os.path.join(WPP_REPORT_DIR, f)
+            for f in os.listdir(WPP_REPORT_DIR)
+            if match_name in f
+        ],
         key=os.path.getctime,
     )
     xls = pd.ExcelFile(latest_report)
@@ -28,7 +32,11 @@ def display_latest_report(match_name: str) -> None:
 # Function to display the latest log
 def display_latest_log(match_name: str) -> None:
     latest_log = max(
-        [os.path.join(WPP_LOG_DIR, f) for f in os.listdir(WPP_LOG_DIR) if match_name in f],
+        [
+            os.path.join(WPP_LOG_DIR, f)
+            for f in os.listdir(WPP_LOG_DIR)
+            if match_name in f
+        ],
         key=os.path.getctime,
     )
     with open(latest_log, "r") as file:

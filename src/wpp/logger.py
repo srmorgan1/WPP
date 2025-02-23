@@ -4,6 +4,7 @@ import os
 
 from wpp.config import WPP_LOG_DIR
 
+
 #
 # Set up Logging
 #
@@ -40,5 +41,5 @@ def get_log_file(module_name: str, log_file_name: str):
     logger.addHandler(stream_handler)
 
     logger.setLevel(logging.INFO)
-    
+
     return logger

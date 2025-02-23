@@ -291,7 +291,10 @@ ORDER BY block_ref
 def add_column_totals(df: pd.DataFrame) -> pd.DataFrame:
     if len(df) > 0:
         # df = df.append(df.sum(numeric_only=True).rename("Total"))
-        df = pd.concat([df, pd.DataFrame(df.sum(numeric_only=True).rename("Total"))], ignore_index=True)
+        df = pd.concat(
+            [df, pd.DataFrame(df.sum(numeric_only=True).rename("Total"))],
+            ignore_index=True,
+        )
         df.iloc[-1:, 0] = "TOTAL"
     return df
 
@@ -411,7 +414,9 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     # Non-DC/PAY type transactions
     logger.info(f"Running Transactions report for {bos_date}")
     logger.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
-    df = run_sql_query(db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2, logger)
+    df = run_sql_query(
+        db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date,) * 2, logger
+    )
     df = add_column_totals(df)
     df.to_excel(
         excel_writer, sheet_name="Transactions", index=False, float_format="%.2f"
@@ -466,7 +471,7 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
         db_conn,
         sql,
         (qube_date, qube_date, bos_date) + (qube_date, qube_date, bos_date),
-        logger
+        logger,
     )
     df = add_extra_rows(df)
     df = df.sort_values(by="Property / Block")
@@ -482,7 +487,9 @@ def runReports(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> No
     # Run SC total transactions by tenant report for given run date
     logger.info(f"Running Total SC Paid By Tenant on {bos_date} report")
     logger.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
-    df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date,) * 2, logger)
+    df = run_sql_query(
+        db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date,) * 2, logger
+    )
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
@@ -512,18 +519,20 @@ def get_args() -> argparse.Namespace:
     #    sys.exit(0)
     return args
 
-def get_run_date_args(args: argparse.Namespace, qube_date: dt.date, bos_date: dt.date) -> Tuple[str, str]:
+
+def get_run_date_args(
+    args: argparse.Namespace, qube_date: dt.date, bos_date: dt.date
+) -> Tuple[str, str]:
     qube_date = qube_date or (
         parser.parse(args.qube_date, dayfirst=False)
         if args.qube_date
         else (dt.date.today() - BUSINESS_DAY)
     )
     bos_date = bos_date or (
-        parser.parse(args.bos_date, dayfirst=False)
-        if args.bos_date
-        else qube_date
+        parser.parse(args.bos_date, dayfirst=False) if args.bos_date else qube_date
     )
     return qube_date.strftime("%Y-%m-%d"), bos_date.strftime("%Y-%m-%d")
+
 
 def main(qube_date: dt.date = None, bos_date: dt.date = None) -> None:
     import time

@@ -201,7 +201,9 @@ CREATE UNIQUE INDEX Index_Key_{0} ON Key_{0} (
 """
 
 
-def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger = logging.getLogger()) -> None:
+def _create_and_index_tables(
+    db_conn: sqlite3.Connection, logger: logging.Logger = logging.getLogger()
+) -> None:
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
@@ -241,7 +243,10 @@ def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger
         csr.execute("rollback")
         sys.exit(1)
 
-def get_or_create_db(db_file: str, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
+
+def get_or_create_db(
+    db_file: str, logger: logging.Logger = logging.getLogger()
+) -> sqlite3.Connection:
     init_db = not os.path.exists(db_file)
     os.makedirs(WPP_DB_DIR, exist_ok=True)
     conn = sqlite3.connect(db_file)
@@ -260,9 +265,7 @@ def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> Optional[i
 
 
 def get_single_value(
-    db_cursor: sqlite3.Cursor,
-    sql: str,
-    args_tuple: Tuple = ()
+    db_cursor: sqlite3.Cursor, sql: str, args_tuple: Tuple = ()
 ) -> Optional[Any]:
     db_cursor.execute(sql, args_tuple)
     value = db_cursor.fetchone()
@@ -314,7 +317,7 @@ def run_sql_query(
     db_conn: sqlite3.Connection,
     sql: str,
     args_tuple: Tuple,
-    logger: logging.Logger = logging.getLogger()
+    logger: logging.Logger = logging.getLogger(),
 ) -> pd.DataFrame:
     try:
         df = pd.read_sql_query(sql, db_conn, params=args_tuple)
