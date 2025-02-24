@@ -471,6 +471,7 @@ def getPropertyBlockAndTenantRefsImpl(
                             ):
                                 return None, None, None
                         else:
+                            # Match property and block only
                             match = re.search(PB_REGEX, description)
                             if match:
                                 property_ref = match.group(1)
@@ -478,6 +479,7 @@ def getPropertyBlockAndTenantRefsImpl(
                                     match.group(1), match.group(2)
                                 )
                             else:
+                                # Match property and tenant only
                                 # Prevent this case from matching for now, or move to the end of the match blocks
                                 match = re.search(PT_REGEX, description) and False
                                 if match:

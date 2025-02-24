@@ -184,49 +184,162 @@ class RegexStrategy(MatchingStrategy):
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         match = re.search(self.regex, description)
         if match:
-            property_ref, block_ref, tenant_ref = (
-                getPropertyBlockAndTenantRefsFromRegexMatch(match)
+            return self.process_match(match, description, db_cursor)
+        else:
+            return None, None, None
+
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        # This was originally a check for the tenant reference in the database with PBT_REGEX (commented out in old code)
+        # if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
+        #    return None, None, None
+        property_ref, block_ref, tenant_ref = (
+            getPropertyBlockAndTenantRefsFromRegexMatch(match)
+        )
+        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+            return None, None, None
+        return property_ref, block_ref, tenant_ref
+
+
+class RegexDoubleCheckStrategy(RegexStrategy):
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref, block_ref, tenant_ref = super().process_match(
+            match, description, db_cursor
+        )
+
+        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+            return None, None, None
+        return property_ref, block_ref, tenant_ref
+
+
+class PBTRegex3Strategy(RegexStrategy):
+    # Match tenant with 2 digits
+    def __init__(self):
+        super().__init__(PBT_REGEX3)
+
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref, block_ref, tenant_ref = super().process_match(
+            match, description, db_cursor
+        )
+
+        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+            tenant_ref = "{}-{}-0{}".format(
+                match.group(1), match.group(2), match.group(3)
             )
-            if db_cursor and not doubleCheckTenantRef(
-                db_cursor, tenant_ref, description
-            ):
+            if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                 return None, None, None
-            return property_ref, block_ref, tenant_ref
-        return None, None, None
+        return property_ref, block_ref, tenant_ref
 
 
-class SpecialCaseStrategy(MatchingStrategy):
+class PBTRegex4Strategy(RegexStrategy):
+    # Match property with 2 digits
+    def __init__(self):
+        super().__init__(PBT_REGEX4)
+
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref, block_ref, tenant_ref = super().process_match(
+            match, description, db_cursor
+        )
+
+        if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
+            property_ref = "0{}".format(match.group(1))
+            block_ref = "{}-{}".format(property_ref, match.group(2))
+            tenant_ref = "{}-{}".format(block_ref, match.group(3))
+            if not checkTenantExists(db_cursor, tenant_ref):
+                return None, None, None
+        return property_ref, block_ref, tenant_ref
+
+
+class SpecialCaseStrategy(RegexStrategy):
+    # Try to match property, block and tenant special cases
+    def __init__(self):
+        super().__init__(PBT_REGEX_SPECIAL_CASES)
+
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref = match.group(1)
+        block_ref = "{}-{}".format(match.group(1), match.group(2))
+        tenant_ref = "{}-{}-{}".format(match.group(1), match.group(2), match.group(3))
+        if db_cursor:
+            tenant_ref = removeDCReferencePostfix(tenant_ref)
+            if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(
+                    property_ref, block_ref, tenant_ref
+                )
+                if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+                    return None, None, None
+        elif not (
+            (
+                property_ref
+                in [
+                    "093",
+                    "094",
+                    "095",
+                    "096",
+                    "099",
+                    "124",
+                    "132",
+                    "133",
+                    "134",
+                ]
+            )
+            or (
+                property_ref in ["020", "022", "039", "053", "064"]
+                and match.group(3)[-1] != "Z"
+            )
+        ):
+            return None, None, None
+        return property_ref, block_ref, tenant_ref
+
+
+class PBRegexStrategy(RegexStrategy):
+    def __init__(self):
+        super().__init__(PB_REGEX)
+
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref = match.group(1)
+        block_ref = "{}-{}".format(match.group(1), match.group(2))
+        tenant_ref = None
+        return property_ref, block_ref, tenant_ref
+
+
+class PTRegexStrategy(RegexStrategy):
+    # Match property reference only
+    def __init__(self):
+        super().__init__(PT_REGEX)
+
     def match(
         self, description: str, db_cursor: Optional[sqlite3.Cursor]
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        match = re.search(PBT_REGEX_SPECIAL_CASES, description)
-        if match:
-            property_ref = match.group(1)
-            block_ref = "{}-{}".format(match.group(1), match.group(2))
-            tenant_ref = "{}-{}-{}".format(
-                match.group(1), match.group(2), match.group(3)
-            )
-            if db_cursor:
-                tenant_ref = removeDCReferencePostfix(tenant_ref)
-                if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                    property_ref, block_ref, tenant_ref = correctKnownCommonErrors(
-                        property_ref, block_ref, tenant_ref
-                    )
-                    if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                        return None, None, None
-            elif not (
-                (
-                    property_ref
-                    in ["093", "094", "095", "096", "099", "124", "132", "133", "134"]
-                )
-                or (
-                    property_ref in ["020", "022", "039", "053", "064"]
-                    and match.group(3)[-1] != "Z"
-                )
-            ):
-                return None, None, None
-            return property_ref, block_ref, tenant_ref
+        # Prevent this case from matching for now
         return None, None, None
+
+    # def process_match(self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    #     # property_ref = match.group(1)
+    #     # tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
+    #     # block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
+
+
+class PRegexStrategy(RegexStrategy):
+    def __init__(self):
+        super().__init__(P_REGEX)
+
+    def process_match(
+        self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref = match.group(1)
+        block_ref, tenant_ref = None, None
+        return property_ref, block_ref, tenant_ref
 
 
 class NoHyphenRegexStrategy(MatchingStrategy):
@@ -306,13 +419,17 @@ def getPropertyBlockAndTenantRefs(
     matcher = PropertyBlockTenantRefMatcher()
     matcher.add_strategy(IrregularTenantRefStrategy())
     matcher.add_strategy(RegexStrategy(PBT_REGEX))
-    matcher.add_strategy(RegexStrategy(PBT_REGEX_FWD_SLASHES))
-    matcher.add_strategy(RegexStrategy(PBT_REGEX2))
-    matcher.add_strategy(RegexStrategy(PBT_REGEX3))
-    matcher.add_strategy(RegexStrategy(PBT_REGEX4))
+    matcher.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX_FWD_SLASHES))
+    matcher.add_strategy(
+        RegexDoubleCheckStrategy(PBT_REGEX2)
+    )  # Match tenant with spaces between hyphens
+    matcher.add_strategy(PBTRegex3Strategy())
+    matcher.add_strategy(PBTRegex4Strategy())
     matcher.add_strategy(SpecialCaseStrategy())
+    matcher.add_strategy(PBRegexStrategy())
+    matcher.add_strategy(PTRegexStrategy())
     matcher.add_strategy(NoHyphenRegexStrategy())
-    # matcher.add_strategy(PostProcessStrategy())
+    matcher.add_strategy(PRegexStrategy())
 
     property_ref, block_ref, tenant_ref = matcher.match(description, db_cursor)
     return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)
