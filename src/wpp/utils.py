@@ -1,3 +1,5 @@
+import sys
+
 def getLongestCommonSubstring(string1: str, string2: str) -> str:
     answer = ""
     len1, len2 = len(string1), len(string2)
@@ -15,3 +17,10 @@ def getLongestCommonSubstring(string1: str, string2: str) -> str:
             if len(match) > len(answer):
                 answer = match
     return answer
+
+
+def is_running_via_pytest() -> bool:
+    """Detect if we are running via pytest."""
+    # When we are running via pytest it is loaded to the sys modules dictionary.
+    _we_are_running_via_pytest: bool = 'pytest' in sys.modules
+    return _we_are_running_via_pytest

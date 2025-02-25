@@ -2,6 +2,7 @@ from dateutil import parser
 import argparse
 import datetime as dt
 import sqlite3
+import logging
 import pandas as pd
 import copy
 import sys
@@ -17,10 +18,10 @@ from wpp.config import (
 from wpp.calendars import BUSINESS_DAY
 from wpp.db import get_single_value, run_sql_query, union_sql_queries, join_sql_queries
 from wpp.logger import get_log_file
+from wpp.utils import is_running_via_pytest
 
 # Set up logger
-log_file = get_wpp_run_reports_log_file(dt.datetime.today())
-logger = get_log_file(__name__, log_file)
+logger = logging.getLogger(__name__)
 
 #
 # SQL
@@ -550,8 +551,12 @@ def main(
 
     start_time = time.time()
 
+    global logger
+    log_file = get_wpp_run_reports_log_file(dt.datetime.today())
+    logger = get_log_file(__name__, log_file)
+
     # Get command line arguments
-    args = get_args()
+    args = get_args() if not is_running_via_pytest() else argparse.Namespace()
 
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 

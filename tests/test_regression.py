@@ -1,19 +1,28 @@
-import os
+import pytest
 import shutil
 import pandas as pd
 from pandas import ExcelFile
-from wpp.config import get_wpp_report_dir
+from pathlib import Path
+from dateutil import parser
+from wpp.config import get_wpp_report_dir, get_wpp_log_dir, set_wpp_root_dir
 from wpp.UpdateDatabase import main as update_database_main
 from wpp.RunReports import main as run_reports_main
 
 # Define paths
-WPP_ROOT_DIR = r"/Users/steve/Work/WPP"
-WPP_REPORT_DIR = WPP_ROOT_DIR + "/Reports"
-REFERENCE_REPORT_DIR = r"/Users/steve/Work/WPP/ReferenceReports"
+SCRIPT_DIR = Path(__file__).resolve().parent
+WPP_ROOT_DIR = SCRIPT_DIR / "Data"
+WPP_REPORT_DIR = WPP_ROOT_DIR / "Reports"
+WPP_LOG_DIR = WPP_ROOT_DIR / "Logs"
+WPP_DB_DIR = WPP_ROOT_DIR / "Database"
+REFERENCE_REPORT_DIR = WPP_ROOT_DIR / "ReferenceReports"
+REFERENCE_LOG_DIR = WPP_ROOT_DIR / "ReferenceLogs"
 
-
-def compare_excel_files(generated_file: str, reference_file: str) -> None:
-    with ExcelFile(generated_file) as gen_xl, ExcelFile(reference_file) as ref_xl:
+@pytest.fixture
+def setup_wpp_root_dir():
+    set_wpp_root_dir(str(WPP_ROOT_DIR))
+    
+def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
+    with ExcelFile(generated_file, engine="openpyxl") as gen_xl, ExcelFile(reference_file, engine="openpyxl") as ref_xl:
         assert gen_xl.sheet_names == ref_xl.sheet_names, "Sheet names do not match"
 
         for sheet_name in gen_xl.sheet_names:
@@ -23,37 +32,53 @@ def compare_excel_files(generated_file: str, reference_file: str) -> None:
                 gen_df, ref_df, check_dtype=False, check_like=True
             )
 
+def compare_log_files(generated_file: Path, reference_file: Path) -> None:
+    with open(generated_file, 'r') as gen_file, open(reference_file, 'r') as ref_file:
+        gen_lines = [" ".join(line.split(" ")[2:]) for line in gen_file.readlines()[1:-2]]
+        ref_lines = [" ".join(line.split(" ")[2:]) for line in ref_file.readlines()[1:-2]]
+        assert gen_lines == ref_lines, f"Log files {generated_file} and {reference_file} do not match"
 
-def test_regression() -> None:
+
+def test_regression(setup_wpp_root_dir) -> None:
     # Clean up the Reports directory
-    if os.path.exists(get_wpp_report_dir()):
-        shutil.rmtree(get_wpp_report_dir())
-    os.makedirs(get_wpp_report_dir(), exist_ok=True)
-
+    if WPP_REPORT_DIR.exists():
+        shutil.rmtree(WPP_REPORT_DIR)
+    if WPP_LOG_DIR.exists():
+        shutil.rmtree(WPP_LOG_DIR)
+    if WPP_DB_DIR.exists():
+        shutil.rmtree(WPP_DB_DIR)
+    WPP_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    WPP_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    WPP_DB_DIR.mkdir(parents=True, exist_ok=True)
+    
     # Run UpdateDatabase
     update_database_main()
 
     # Run RunReports
-    run_reports_main()
+    qube_date = parser.parse("2022-10-11").date()
+    bos_date = qube_date
+
+    run_reports_main(qube_date=qube_date, bos_date=bos_date)    
 
     # Compare generated reports with reference reports
-    generated_reports = sorted(os.listdir(get_wpp_report_dir()))
-    reference_reports = sorted(os.listdir(REFERENCE_REPORT_DIR))
+    generated_reports = sorted(WPP_REPORT_DIR.iterdir())
+    reference_reports = sorted(REFERENCE_REPORT_DIR.iterdir())
 
-    assert len(generated_reports) == len(reference_reports), (
-        "Number of reports do not match"
-    )
+    assert len(generated_reports) == len(reference_reports), "Number of reports do not match"
 
     for generated_report, reference_report in zip(generated_reports, reference_reports):
-        generated_report_path = os.path.join(get_wpp_report_dir(), generated_report)
-        reference_report_path = os.path.join(REFERENCE_REPORT_DIR, reference_report)
+        assert generated_report.name.split("_")[1] == reference_report.name.split("_")[1], "Report names do not match"
+        compare_excel_files(generated_report, reference_report)
 
-        assert os.path.basename(generated_report_path) == os.path.basename(
-            reference_report_path
-        ), "Report names do not match"
+    # Compare generated logs with reference logs
+    generated_logs = sorted(WPP_LOG_DIR.iterdir())
+    reference_logs = sorted(REFERENCE_LOG_DIR.iterdir())
 
-        compare_excel_files(generated_report_path, reference_report_path)
+    assert len(generated_logs) == len(reference_logs), "Number of logs do not match"
 
+    for generated_log, reference_log in zip(generated_logs, reference_logs):
+        assert generated_log.name.split("_")[1] == reference_log.name.split("_")[1], "Log names do not match"
+        compare_log_files(generated_log, reference_log)
 
 if __name__ == "__main__":
     test_regression()

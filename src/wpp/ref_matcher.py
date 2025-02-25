@@ -365,6 +365,7 @@ class NoHyphenRegexStrategy(MatchingStrategy):
                 if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                     return None, None, None
             return property_ref, block_ref, tenant_ref
+
         return None, None, None
 
 
@@ -415,7 +416,9 @@ def getPropertyBlockAndTenantRefs(
         return None, None, None
 
     description = str(reference).strip()
-
+    # if "138-01-012A" in description:
+    #    pass
+    
     matcher = PropertyBlockTenantRefMatcher()
     matcher.add_strategy(IrregularTenantRefStrategy())
     matcher.add_strategy(RegexStrategy(PBT_REGEX))

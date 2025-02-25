@@ -246,3 +246,4 @@ fabric.properties
 *.zip
 *Programs_DO_NOT_CHANGE*
 *.spec
+*.db

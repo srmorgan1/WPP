@@ -47,13 +47,13 @@ def get_wpp_excel_log_file(date: dt.date) -> str:
 
 def get_wpp_report_file(date: dt.date | dt.datetime) -> str:
     return (
-        get_wpp_report_dir() + rf"/WPP_Report_{date.isoformat().replace('/', '.')}.xlsx"
+        get_wpp_report_dir() + rf"/WPP_Report_{date.isoformat().replace(':', '.')}.xlsx"
     )
 
 
 def get_wpp_update_database_log_file(date: dt.date | dt.datetime) -> str:
-    return get_wpp_log_dir() + rf"/Log_UpdateDatabase_{str(date).replace('/', '.')}.txt"
+    return get_wpp_log_dir() + rf"/Log_UpdateDatabase_{str(date).replace(':', '.')}.txt"
 
 
 def get_wpp_run_reports_log_file(date: dt.date | dt.datetime) -> str:
-    return get_wpp_log_dir() + rf"/Log_RunReports_{str(date).replace('/', '.')}.txt"
+    return get_wpp_log_dir() + rf"/Log_RunReports_{str(date).replace(':', '.')}.txt"

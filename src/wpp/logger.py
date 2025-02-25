@@ -18,7 +18,7 @@ class StdErrFilter(logging.Filter):
         return not record.levelno == logging.INFO | record.levelno == logging.DEBUG
 
 
-def get_log_file(module_name: str, log_file_name: str):
+def get_log_file(module_name: str, log_file_name: str) -> logging.Logger:
     today = dt.datetime.today()
     os.makedirs(get_wpp_log_dir(), exist_ok=True)
     log_file = log_file_name.format(today.strftime("%Y-%m-%d"))

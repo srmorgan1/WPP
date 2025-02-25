@@ -4,6 +4,7 @@ import sqlite3
 import argparse
 import pandas as pd
 import datetime as dt
+import logging
 import zipfile
 import glob
 import os
@@ -21,8 +22,9 @@ from wpp.config import (
 from wpp.db import get_or_create_db, get_single_value, get_last_insert_id
 from wpp.calendars import BUSINESS_DAY
 from wpp.logger import get_log_file
+from wpp.utils import is_running_via_pytest
 
-# from wpp.ref_matcher import getPropertyBlockAndTenantRefs
+from wpp.ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from wpp.utils import getLongestCommonSubstring
 
 #
@@ -31,8 +33,7 @@ from wpp.utils import getLongestCommonSubstring
 CLIENT_CREDIT_ACCOUNT_NUMBER = "06000792"
 
 # Set up logger
-log_file = get_wpp_update_database_log_file(dt.datetime.today())
-logger = get_log_file(__name__, log_file)
+logger = logging.getLogger(__name__)
 
 #
 # SQL
@@ -346,6 +347,7 @@ def getPropertyBlockAndTenantRefs(
     reference: str, db_cursor: Optional[sqlite3.Cursor] = None
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     return getPropertyBlockAndTenantRefsImpl(reference, db_cursor)
+    # return getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
 
 
 def getPropertyBlockAndTenantRefsImpl(
@@ -357,11 +359,11 @@ def getPropertyBlockAndTenantRefsImpl(
     if not isinstance(reference, str):
         return None, None, None
 
-    # if '133-' in reference:
-    #    print(reference)
-
     # Try to match property, block and tenant
     description = str(reference).strip()
+
+    # if "138-01-012A" in description:
+    #     pass
 
     # Check the database for irregular transaction references first
     property_ref, block_ref, tenant_ref = checkForIrregularTenantRefInDatabase(
@@ -1954,17 +1956,20 @@ def main() -> None:
 
     warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+    global logger
+    log_file = get_wpp_update_database_log_file(dt.datetime.today())
+    logger = get_log_file(__name__, log_file)
+
     start_time = time.time()
 
     # Get command line arguments
-    args = get_args()
-    print(args)
+    args = get_args() if not is_running_via_pytest() else argparse.Namespace()
 
     os.makedirs(get_wpp_input_dir(), exist_ok=True)
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
     logger.info(
-        "Beginning Import of data into the database, at {}\n".format(
+        "Beginning Import of data into the database, at {}".format(
             dt.datetime.today().strftime("%Y-%m-%d %H:%M:%S")
         )
     )
