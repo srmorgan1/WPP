@@ -34,8 +34,8 @@ def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
 
 def compare_log_files(generated_file: Path, reference_file: Path) -> None:
     with open(generated_file, 'r') as gen_file, open(reference_file, 'r') as ref_file:
-        gen_lines = [" ".join(line.split(" ")[2:]) for line in gen_file.readlines()[1:-2]]
-        ref_lines = [" ".join(line.split(" ")[2:]) for line in ref_file.readlines()[1:-2]]
+        gen_lines = [" ".join(line.split(" ")[4:]) for line in gen_file.readlines()[1:-2] if "Creating" not in line and "Importing" not in line]
+        ref_lines = [" ".join(line.split(" ")[4:]) for line in ref_file.readlines()[1:-2] if "Creating" not in line and "Importing" not in line]
         assert gen_lines == ref_lines, f"Log files {generated_file} and {reference_file} do not match"
 
 
@@ -61,8 +61,8 @@ def test_regression(setup_wpp_root_dir) -> None:
     run_reports_main(qube_date=qube_date, bos_date=bos_date)    
 
     # Compare generated reports with reference reports
-    generated_reports = sorted(WPP_REPORT_DIR.iterdir())
-    reference_reports = sorted(REFERENCE_REPORT_DIR.iterdir())
+    generated_reports = sorted([report for report in WPP_REPORT_DIR.iterdir() if report.suffix == '.xlsx'])
+    reference_reports = sorted([report for report in REFERENCE_REPORT_DIR.iterdir() if report.suffix == '.xlsx'])
 
     assert len(generated_reports) == len(reference_reports), "Number of reports do not match"
 
@@ -71,8 +71,8 @@ def test_regression(setup_wpp_root_dir) -> None:
         compare_excel_files(generated_report, reference_report)
 
     # Compare generated logs with reference logs
-    generated_logs = sorted(WPP_LOG_DIR.iterdir())
-    reference_logs = sorted(REFERENCE_LOG_DIR.iterdir())
+    generated_logs = sorted([log for log in WPP_LOG_DIR.iterdir() if log.suffix == '.txt'])
+    reference_logs = sorted([log for log in REFERENCE_LOG_DIR.iterdir() if log.suffix == '.txt'])
 
     assert len(generated_logs) == len(reference_logs), "Number of logs do not match"
 

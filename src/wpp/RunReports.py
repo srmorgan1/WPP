@@ -288,17 +288,12 @@ WHERE
 ORDER BY block_ref
 """
 
-
-def add_column_totals(df: pd.DataFrame) -> pd.DataFrame:
+def add_column_totals(df):
     if len(df) > 0:
-        # df = df.append(df.sum(numeric_only=True).rename("Total"))
-        df = pd.concat(
-            [df, pd.DataFrame(df.sum(numeric_only=True).rename("Total"))],
-            ignore_index=True,
-        )
-        df.iloc[-1:, 0] = "TOTAL"
+        total_row = df.sum(numeric_only=True).rename('Total')
+        total_row[df.columns[0]] = 'TOTAL'
+        df = pd.concat([df, pd.DataFrame([total_row])])
     return df
-
 
 def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
     pd.options.mode.chained_assignment = None
@@ -333,8 +328,7 @@ def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[select, ["BOS"]] = bos - bos_gr
 
     df.loc[select, "GR"] = 0.0
-    # df = df.append(row)
-    df = pd.concat([df, row], ignore_index=True)
+    df = pd.concat([df, row])
     return df
 
 

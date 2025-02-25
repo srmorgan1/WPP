@@ -163,6 +163,10 @@ class MatchingStrategy(ABC):
         pass
 
 
+class MatchValidationException(Exception):
+    """Raise when a matching strategy matches but fails validation"""
+
+
 class IrregularTenantRefStrategy(MatchingStrategy):
     def match(
         self, description: str, db_cursor: Optional[sqlite3.Cursor]
@@ -197,8 +201,8 @@ class RegexStrategy(MatchingStrategy):
         property_ref, block_ref, tenant_ref = (
             getPropertyBlockAndTenantRefsFromRegexMatch(match)
         )
-        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-            return None, None, None
+        # if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
+        #    raise MatchValidationException("Failed to validate tenant reference")
         return property_ref, block_ref, tenant_ref
 
 
@@ -211,7 +215,7 @@ class RegexDoubleCheckStrategy(RegexStrategy):
         )
 
         if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-            return None, None, None
+            raise MatchValidationException("Failed to validate tenant reference")
         return property_ref, block_ref, tenant_ref
 
 
@@ -232,7 +236,7 @@ class PBTRegex3Strategy(RegexStrategy):
                 match.group(1), match.group(2), match.group(3)
             )
             if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                return None, None, None
+                raise MatchValidationException("Failed to validate tenant reference")
         return property_ref, block_ref, tenant_ref
 
 
@@ -253,7 +257,7 @@ class PBTRegex4Strategy(RegexStrategy):
             block_ref = "{}-{}".format(property_ref, match.group(2))
             tenant_ref = "{}-{}".format(block_ref, match.group(3))
             if not checkTenantExists(db_cursor, tenant_ref):
-                return None, None, None
+                raise MatchValidationException(f"Failed to validate tenant reference: tenant {tenant_ref} does not exist")
         return property_ref, block_ref, tenant_ref
 
 
@@ -275,7 +279,7 @@ class SpecialCaseStrategy(RegexStrategy):
                     property_ref, block_ref, tenant_ref
                 )
                 if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                    return None, None, None
+                    raise MatchValidationException("Failed to validate tenant reference")
         elif not (
             (
                 property_ref
@@ -296,7 +300,7 @@ class SpecialCaseStrategy(RegexStrategy):
                 and match.group(3)[-1] != "Z"
             )
         ):
-            return None, None, None
+            raise MatchValidationException("Failed to validate tenant reference: the property is not in the special cases lists")
         return property_ref, block_ref, tenant_ref
 
 
@@ -322,7 +326,7 @@ class PTRegexStrategy(RegexStrategy):
         self, description: str, db_cursor: Optional[sqlite3.Cursor]
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         # Prevent this case from matching for now
-        return None, None, None
+        raise MatchValidationException("Failed to validate tenant reference")
 
     # def process_match(self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     #     # property_ref = match.group(1)
@@ -363,7 +367,7 @@ class NoHyphenRegexStrategy(MatchingStrategy):
                     property_ref, block_ref, tenant_ref
                 )
                 if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                    return None, None, None
+                    raise MatchValidationException("Failed to validate tenant reference")
             return property_ref, block_ref, tenant_ref
 
         return None, None, None
@@ -385,10 +389,15 @@ class PropertyBlockTenantRefMatcher:
     def match(
         self, description: str, db_cursor: Optional[sqlite3.Cursor]
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        for strategy in self.strategies:
-            property_ref, block_ref, tenant_ref = strategy.match(description, db_cursor)
-            if property_ref or block_ref or tenant_ref:
-                return property_ref, block_ref, tenant_ref
+        try:
+            for strategy in self.strategies:
+                property_ref, block_ref, tenant_ref = strategy.match(description, db_cursor)
+                if property_ref or block_ref or tenant_ref:
+                    return property_ref, block_ref, tenant_ref
+        except MatchValidationException:
+            # Exception raised when a strategy matches but fails post-match validation, break out of the loop and don't try any more strategies
+            pass
+
         return None, None, None
 
 
