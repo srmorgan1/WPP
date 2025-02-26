@@ -346,8 +346,8 @@ def checkForIrregularTenantRefInDatabase(
 def getPropertyBlockAndTenantRefs(
     reference: str, db_cursor: Optional[sqlite3.Cursor] = None
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    return getPropertyBlockAndTenantRefsImpl(reference, db_cursor)
-    # return getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
+    # return getPropertyBlockAndTenantRefsImpl(reference, db_cursor)
+    return getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
 
 
 def getPropertyBlockAndTenantRefsImpl(
@@ -362,7 +362,7 @@ def getPropertyBlockAndTenantRefsImpl(
     # Try to match property, block and tenant
     description = str(reference).strip()
 
-    # if "138-01-012A" in description:
+    # if "MEDHURST K M 10501001 RP4652285818999300" in description:
     #     pass
 
     # Check the database for irregular transaction references first

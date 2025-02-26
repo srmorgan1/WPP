@@ -322,16 +322,11 @@ class PTRegexStrategy(RegexStrategy):
     def __init__(self):
         super().__init__(PT_REGEX)
 
-    def match(
-        self, description: str, db_cursor: Optional[sqlite3.Cursor]
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        # Prevent this case from matching for now
-        raise MatchValidationException("Failed to validate tenant reference")
-
-    # def process_match(self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    #     # property_ref = match.group(1)
-    #     # tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
-    #     # block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
+    def process_match(self, match: re.Match, description: str, db_cursor: Optional[sqlite3.Cursor]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        property_ref = match.group(1)
+        tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
+        block_ref = '01'   # Null block indicates that the tenant and block can't be matched uniquely
+        return property_ref, block_ref, tenant_ref
 
 
 class PRegexStrategy(RegexStrategy):
@@ -425,8 +420,8 @@ def getPropertyBlockAndTenantRefs(
         return None, None, None
 
     description = str(reference).strip()
-    # if "138-01-012A" in description:
-    #    pass
+    # if "MEDHURST K M 10501001 RP4652285818999300" in description:
+    #     pass
     
     matcher = PropertyBlockTenantRefMatcher()
     matcher.add_strategy(IrregularTenantRefStrategy())
@@ -439,9 +434,9 @@ def getPropertyBlockAndTenantRefs(
     matcher.add_strategy(PBTRegex4Strategy())
     matcher.add_strategy(SpecialCaseStrategy())
     matcher.add_strategy(PBRegexStrategy())
-    matcher.add_strategy(PTRegexStrategy())
+    # matcher.add_strategy(PTRegexStrategy())
     matcher.add_strategy(NoHyphenRegexStrategy())
-    matcher.add_strategy(PRegexStrategy())
+    # matcher.add_strategy(PRegexStrategy())
 
     property_ref, block_ref, tenant_ref = matcher.match(description, db_cursor)
     return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)

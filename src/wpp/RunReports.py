@@ -373,10 +373,7 @@ def runReports(
     logger.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
 
     if not checkDataIsPresent(db_conn, qube_date.isoformat(), bos_date.isoformat()):
-        logger.error(
-            f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}"
-        )
-        sys.exit(1)
+        raise Exception(f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}")
 
     # Create a Pandas Excel writer using openpyxl as the engine.
     excel_report_file = get_wpp_report_file(qube_date)
@@ -560,7 +557,7 @@ def main(
         qube_date, bos_date = get_run_date_args(args, qube_date, bos_date)
         runReports(db_conn, qube_date, bos_date)
     except Exception as ex:
-        logger.error(str(ex))
+        logger.exception(str(ex))
 
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
