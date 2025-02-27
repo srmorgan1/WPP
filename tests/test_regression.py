@@ -20,9 +20,26 @@ REFERENCE_REPORT_DIR = WPP_ROOT_DIR / "ReferenceReports"
 REFERENCE_LOG_DIR = WPP_ROOT_DIR / "ReferenceLogs"
 
 
+def _clean_up_output_dirs():
+    # Clean up the Reports, Logs and DB directories
+    if WPP_REPORT_DIR.exists():
+        shutil.rmtree(WPP_REPORT_DIR)
+    if WPP_LOG_DIR.exists():
+        shutil.rmtree(WPP_LOG_DIR)
+    if WPP_DB_DIR.exists():
+        shutil.rmtree(WPP_DB_DIR)
+
 @pytest.fixture
 def setup_wpp_root_dir():
+    _clean_up_output_dirs()
     set_wpp_root_dir(str(WPP_ROOT_DIR))
+    # Make output dirs
+    # WPP_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    # WPP_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    # WPP_DB_DIR.mkdir(parents=True, exist_ok=True)
+    yield
+    # Teardown code
+    _clean_up_output_dirs()
 
 
 def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
@@ -46,17 +63,6 @@ def compare_log_files(generated_file: Path, reference_file: Path) -> None:
 
 
 def test_regression(setup_wpp_root_dir) -> None:
-    # Clean up the Reports directory
-    if WPP_REPORT_DIR.exists():
-        shutil.rmtree(WPP_REPORT_DIR)
-    if WPP_LOG_DIR.exists():
-        shutil.rmtree(WPP_LOG_DIR)
-    if WPP_DB_DIR.exists():
-        shutil.rmtree(WPP_DB_DIR)
-    WPP_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    WPP_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    WPP_DB_DIR.mkdir(parents=True, exist_ok=True)
-
     # Run UpdateDatabase
     update_database_main()
 
@@ -85,7 +91,3 @@ def test_regression(setup_wpp_root_dir) -> None:
     for generated_log, reference_log in zip(generated_logs, reference_logs):
         assert generated_log.name.split("_")[1] == reference_log.name.split("_")[1], "Log names do not match"
         compare_log_files(generated_log, reference_log)
-
-
-if __name__ == "__main__":
-    test_regression()
