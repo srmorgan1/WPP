@@ -1,22 +1,18 @@
-from dateutil import parser
 import argparse
-import datetime as dt
-import sqlite3
-import logging
-import pandas as pd
 import copy
-import sys
+import datetime as dt
+import logging
 import os
-from typing import Tuple, Optional, cast
+import sqlite3
+import sys
+from typing import cast
 
-from wpp.config import (
-    get_wpp_report_dir,
-    get_wpp_db_file,
-    get_wpp_report_file,
-    get_wpp_run_reports_log_file,
-)
+import pandas as pd
+from dateutil import parser
+
 from wpp.calendars import BUSINESS_DAY
-from wpp.db import get_single_value, run_sql_query, union_sql_queries, join_sql_queries
+from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
+from wpp.db import get_single_value, join_sql_queries, run_sql_query, union_sql_queries
 from wpp.logger import get_log_file
 from wpp.utils import is_running_via_pytest
 
@@ -288,12 +284,14 @@ WHERE
 ORDER BY block_ref
 """
 
+
 def add_column_totals(df):
     if len(df) > 0:
-        total_row = df.sum(numeric_only=True).rename('Total')
-        total_row[df.columns[0]] = 'TOTAL'
+        total_row = df.sum(numeric_only=True).rename("Total")
+        total_row[df.columns[0]] = "TOTAL"
         df = pd.concat([df, pd.DataFrame([total_row])])
     return df
+
 
 def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
     pd.options.mode.chained_assignment = None
@@ -332,9 +330,7 @@ def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def checkDataIsPresent(
-    db_conn: sqlite3.Connection, qube_date: str, bos_date: str
-) -> bool:
+def checkDataIsPresent(db_conn: sqlite3.Connection, qube_date: str, bos_date: str) -> bool:
     is_data_present = True
 
     csr = db_conn.cursor()
@@ -345,9 +341,7 @@ def checkDataIsPresent(
 
     sql = "select count(ID) from AccountBalances where at_date = ?"
     count = cast(int, get_single_value(csr, sql, (bos_date,)))
-    logger.info(
-        f"{count} Bank Of Scotland account balance records found for date {bos_date}"
-    )
+    logger.info(f"{count} Bank Of Scotland account balance records found for date {bos_date}")
     is_data_present = is_data_present and (count > 0)
 
     sql = "select count(ID) from Charges where at_date = ?"
@@ -357,9 +351,7 @@ def checkDataIsPresent(
     return is_data_present
 
 
-def runReports(
-    db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date
-) -> None:
+def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date) -> None:
     # Get start and end dates for this calendar month
     # today = dt.date.today()
     # year = int(today.strftime("%Y"))
@@ -396,34 +388,22 @@ def runReports(
         index=False,
         float_format="%.2f",
     )
-    df = run_sql_query(
-        db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger
-    )
+    df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger)
     blocks = df["Block"].tolist()
     if len(blocks) > 0:
-        logger.info(
-            "Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}".format(
-                ", ".join(blocks)
-            )
-        )
+        logger.info("Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}".format(", ".join(blocks)))
 
     # Non-DC/PAY type transactions
     logger.info(f"Running Transactions report for {bos_date}")
     logger.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
-    df = run_sql_query(
-        db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger
-    )
+    df = run_sql_query(db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
-    df.to_excel(
-        excel_writer, sheet_name="Transactions", index=False, float_format="%.2f"
-    )
+    df.to_excel(excel_writer, sheet_name="Transactions", index=False, float_format="%.2f")
 
     # DC/PAY type transactions
     logger.info(f"Running DC & PAY Transactions report for {bos_date}")
     logger.debug(SELECT_PAY_TYPE_TRANSACTIONS)
-    df = run_sql_query(
-        db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger
-    )
+    df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
@@ -468,8 +448,7 @@ def runReports(
     df = run_sql_query(
         db_conn,
         sql,
-        (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat())
-        + (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()),
+        (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()) + (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()),
         logger,
     )
     df = add_extra_rows(df)
@@ -486,9 +465,7 @@ def runReports(
     # Run SC total transactions by tenant report for given run date
     logger.info(f"Running Total SC Paid By Tenant on {bos_date} report")
     logger.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
-    df = run_sql_query(
-        db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date.isoformat(),) * 2, logger
-    )
+    df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
     df.to_excel(
         excel_writer,
@@ -502,9 +479,7 @@ def runReports(
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-b", "--bos_date", type=str, help="Bank Of Scotland Transactions date"
-    )
+    parser.add_argument("-b", "--bos_date", type=str, help="Bank Of Scotland Transactions date")
     parser.add_argument("-q", "--qube_date", type=str, help="Qube Balances date")
     parser.add_argument("-v", "--verbose", type=str, help="Generate verbose log file.")
     args = parser.parse_args()
@@ -519,25 +494,13 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def get_run_date_args(
-    args: argparse.Namespace, qube_date: Optional[dt.date], bos_date: Optional[dt.date]
-) -> Tuple[dt.date, dt.date]:
-    qube_date = qube_date or (
-        parser.parse(args.qube_date, dayfirst=False).date()
-        if args.qube_date
-        else (dt.date.today() - BUSINESS_DAY)
-    )
-    bos_date = bos_date or (
-        parser.parse(args.bos_date, dayfirst=False).date()
-        if args.bos_date
-        else qube_date
-    )
+def get_run_date_args(args: argparse.Namespace, qube_date: dt.date | None, bos_date: dt.date | None) -> tuple[dt.date, dt.date]:
+    qube_date = qube_date or (parser.parse(args.qube_date, dayfirst=False).date() if args.qube_date else (dt.date.today() - BUSINESS_DAY))
+    bos_date = bos_date or (parser.parse(args.bos_date, dayfirst=False).date() if args.bos_date else qube_date)
     return qube_date, bos_date
 
 
-def main(
-    qube_date: Optional[dt.date] = None, bos_date: Optional[dt.date] = None
-) -> None:
+def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> None:
     import time
 
     start_time = time.time()
@@ -562,10 +525,8 @@ def main(
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    logger.info("Done in {} seconds.".format(round(elapsed_time, 1)))
-    logger.info(
-        "----------------------------------------------------------------------------------------"
-    )
+    logger.info(f"Done in {round(elapsed_time, 1)} seconds.")
+    logger.info("----------------------------------------------------------------------------------------")
     # input("Press enter to end.")
 
 

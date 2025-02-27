@@ -1,28 +1,29 @@
-import pytest
 import os
+
+import pytest
 
 from wpp.db import get_data
 from wpp.UpdateDatabase import (
-    get_or_create_db,
-    get_last_insert_id,
-    get_single_value,
-    get_id,
-    get_id_from_ref,
-    get_id_from_key_table,
-    importBankOfScotlandTransactionsXMLFile,
-    importBankOfScotlandBalancesXMLFile,
-    importPropertiesFile,
-    importEstatesFile,
-    addPropertyToDB,
-    addBlockToDB,
-    addTenantToDB,
-    importBlockBankAccountNumbers,
-    importBankAccounts,
-    importIrregularTransactionReferences,
-    calculateSCFund,
-    importQubeEndOfDayBalancesFile,
     add_misc_data_to_db,
+    addBlockToDB,
+    addPropertyToDB,
+    addTenantToDB,
+    calculateSCFund,
+    get_id,
+    get_id_from_key_table,
+    get_id_from_ref,
+    get_last_insert_id,
+    get_or_create_db,
+    get_single_value,
     importAllData,
+    importBankAccounts,
+    importBankOfScotlandBalancesXMLFile,
+    importBankOfScotlandTransactionsXMLFile,
+    importBlockBankAccountNumbers,
+    importEstatesFile,
+    importIrregularTransactionReferences,
+    importPropertiesFile,
+    importQubeEndOfDayBalancesFile,
 )
 
 # Define the database file for testing
@@ -60,9 +61,7 @@ def test_get_last_insert_id(db_conn):
 def test_get_single_value(db_conn):
     cursor = db_conn.cursor()
     cursor.execute("INSERT INTO Properties (property_ref) VALUES ('test_ref');")
-    value = get_single_value(
-        cursor, "SELECT property_ref FROM Properties WHERE property_ref = 'test_ref';"
-    )
+    value = get_single_value(cursor, "SELECT property_ref FROM Properties WHERE property_ref = 'test_ref';")
     assert value == "test_ref"
 
 
@@ -96,9 +95,7 @@ def test_get_id_from_key_table(db_conn):
 def test_importBankOfScotlandTransactionsXMLFile(db_conn):
     # Assuming a sample XML file exists for testing
     sample_xml_file = "/path/to/sample_transactions.xml"
-    errors, duplicates = importBankOfScotlandTransactionsXMLFile(
-        db_conn, sample_xml_file
-    )
+    errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, sample_xml_file)
     assert len(errors) == 0
     assert len(duplicates) == 0
 

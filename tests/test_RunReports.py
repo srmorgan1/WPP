@@ -1,29 +1,16 @@
-import pytest
-import os
 import logging
-import pandas as pd
-from unittest.mock import patch, MagicMock
+import os
 from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
 
 # FILE: tests/test_RunReports.py
-
 from wpp.calendars import EnglandAndWalesHolidayCalendar
 from wpp.db import get_db_connection
-from wpp.logger import (
-    StdOutFilter,
-    StdErrFilter,
-)
-from wpp.RunReports import (
-    join_sql_queries,
-    union_sql_queries,
-    run_sql_query,
-    get_single_value,
-    add_column_totals,
-    add_extra_rows,
-    checkDataIsPresent,
-    runReports,
-    get_args,
-)
+from wpp.logger import StdErrFilter, StdOutFilter
+from wpp.RunReports import add_column_totals, add_extra_rows, checkDataIsPresent, get_args, get_single_value, join_sql_queries, run_sql_query, runReports, union_sql_queries
 
 # Define the database file for testing
 TEST_DB_FILE = "/Users/steve/Development/PycharmProjects/WPP/tests/test_WPP_DB.db"
@@ -134,9 +121,7 @@ def test_runReports(mock_ExcelWriter, mock_run_sql_query):
 
 @patch("argparse.ArgumentParser.parse_args")
 def test_get_args(mock_parse_args):
-    mock_parse_args.return_value = MagicMock(
-        bos_date="2023-01-01", qube_date="2023-01-01"
-    )
+    mock_parse_args.return_value = MagicMock(bos_date="2023-01-01", qube_date="2023-01-01")
     args = get_args()
     assert args.bos_date == "2023-01-01"
     assert args.qube_date == "2023-01-01"

@@ -1,5 +1,5 @@
-import logging
 import datetime as dt
+import logging
 import os
 
 from wpp.config import get_wpp_log_dir
@@ -24,9 +24,7 @@ def get_log_file(module_name: str, log_file_name: str) -> logging.Logger:
     log_file = log_file_name.format(today.strftime("%Y-%m-%d"))
 
     # logFormatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%Y-%m-%d %H:%M:%S")
-    logFormatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s: - %(message)s", "%H:%M:%S"
-    )
+    logFormatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%H:%M:%S")
 
     # logging.basicConfig(filename=log_file, level=logging.WARNING)
     logger = logging.getLogger(module_name)

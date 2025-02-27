@@ -1,25 +1,23 @@
-import streamlit as st
-import pandas as pd
-import signal
-import os
 import datetime as dt
+import os
+import signal
 import time
+
+import pandas as pd
+import streamlit as st
+
+from wpp.calendars import BUSINESS_DAY
+from wpp.config import get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
 
 # Import the main functions from the scripts
 from wpp.RunReports import main as run_reports_main
 from wpp.UpdateDatabase import main as update_database_main
-from wpp.config import get_wpp_report_dir, get_wpp_log_dir, get_wpp_db_file
-from wpp.calendars import BUSINESS_DAY
 
 
 # Function to display the latest report
 def display_latest_report(match_name: str) -> None:
     latest_report = max(
-        [
-            os.path.join(get_wpp_report_dir(), f)
-            for f in os.listdir(get_wpp_report_dir())
-            if match_name in f
-        ],
+        [os.path.join(get_wpp_report_dir(), f) for f in os.listdir(get_wpp_report_dir()) if match_name in f],
         key=os.path.getctime,
     )
     xls = pd.ExcelFile(latest_report)
@@ -34,14 +32,10 @@ def display_latest_report(match_name: str) -> None:
 # Function to display the latest log
 def display_latest_log(match_name: str) -> None:
     latest_log = max(
-        [
-            os.path.join(get_wpp_log_dir(), f)
-            for f in os.listdir(get_wpp_log_dir())
-            if match_name in f
-        ],
+        [os.path.join(get_wpp_log_dir(), f) for f in os.listdir(get_wpp_log_dir()) if match_name in f],
         key=os.path.getctime,
     )
-    with open(latest_log, "r") as file:
+    with open(latest_log) as file:
         log_content = file.read()
     st.text(log_content)
 

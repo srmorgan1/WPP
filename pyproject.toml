@@ -31,5 +31,28 @@ dev = [
     "types-python-dateutil>=2.9.0.20241206",
 ]
 
+[tool.ruff]
+target-version = "py313"
+line-length = 200
+
+[tool.ruff.lint]
+extend-select = [
+    # "D",    # pycodestyle
+    "E", "W",   # pycodestyle
+    "F",    # pyflakes
+    "I",    # sort imports
+    "UP",   # pyupgrade
+    # "RUF",  # ruff dev's own rules
+    # "SIM",  # pyflakes simplicity
+    # "C90",  # more complexity rules
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+split-on-trailing-comma = false
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]

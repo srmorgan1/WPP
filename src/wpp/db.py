@@ -1,9 +1,10 @@
+import logging
+import os
 import sqlite3
 import sys
-import os
-import logging
+from typing import Any
+
 import pandas as pd
-from typing import Any, Optional, Tuple, List
 
 from wpp.config import get_wpp_db_dir
 
@@ -47,7 +48,7 @@ CREATE_SUGGESTED_TENANTS_TABLE = """
 CREATE TABLE SuggestedTenants (
     ID             INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id      INTEGER REFERENCES Tenants (ID),
-    transaction_id INTEGER REFERENCES Transactions (ID) 
+    transaction_id INTEGER REFERENCES Transactions (ID)
 );
 """
 
@@ -59,7 +60,7 @@ CREATE TABLE Transactions (
     description    TEXT,
     pay_date       DATE    NOT NULL,
     tenant_id      INTEGER REFERENCES Tenants (ID),
-    account_id     INTEGER REFERENCES Accounts (ID) 
+    account_id     INTEGER REFERENCES Accounts (ID)
 );
 """
 
@@ -203,9 +204,7 @@ CREATE UNIQUE INDEX Index_Key_{0} ON Key_{0} (
 """
 
 
-def _create_and_index_tables(
-    db_conn: sqlite3.Connection, logger: logging.Logger = logging.getLogger()
-) -> None:
+def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger = logging.getLogger()) -> None:
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
@@ -246,9 +245,7 @@ def _create_and_index_tables(
         sys.exit(1)
 
 
-def get_or_create_db(
-    db_file: str, logger: logging.Logger = logging.getLogger()
-) -> sqlite3.Connection:
+def get_or_create_db(db_file: str, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
     init_db = not os.path.exists(db_file)
     os.makedirs(get_wpp_db_dir(), exist_ok=True)
     conn = sqlite3.connect(db_file)
@@ -257,7 +254,7 @@ def get_or_create_db(
     return conn
 
 
-def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> Optional[int]:
+def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> int | None:
     db_cursor.execute(SELECT_LAST_RECORD_ID_SQL, (table_name,))
     id = db_cursor.fetchone()
     if id:
@@ -266,9 +263,7 @@ def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> Optional[i
         return None
 
 
-def get_single_value(
-    db_cursor: sqlite3.Cursor, sql: str, args_tuple: Tuple = ()
-) -> Optional[Any]:
+def get_single_value(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> Any | None:
     db_cursor.execute(sql, args_tuple)
     value = db_cursor.fetchone()
     if value:
@@ -277,9 +272,7 @@ def get_single_value(
         return None
 
 
-def get_data(
-    db_cursor: sqlite3.Cursor, sql: str, args_tuple: Tuple = ()
-) -> List[Tuple]:
+def get_data(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> list[tuple]:
     db_cursor.execute(sql, args_tuple)
     values = db_cursor.fetchall()
     return values if values else []
@@ -298,17 +291,15 @@ def join_sql_queries(query_sql: str, sql1: str, sql2: str) -> str:
     return sql
 
 
-def union_sql_queries(
-    sql1: str, sql2: str, order_by_clause: Optional[str] = None
-) -> str:
+def union_sql_queries(sql1: str, sql2: str, order_by_clause: str | None = None) -> str:
     sql1 = sql1.replace(";", "")
     sql2 = sql2.replace(";", "")
 
-    sql = """
-    {}
+    sql = f"""
+    {sql1}
     UNION ALL
-    {}
-    """.format(sql1, sql2)
+    {sql2}
+    """
     if order_by_clause:
         sql += " " + order_by_clause
     sql += ";"
@@ -318,7 +309,7 @@ def union_sql_queries(
 def run_sql_query(
     db_conn: sqlite3.Connection,
     sql: str,
-    args_tuple: Tuple,
+    args_tuple: tuple,
     logger: logging.Logger = logging.getLogger(),
 ) -> pd.DataFrame:
     try:

@@ -1,5 +1,5 @@
-import os
 import datetime as dt
+import os
 
 # NB: These must be set to the correct locations on your system
 if os.name == "posix":
@@ -40,15 +40,11 @@ def get_wpp_db_file() -> str:
 
 
 def get_wpp_excel_log_file(date: dt.date) -> str:
-    return (
-        get_wpp_report_dir() + rf"/Data_Import_Issues_{date.strftime('%Y-%m-%d')}.xlsx"
-    )
+    return get_wpp_report_dir() + rf"/Data_Import_Issues_{date.strftime('%Y-%m-%d')}.xlsx"
 
 
 def get_wpp_report_file(date: dt.date | dt.datetime) -> str:
-    return (
-        get_wpp_report_dir() + rf"/WPP_Report_{date.isoformat().replace(':', '.')}.xlsx"
-    )
+    return get_wpp_report_dir() + rf"/WPP_Report_{date.isoformat().replace(':', '.')}.xlsx"
 
 
 def get_wpp_update_database_log_file(date: dt.date | dt.datetime) -> str:
