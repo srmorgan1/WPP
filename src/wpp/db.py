@@ -1,7 +1,7 @@
 import logging
-import os
 import sqlite3
 import sys
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -245,9 +245,9 @@ def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger
         sys.exit(1)
 
 
-def get_or_create_db(db_file: str, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
-    init_db = not os.path.exists(db_file)
-    os.makedirs(get_wpp_db_dir(), exist_ok=True)
+def get_or_create_db(db_file: Path, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
+    init_db = not db_file.exists()
+    get_wpp_db_dir().mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_file)
     if init_db:
         _create_and_index_tables(conn, logger)
@@ -278,7 +278,7 @@ def get_data(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> lis
     return values if values else []
 
 
-def get_db_connection(db_file: str) -> sqlite3.Connection:
+def get_db_connection(db_file: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_file)
     return conn
 

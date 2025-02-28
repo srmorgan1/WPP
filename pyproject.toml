@@ -33,15 +33,15 @@ dev = [
 
 [tool.ruff]
 target-version = "py313"
-# line-length = 200
+line-length = 200
 # ignore: Specifies the list of error codes to ignore. Here, it includes E501 (line too long)
 # and W503 (line break before binary operator).
-ignore = ["E501"]
 # per-file-ignores = {
 #     "__init__.py" = ["F401"],
 # }
 
 [tool.ruff.lint]
+ignore = ["E501"]
 extend-select = [
     # "D",    # pycodestyle
     "E", "W",   # pycodestyle

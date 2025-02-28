@@ -29,6 +29,7 @@ def _clean_up_output_dirs():
     if WPP_DB_DIR.exists():
         shutil.rmtree(WPP_DB_DIR)
 
+
 @pytest.fixture
 def setup_wpp_root_dir():
     _clean_up_output_dirs()
