@@ -252,3 +252,5 @@ fabric.properties
 # Decrypted files
 tests/Data/Inputs/*
 !tests/Data/Inputs/*.gpg
+tests/Data/ReferenceReports/*
+!tests/Data/ReferenceReports/*.gpg

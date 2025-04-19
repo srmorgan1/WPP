@@ -431,21 +431,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
                                     account_id,
                                 ),
                             )
-                            logger.debug(
-                                "\tAdding transaction {}".format(
-                                    str(
-                                        (
-                                            sort_code,
-                                            account_number,
-                                            transaction_type,
-                                            amount,
-                                            description,
-                                            pay_date,
-                                            tenant_ref,
-                                        )
-                                    )
-                                )
-                            )
+                            logger.debug("\tAdding transaction {}".format((sort_code, account_number, transaction_type, amount, description, pay_date, tenant_ref)))
                             num_transactions_added_to_db += 1
                         else:
                             duplicate_transactions.append(
@@ -459,21 +445,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
                             )
                     else:
                         num_import_errors += 1
-                        logger.debug(
-                            "Cannot find tenant with reference '{}'. Ignoring transaction {}".format(
-                                tenant_ref,
-                                str(
-                                    (
-                                        pay_date,
-                                        sort_code,
-                                        account_number,
-                                        transaction_type,
-                                        amount,
-                                        description,
-                                    )
-                                ),
-                            )
-                        )
+                        logger.debug("Cannot find tenant with reference '{}'. Ignoring transaction {}".format(tenant_ref, (pay_date, sort_code, account_number, transaction_type, amount, description)))
                         errors_list.append(
                             [
                                 pay_date,
@@ -636,22 +608,7 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
                                     account_id,
                                 ),
                             )
-                            logger.debug(
-                                "\tAdding bank balance {}".format(
-                                    str(
-                                        (
-                                            sort_code,
-                                            account_number,
-                                            account_type,
-                                            client_ref,
-                                            account_name,
-                                            at_date,
-                                            current_balance,
-                                            available_balance,
-                                        )
-                                    )
-                                )
-                            )
+                            logger.debug("\tAdding bank balance {}".format((sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)))
                             num_balances_added_to_db += 1
                     else:
                         pass
@@ -1268,20 +1225,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                                     block_id,
                                 ),
                             )
-                            logger.debug(
-                                "\tAdding charge {}".format(
-                                    str(
-                                        (
-                                            fund,
-                                            category,
-                                            AVAILABLE_FUNDS,
-                                            at_date,
-                                            block_ref,
-                                            available_funds,
-                                        )
-                                    )
-                                )
-                            )
+                            logger.debug("\tAdding charge {}".format((fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds)))
                             num_charges_added_to_db += 1
 
                         if property_code_or_fund in [
@@ -1312,20 +1256,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                                         block_id,
                                     ),
                                 )
-                                logger.debug(
-                                    "\tAdding charge for {}".format(
-                                        str(
-                                            (
-                                                fund,
-                                                category,
-                                                AUTH_CREDITORS,
-                                                at_date,
-                                                block_ref,
-                                                auth_creditors,
-                                            )
-                                        )
-                                    )
-                                )
+                                logger.debug("\tAdding charge for {}".format((fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors)))
                                 num_charges_added_to_db += 1
 
                             # Add SC Fund charge
@@ -1352,20 +1283,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                                         block_id,
                                     ),
                                 )
-                                logger.debug(
-                                    "\tAdding charge for {}".format(
-                                        str(
-                                            (
-                                                fund,
-                                                category,
-                                                SC_FUND,
-                                                at_date,
-                                                block_ref,
-                                                sc_fund,
-                                            )
-                                        )
-                                    )
-                                )
+                                logger.debug("\tAdding charge for {}".format((fund, category, SC_FUND, at_date, block_ref, sc_fund)))
                                 num_charges_added_to_db += 1
                     else:
                         logger.warning(f"Cannot determine the block for the Qube balances from block reference {block_ref}")

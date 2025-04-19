@@ -11,7 +11,7 @@ SUFFIXES=("xlsx" "zip")
 
 # Encrypt files with the specified suffixes
 for suffix in "${SUFFIXES[@]}"; do
-  for file in tests/Data/Inputs/*.$suffix; do
+  for file in tests/Data/Inputs/*.$suffix tests/Data/ReferenceReports/*.$suffix; do
   echo $file
     # Skip if no files match the suffix
     [ -e "$file" ] || continue
