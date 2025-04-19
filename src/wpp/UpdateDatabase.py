@@ -1,24 +1,22 @@
 import argparse
 import datetime as dt
-import glob
 import logging
 import os
 import re
 import sqlite3
 import xml.etree.ElementTree as et
-import zipfile
-from typing import IO, Any
+from typing import Any
 
 import pandas as pd
 from dateutil import parser
 from openpyxl import load_workbook
 
-from wpp.calendars import BUSINESS_DAY
-from wpp.config import get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
-from wpp.db import get_last_insert_id, get_or_create_db, get_single_value
-from wpp.logger import get_log_file
-from wpp.ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
-from wpp.utils import getLongestCommonSubstring, is_running_via_pytest
+from .calendars import BUSINESS_DAY
+from .config import get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
+from .db import get_last_insert_id, get_or_create_db, get_single_value
+from .logger import get_log_file
+from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
+from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
 
 #
 # Constants
@@ -95,9 +93,9 @@ def get_id(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> int |
 def get_id_from_ref(db_cursor: sqlite3.Cursor, table_name: str, field_name: str, ref_name: str) -> int | None:
     sql = SELECT_ID_FROM_REF_SQL.format(table_name, field_name, ref_name)
     db_cursor.execute(sql)
-    id = db_cursor.fetchone()
-    if id:
-        return id[0]
+    _id = db_cursor.fetchone()
+    if _id:
+        return _id[0]
     else:
         return None
 
@@ -105,70 +103,13 @@ def get_id_from_ref(db_cursor: sqlite3.Cursor, table_name: str, field_name: str,
 def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value: str) -> int | None:
     sql = SELECT_ID_FROM_KEY_TABLE_SQL.format(key_table_name)
     db_cursor.execute(sql, (value,))
-    id = db_cursor.fetchone()
-    if id:
-        return id[0]
+    _id = db_cursor.fetchone()
+    if _id:
+        return _id[0]
     else:
         sql = INSERT_KEY_TABLE_SQL.format(key_table_name)
         db_cursor.execute(sql, (value,))
         return get_last_insert_id(db_cursor, f"Key_{key_table_name}")
-
-
-def open_files(file_paths: list[str]) -> list[IO]:
-    files = []
-    for file_path in file_paths:
-        ext = os.path.splitext(file_path)
-        if ext == ".zip":
-            # A zip file may contain multiple zipped files
-            zfile = zipfile.ZipFile(file_path)
-            for finfo in zfile.infolist():
-                # Mac OSX zip files contain a directory we don't want
-                if "__MACOSX" not in finfo.filename:
-                    files.append(zfile.open(finfo))
-        else:
-            files.append(open(file_path))
-    return files
-
-
-# Open a file, which can be within a zip file
-def open_file(file_path: str) -> IO:
-    ext = os.path.splitext(file_path)
-    if ext[1].lower() == ".zip":
-        # A zip file may contain multiple zipped files, however we only want the first one
-        zfile = zipfile.ZipFile(file_path)
-        files = [finfo for finfo in zfile.infolist() if "__MACOSX" not in finfo.filename]
-        if len(files) > 1:
-            raise ValueError(f"Zip file {file_path} must contain only only one zipped file")
-        else:
-            return zfile.open(files[0])
-    else:
-        return open(file_path)
-
-
-def getMatchingFileNames(file_paths: str | list[str]) -> list[str]:
-    files = []
-    if not isinstance(file_paths, list):
-        file_paths = [file_paths]
-
-    for file_path in file_paths:
-        files.extend(glob.glob(file_path))
-    return sorted(files, key=os.path.getctime)
-
-
-def getLatestMatchingFileName(file_path: str) -> str | None:
-    files = glob.glob(file_path)
-    if files:
-        return max(files, key=os.path.getctime)
-    else:
-        return None
-
-
-def getLatestMatchingFileNameInDir(wpp_dir: str, file_name_glob: str) -> str | None:
-    files = glob.glob(os.path.join(wpp_dir, file_name_glob))
-    if files:
-        return max(files, key=os.path.getctime)
-    else:
-        return None
 
 
 def checkTenantExists(db_cursor: sqlite3.Cursor, tenant_ref: str) -> str | None:
@@ -406,7 +347,6 @@ def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor 
 
 
 def getTenantID(csr: sqlite3.Cursor, tenant_ref: str) -> None:
-    # sql = SELECT_TENANT_ID_SQL.format(tenant_ref)
     csr.execute(SELECT_TENANT_ID_SQL, (tenant_ref))
 
 

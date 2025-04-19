@@ -33,15 +33,15 @@ def test_EnglandAndWalesHolidayCalendar():
 
 
 def test_STDOutFilter():
-    filter = StdOutFilter()
+    filter_ = StdOutFilter()
     record = MagicMock(levelno=logging.INFO)
-    assert filter.filter(record)
+    assert filter_.filter(record)
 
 
 def test_STDErrFilter():
-    filter = StdErrFilter()
+    filter_ = StdErrFilter()
     record = MagicMock(levelno=logging.ERROR)
-    assert filter.filter(record)
+    assert filter_.filter(record)
 
 
 def test_join_sql_queries():

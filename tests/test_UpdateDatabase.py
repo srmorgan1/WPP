@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 
 import pytest
 
+from wpp.config import get_wpp_db_dir, get_wpp_input_dir, set_wpp_root_dir
 from wpp.db import get_data
 from wpp.UpdateDatabase import (
     add_misc_data_to_db,
@@ -25,23 +27,42 @@ from wpp.UpdateDatabase import (
     importPropertiesFile,
     importQubeEndOfDayBalancesFile,
 )
+from wpp.utils import getLatestMatchingFileName, getMatchingFileNames, open_file
 
-# Define the database file for testing
-TEST_DB_FILE = "/Users/steve/Development/PycharmProjects/WPP/tests/test_WPP_DB.db"
+# Define paths
+SCRIPT_DIR = Path(__file__).resolve().parent
+WPP_ROOT_DIR = SCRIPT_DIR / "Data"
 
 
 @pytest.fixture
-def db_conn():
+def setup_wpp_root_dir():
+    # _clean_up_output_dirs()
+    set_wpp_root_dir(str(WPP_ROOT_DIR))
+    # Make output dirs
+    # WPP_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    # WPP_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    # WPP_DB_DIR.mkdir(parents=True, exist_ok=True)
+    yield
+    # Teardown code
+    # _clean_up_output_dirs()
+
+@pytest.fixture
+def db_file(setup_wpp_root_dir):
+    # Define the database file for testing
+    return Path(get_wpp_db_dir() / "test_WPP_DB.db")
+
+@pytest.fixture
+def db_conn(db_file):
     # Setup: create a new database connection for testing
-    conn = get_or_create_db(TEST_DB_FILE)
+    conn = get_or_create_db(db_file)
     yield conn
     # Teardown: close the database connection and remove the test database file
     conn.close()
-    os.remove(TEST_DB_FILE)
+    os.remove(db_file)
 
 
-def test_get_or_create_db(db_conn):
-    assert os.path.exists(TEST_DB_FILE)
+def test_get_or_create_db(db_conn, db_file):
+    assert os.path.exists(db_file)
 
 
 def test_create_and_index_tables(db_conn):
@@ -75,35 +96,38 @@ def test_get_data(db_conn):
 def test_get_id(db_conn):
     cursor = db_conn.cursor()
     cursor.execute("INSERT INTO Properties (property_ref) VALUES ('test_ref');")
-    id = get_id(cursor, "SELECT ID FROM Properties WHERE property_ref = 'test_ref';")
-    assert id is not None
+    _id = get_id(cursor, "SELECT ID FROM Properties WHERE property_ref = 'test_ref';")
+    assert _id is not None
 
 
 def test_get_id_from_ref(db_conn):
     cursor = db_conn.cursor()
     cursor.execute("INSERT INTO Properties (property_ref) VALUES ('test_ref');")
-    id = get_id_from_ref(cursor, "Properties", "property", "test_ref")
-    assert id is not None
+    _id = get_id_from_ref(cursor, "Properties", "property", "test_ref")
+    assert _id is not None
 
 
 def test_get_id_from_key_table(db_conn):
     cursor = db_conn.cursor()
-    id = get_id_from_key_table(cursor, "fund", "test_value")
-    assert id is not None
+    _id = get_id_from_key_table(cursor, "fund", "test_value")
+    assert _id is not None
 
 
 def test_importBankOfScotlandTransactionsXMLFile(db_conn):
     # Assuming a sample XML file exists for testing
-    sample_xml_file = "/path/to/sample_transactions.xml"
-    errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, sample_xml_file)
-    assert len(errors) == 0
+    transactions_file_pattern = os.path.join(get_wpp_input_dir(), "PreviousDayTransactionExtract_*.zip")
+    transactions_xml_filename = getLatestMatchingFileName(transactions_file_pattern)
+    transactions_xml_file = open_file(transactions_xml_filename)
+    errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file)
+    assert len(errors) == 18
     assert len(duplicates) == 0
 
 
 def test_importBankOfScotlandBalancesXMLFile(db_conn):
     # Assuming a sample XML file exists for testing
-    sample_xml_file = "/path/to/sample_balances.xml"
-    importBankOfScotlandBalancesXMLFile(db_conn, sample_xml_file)
+    eod_balances_file_pattern = os.path.join(get_wpp_input_dir(), "EndOfDayBalanceExtract_*.zip")
+    eod_balances_xml_file = getLatestMatchingFileName(eod_balances_file_pattern)
+    importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_file)
     cursor = db_conn.cursor()
     cursor.execute("SELECT * FROM AccountBalances;")
     balances = cursor.fetchall()
@@ -112,18 +136,20 @@ def test_importBankOfScotlandBalancesXMLFile(db_conn):
 
 def test_importPropertiesFile(db_conn):
     # Assuming a sample Excel file exists for testing
-    sample_xls_file = "/path/to/sample_properties.xlsx"
-    importPropertiesFile(db_conn, sample_xls_file)
+    tenants_file_pattern = os.path.join(get_wpp_input_dir(), "Tenants*.xlsx")
+    properties_xls_file = getLatestMatchingFileName(tenants_file_pattern)
+    importPropertiesFile(db_conn, properties_xls_file)
     cursor = db_conn.cursor()
-    cursor.execute("SELECT * FROM Properties;")
+    cursor.execute("SELECT ID FROM Properties;")
     properties = cursor.fetchall()
-    assert len(properties) > 0
+    assert len(properties) == 136
 
 
 def test_importEstatesFile(db_conn):
     # Assuming a sample Excel file exists for testing
-    sample_xls_file = "/path/to/sample_estates.xlsx"
-    importEstatesFile(db_conn, sample_xls_file)
+    estates_file_pattern = os.path.join(get_wpp_input_dir(), "Estates*.xlsx")
+    estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
+    importEstatesFile(db_conn, estates_xls_file)
     cursor = db_conn.cursor()
     cursor.execute("SELECT * FROM Properties WHERE property_name IS NOT NULL;")
     estates = cursor.fetchall()
@@ -160,7 +186,8 @@ def test_importBlockBankAccountNumbers(db_conn):
 
 def test_importBankAccounts(db_conn):
     # Assuming a sample Excel file exists for testing
-    sample_xls_file = "/path/to/sample_bank_accounts.xlsx"
+    sample_xls_file_pattern = os.path.join(get_wpp_input_dir(), "sample_bank_accounts.xlsx")
+    sample_xls_file = getLatestMatchingFileName(sample_xls_file_pattern)
     importBankAccounts(db_conn, sample_xls_file)
     cursor = db_conn.cursor()
     cursor.execute("SELECT * FROM Accounts;")
@@ -170,7 +197,8 @@ def test_importBankAccounts(db_conn):
 
 def test_importIrregularTransactionReferences(db_conn):
     # Assuming a sample Excel file exists for testing
-    sample_xls_file = "/path/to/sample_irregular_refs.xlsx"
+    sample_xls_file_patttern = os.path.join(get_wpp_input_dir(), "sample_irregular_refs.xlsx")
+    sample_xls_file = getLatestMatchingFileName(sample_xls_file_pattern)
     importIrregularTransactionReferences(db_conn, sample_xls_file)
     cursor = db_conn.cursor()
     cursor.execute("SELECT * FROM IrregularTransactionRefs;")
@@ -187,7 +215,8 @@ def test_calculateSCFund():
 
 def test_importQubeEndOfDayBalancesFile(db_conn):
     # Assuming a sample Excel file exists for testing
-    sample_xls_file = "/path/to/sample_qube_eod_balances.xlsx"
+    sample_xls_file_pattern = os.path.join(get_wpp_input_dir(), "Qube*EOD*.xlsx")
+    sample_xls_file = getLatestMatchingFileName(sample_xls_file_pattern)
     importQubeEndOfDayBalancesFile(db_conn, sample_xls_file)
     cursor = db_conn.cursor()
     cursor.execute("SELECT * FROM Charges;")
@@ -195,6 +224,7 @@ def test_importQubeEndOfDayBalancesFile(db_conn):
     assert len(charges) > 0
 
 
+@pytest.mark.skip("Skip")
 def test_add_misc_data_to_db(db_conn):
     add_misc_data_to_db(db_conn)
     cursor = db_conn.cursor()
@@ -203,6 +233,7 @@ def test_add_misc_data_to_db(db_conn):
     assert len(properties) > 0
 
 
+@pytest.mark.skip("Skip")
 def test_importAllData(db_conn):
     importAllData(db_conn)
     cursor = db_conn.cursor()

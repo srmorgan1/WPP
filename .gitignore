@@ -247,3 +247,4 @@ fabric.properties
 *Programs_DO_NOT_CHANGE*
 *.spec
 *.db
+.qodo
