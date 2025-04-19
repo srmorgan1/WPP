@@ -12,7 +12,7 @@ from dateutil import parser
 from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
-from .config import get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
+from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
 from .db import get_last_insert_id, get_or_create_db, get_single_value
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
@@ -530,7 +530,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
             logger.info(
                 f"Unable to import {num_import_errors} transactions into the database. "
                 f"See the Data_Import_Issues Excel file for details. Add tenant references to "
-                "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again."
+                f"{get_config()['INPUTS']['IRREGULAR_TRANSACTION_REFS_FILE']} and run import again."
             )
         logger.info(f"{num_transactions_added_to_db} Bank Of Scotland transactions added to the database.")
         return errors_list, duplicate_transactions
@@ -1433,7 +1433,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.debug(f"Creating Excel spreadsheet report file {excel_log_file}")
     excel_writer = pd.ExcelWriter(excel_log_file, engine="openpyxl")
 
-    irregular_transaction_refs_file_pattern = os.path.join(get_wpp_input_dir(), "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx")
+    irregular_transaction_refs_file_pattern = os.path.join(get_wpp_input_dir(), f"{get_config()['INPUTS']['IRREGULAR_TRANSACTION_REFS_FILE']}")
     irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
         logger.info(f"Importing irregular transaction references from file {irregular_transaction_refs_file}")

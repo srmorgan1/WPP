@@ -46,10 +46,12 @@ def setup_wpp_root_dir():
     # Teardown code
     # _clean_up_output_dirs()
 
+
 @pytest.fixture
 def db_file(setup_wpp_root_dir):
     # Define the database file for testing
     return Path(get_wpp_db_dir() / "test_WPP_DB.db")
+
 
 @pytest.fixture
 def db_conn(db_file):

@@ -63,7 +63,7 @@ def compare_log_files(generated_file: Path, reference_file: Path) -> None:
         assert gen_lines == ref_lines, f"Log files {generated_file} and {reference_file} do not match"
 
 
-def test_regression(setup_wpp_root_dir) -> None:
+def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
     # Run UpdateDatabase
     update_database_main()
 

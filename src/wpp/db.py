@@ -278,7 +278,7 @@ def get_data(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> lis
     return values if values else []
 
 
-def get_db_connection(db_file: str| Path) -> sqlite3.Connection:
+def get_db_connection(db_file: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_file)
     return conn
 

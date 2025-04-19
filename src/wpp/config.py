@@ -1,6 +1,9 @@
 import datetime as dt
 import os
+from functools import cache
 from pathlib import Path
+
+import toml
 
 # NB: These must be set to the correct locations on your system
 if os.name == "posix":
@@ -54,3 +57,21 @@ def get_wpp_update_database_log_file(date: dt.date | dt.datetime) -> Path:
 
 def get_wpp_run_reports_log_file(date: dt.date | dt.datetime) -> Path:
     return get_wpp_log_dir() / f"Log_RunReports_{str(date).replace(':', '.')}.txt"
+
+
+@cache
+def get_config(file_path: str | None = None) -> dict:
+    """
+    Load configuration values from a TOML file.
+
+    :return: A dictionary containing the configuration values.
+    """
+    config_file_path = file_path or Path(__file__).resolve().parent / "config.toml"
+
+    try:
+        with open(config_file_path) as config_file:
+            return toml.load(config_file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file '{config_file_path}' not found.")
+    except toml.TomlDecodeError as e:
+        raise ValueError(f"Error parsing TOML file '{config_file_path}': {e}")

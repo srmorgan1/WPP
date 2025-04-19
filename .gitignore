@@ -248,3 +248,7 @@ fabric.properties
 *.spec
 *.db
 .qodo
+
+# Decrypted files
+tests/Data/Inputs/*
+!tests/Data/Inputs/*.gpg
