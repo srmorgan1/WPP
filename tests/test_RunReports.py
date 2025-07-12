@@ -170,21 +170,22 @@ def test_checkDataIsPresent(mock_get_single_value, db_conn): # Added db_conn fro
     assert result is True # Explicitly check for True
 
 
-@patch("wpp.RunReports.run_sql_query") # Ensure patch target is correct
-@patch("wpp.RunReports.pd.ExcelWriter") # Ensure patch target is correct
-def test_runReports(mock_ExcelWriter, mock_run_sql_query, db_conn): # Added db_conn
-    mock_run_sql_query.return_value = pd.DataFrame([{"test": "data"}]) # Ensure it returns non-empty for some paths
-    # conn = MagicMock() # Use real connection
-    args = MagicMock()
-    args.qube_date = parser.parse("2023-01-01").date() # Use date objects
-    args.bos_date = parser.parse("2023-01-01").date()
-    args.output_dir = Path(get_wpp_report_dir()) # Ensure output_dir is a Path and exists
-
-    # Ensure the output directory exists (conftest setup_wpp_root_dir should handle this)
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-
-    runReports(db_conn, args) # Pass db_conn
-    assert mock_ExcelWriter.called
+@patch("wpp.RunReports.checkDataIsPresent", return_value=True)
+@patch("wpp.RunReports.run_sql_query")
+@patch("wpp.RunReports.pd.ExcelWriter")
+def test_runReports(mock_excel_writer, mock_run_sql_query, mock_checkDataIsPresent, db_conn):
+    mock_run_sql_query.side_effect = [
+        pd.DataFrame([{"Reference": "050-01", "Name": "Test Block", "Total Paid SC": 100, "Account Number": "12345"}]),
+        pd.DataFrame([{"Block": "050-01"}]), # For BLOCKS_NOT_IN_COMREC_REPORT
+        pd.DataFrame([{"test": "data"}]), # For SELECT_NON_PAY_TYPE_TRANSACTIONS
+        pd.DataFrame([{"test": "data"}]), # For SELECT_PAY_TYPE_TRANSACTIONS
+        pd.DataFrame([{"Property / Block": "050-01", "Name": "Test Block", "Qube Total": 100, "BOS": 90, "Discrepancy": 10, "GR": 5, "BOS GR": 4, "Discrepancy GR": 1}]), # For Qube BOS report
+        pd.DataFrame([{"test": "data"}]), # For SELECT_TOTAL_PAID_SC_BY_TENANT_SQL
+    ]
+    qube_date = parser.parse("2023-01-01").date()
+    bos_date = parser.parse("2023-01-01").date()
+    runReports(db_conn, qube_date, bos_date)
+    assert mock_excel_writer.called
 
 
 @patch("argparse.ArgumentParser.parse_args")
@@ -197,20 +198,21 @@ def test_get_args(mock_parse_args):
 
     args = get_args() # Call the function that uses parse_args
 
-    # Assert that the dates are parsed correctly by get_args if it does parsing
-    # If get_args just returns the namespace, then check the string dates.
-    # Assuming get_args also handles date parsing:
-    assert args.bos_date == parser.parse("2023-01-01").date()
-    assert args.qube_date == parser.parse("2023-01-01").date()
+    # get_args returns strings, date parsing happens later
+    assert args.bos_date == "2023-01-01"
+    assert args.qube_date == "2023-01-01"
 
 # New integration test for RunReports.main()
-def test_run_reports_main_output(db_conn): # db_conn fixture from conftest.py
-    """
-    Tests the main RunReports script:
-    1. Runs UpdateDatabase.main() to ensure DB is populated.
-    2. Runs RunReports.main().
-    3. Compares generated reports and logs with reference files.
-    """
+@patch("wpp.RunReports.dt")
+@patch("wpp.UpdateDatabase.dt")
+def test_run_reports_main_output(mock_update_dt, mock_run_dt, db_conn, clean_output_dirs):
+    # Mock the date to control the output filename
+    mock_update_dt.date.today.return_value = parser.parse("2022-10-11").date()
+    mock_run_dt.date.today.return_value = parser.parse("2022-10-11").date()
+    mock_run_dt.datetime.today.return_value = parser.parse("2022-10-11")
+    # Mock the date to control the output filename
+    
+
     # 1. Populate the database using the test data
     update_database_main()
 
@@ -222,7 +224,6 @@ def test_run_reports_main_output(db_conn): # db_conn fixture from conftest.py
     # 3. Compare generated reports
     report_dir = Path(get_wpp_report_dir())
     generated_reports = sorted([report for report in report_dir.iterdir() if report.suffix == ".xlsx"])
-    # Assuming reference reports are not gpg encrypted for this comparison
     reference_reports_paths = sorted([
         report for report in REFERENCE_REPORT_DIR.iterdir()
         if report.suffix == ".xlsx" and not report.name.endswith(".gpg")
@@ -233,30 +234,16 @@ def test_run_reports_main_output(db_conn): # db_conn fixture from conftest.py
         f"Number of generated reports ({len(generated_reports)}) does not match reference reports ({len(reference_reports_paths)})."
 
     for gen_report, ref_report_path in zip(generated_reports, reference_reports_paths):
-        # Compare based on a common part of the name if full names might differ by date stamps not in ref
-        # For now, direct name comparison (excluding date part if necessary)
-        # Example: WPP_Report_YYYY-MM-DD.xlsx vs WPP_Report.xlsx (if ref is generic)
-        # For this project, reference name is Log_RunReports_2025-02-25.txt, so it includes a date.
-        # The generated report name is WPP_Report_YYYY-MM-DD.xlsx
-        # The reference report name is WPP_Report_2022-10-11.xlsx (from initial file list)
-        # So, we expect the generated report to match this.
         expected_report_name = f"WPP_Report_{qube_date.strftime('%Y-%m-%d')}.xlsx"
         data_import_issues_name = f"Data_Import_Issues_{qube_date.strftime('%Y-%m-%d')}.xlsx"
 
-        # We need to find the matching reference report.
-        # The reference files are: Data_Import_Issues_2025-02-25.xlsx.gpg, WPP_Report_2022-10-11.xlsx.gpg
-        # After decryption, they become: Data_Import_Issues_2025-02-25.xlsx, WPP_Report_2022-10-11.xlsx
-        # The test uses qube_date = 2022-10-11.
         if gen_report.name == expected_report_name:
             ref_to_compare = REFERENCE_REPORT_DIR / f"WPP_Report_{qube_date.strftime('%Y-%m-%d')}.xlsx"
             compare_excel_files(gen_report, ref_to_compare)
         elif gen_report.name == data_import_issues_name:
-             # The reference Data_Import_Issues has a different date (2025-02-25)
-             # This means this specific comparison might fail or needs adjustment if the test data is fixed for 2022-10-11
-             # For now, let's assume the test data will produce a Data_Import_Issues for 2022-10-11
             ref_to_compare = REFERENCE_REPORT_DIR / f"Data_Import_Issues_{qube_date.strftime('%Y-%m-%d')}.xlsx"
             if not ref_to_compare.exists():
-                 pytest.skip(f"Reference file {ref_to_compare.name} not found for comparison. Check test data alignment.")
+                pytest.skip(f"Reference file {ref_to_compare.name} not found for comparison. Check test data alignment.")
             else:
                 compare_excel_files(gen_report, ref_to_compare)
         else:

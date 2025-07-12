@@ -48,19 +48,25 @@ def run_decrypt_script():
     # Ensure GPG_PASSPHRASE is set, otherwise provide a default or raise error
     gpg_passphrase = os.getenv("GPG_PASSPHRASE")
     if gpg_passphrase is None:
-        # This matches the original behavior of defaulting to "" if not set,
-        # but a warning or error might be more robust if it's truly required.
-        print("Warning: GPG_PASSPHRASE environment variable not set. Decryption might fail.")
-        gpg_passphrase = ""
+        raise ValueError("GPG_PASSPHRASE environment variable not set. Decryption cannot proceed.")
 
     env = {**os.environ, "GPG_PASSPHRASE": gpg_passphrase}
-    result = subprocess.run(["bash", str(decrypt_script_path)], check=True, capture_output=True, text=True, env=env)
+    # Set capture_output=False to see the script's output directly.
+    result = subprocess.run(["bash", str(decrypt_script_path)], check=True, capture_output=False, text=True, env=env)
     if result.returncode != 0:
         raise RuntimeError(f"Decrypt script failed: {result.stderr}")
-    print(result.stdout)
 
+    # Verify that decryption was successful by checking for a known file
+    expected_file = INPUT_DATA_DIR / "Accounts.xlsx"
+    if not expected_file.exists():
+        raise FileNotFoundError(f"Decryption failed: {expected_file} not found after running decrypt script.")
 
-@pytest.fixture # Replaces the old setup_wpp_root_dir
+@pytest.fixture
+def clean_output_dirs():
+    """Cleans up test output directories before a test runs."""
+    _clean_up_output_dirs()
+
+@pytest.fixture(scope="session") # Replaces the old setup_wpp_root_dir
 def setup_wpp_root_dir():
     """Sets up WPP root directory for tests, and cleans up output directories."""
     _clean_up_output_dirs()

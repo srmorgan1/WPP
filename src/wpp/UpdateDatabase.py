@@ -931,7 +931,7 @@ def importBlockBankAccountNumbers(db_conn: sqlite3.Connection, bos_reconciliatio
         csr = db_conn.cursor()
         csr.execute("begin")
         for index, row in bank_accounts_df.iterrows():
-            block_ref = row["Property Reference"]
+            block_ref = row["Reference"]
             account_number = row["Account Number"]
 
             block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)

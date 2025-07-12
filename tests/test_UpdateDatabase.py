@@ -120,20 +120,24 @@ def test_importBankOfScotlandTransactionsXMLFile(db_conn): # db_conn from confte
     transactions_file_pattern = Path(get_wpp_input_dir()) / "PreviousDayTransactionExtract_*.zip"
     # Need to use Path.glob to find the file, or adapt getLatestMatchingFileName
     # For simplicity, assuming getLatestMatchingFileName works with Path object or string
-    transactions_xml_filename_str = getLatestMatchingFileName(str(transactions_file_pattern))
-    assert transactions_xml_filename_str, f"No transaction file found matching {transactions_file_pattern}"
-    transactions_xml_file = open_file(transactions_xml_filename_str) # open_file expects string path
+    transactions_xml_file = getLatestMatchingFileName(str(transactions_file_pattern))
+    assert transactions_xml_file, f"No transaction file found matching {transactions_file_pattern}"
     errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file)
     assert len(errors) == 18 # This assertion is data-specific
     assert len(duplicates) == 0
 
 
 def test_importBankOfScotlandBalancesXMLFile(db_conn):
+    # This test depends on bank accounts being imported first
+    bank_accounts_file_pattern = Path(get_wpp_input_dir()) / "Accounts.xlsx"
+    bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
+    assert bank_accounts_xls_filename_str, f"No accounts file found matching {bank_accounts_file_pattern}"
+    importBankAccounts(db_conn, bank_accounts_xls_filename_str)
+
     eod_balances_file_pattern = Path(get_wpp_input_dir()) / "EndOfDayBalanceExtract_*.zip"
     eod_balances_xml_filename_str = getLatestMatchingFileName(str(eod_balances_file_pattern))
     assert eod_balances_xml_filename_str, f"No EOD balance file found matching {eod_balances_file_pattern}"
-    eod_balances_xml_file = open_file(eod_balances_xml_filename_str)
-    importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_file)
+    importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_filename_str)
     cursor = db_conn.cursor()
     cursor.execute("SELECT * FROM AccountBalances;")
     balances = cursor.fetchall()
@@ -152,6 +156,17 @@ def test_importPropertiesFile(db_conn):
 
 
 def test_importEstatesFile(db_conn):
+    # First, ensure properties are in the DB
+    properties_file_pattern = Path(get_wpp_input_dir()) / "Tenants*.xlsx"
+    properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
+    assert properties_xls_filename_str, f"No tenants/properties file found matching {properties_file_pattern}"
+    importPropertiesFile(db_conn, properties_xls_filename_str)
+
+    # Set property_name to NULL to allow importEstatesFile to update them
+    cursor = db_conn.cursor()
+    cursor.execute("UPDATE Properties SET property_name = NULL")
+    db_conn.commit()
+
     estates_file_pattern = Path(get_wpp_input_dir()) / "Estates*.xlsx"
     estates_xls_filename_str = getLatestMatchingFileName(str(estates_file_pattern))
     assert estates_xls_filename_str, f"No estates file found matching {estates_file_pattern}"
@@ -251,6 +266,12 @@ def test_calculateSCFund():
 
 
 def test_importQubeEndOfDayBalancesFile(db_conn):
+    # Ensure properties and blocks are imported first
+    properties_file_pattern = Path(get_wpp_input_dir()) / "Tenants*.xlsx"
+    properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
+    assert properties_xls_filename_str, f"No tenants/properties file found matching {properties_file_pattern}"
+    importPropertiesFile(db_conn, properties_xls_filename_str)
+
     qube_eod_file_pattern = Path(get_wpp_input_dir()) / "Qube EOD balances*.xlsx" # Adjusted pattern
     qube_eod_filename_str = getLatestMatchingFileName(str(qube_eod_file_pattern))
     assert qube_eod_filename_str, f"No Qube EOD file found matching {qube_eod_file_pattern}"
@@ -282,7 +303,7 @@ def test_importAllData(db_conn):
 
 
 # New test for UpdateDatabase.main() log output
-def test_update_database_main_log_output(db_conn): # db_conn ensures setup_wpp_root_dir and run_decrypt_script
+def test_update_database_main_log_output(db_conn, clean_output_dirs): # db_conn ensures setup_wpp_root_dir and run_decrypt_script
     """
     Tests the main UpdateDatabase script and compares its log output
     with a reference log file.
