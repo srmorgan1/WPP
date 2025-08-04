@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 # Use get_wpp_input_dir and get_wpp_log_dir which respect the WPP_ROOT_DIR set by conftest.py's setup_wpp_root_dir
-from wpp.config import get_wpp_db_dir, get_wpp_input_dir, get_wpp_log_dir
-from wpp.db import get_data, get_or_create_db  # get_or_create_db might be needed if tests create dbs directly
+from wpp.config import get_wpp_input_dir, get_wpp_static_input_dir, get_wpp_log_dir
+from wpp.db import get_data  # get_or_create_db might be needed if tests create dbs directly
 from wpp.UpdateDatabase import (
     add_misc_data_to_db,
     addBlockToDB,
@@ -17,8 +17,6 @@ from wpp.UpdateDatabase import (
     get_id_from_key_table,
     get_id_from_ref,
     get_last_insert_id,
-    getPropertyBlockAndTenantRefs,
-    # get_or_create_db, # Provided by conftest's db_conn fixture implicitly
     get_single_value,
     importAllData,
     importBankAccounts,
@@ -29,9 +27,8 @@ from wpp.UpdateDatabase import (
     importPropertiesFile,
     importQubeEndOfDayBalancesFile,
     main as update_database_main,  # Added for the new test
-    matchTransactionRef,
-)
-from wpp.utils import getLatestMatchingFileName, getMatchingFileNames, open_file
+    )
+from wpp.utils import getLatestMatchingFileName
 
 # Define paths relative to this test file's parent (tests/) for reference data
 # WPP_ROOT_DIR for application data (like DB, Logs, Reports output) is set by conftest.py:setup_wpp_root_dir to tests/Data
@@ -130,7 +127,7 @@ def test_importBankOfScotlandTransactionsXMLFile(db_conn): # db_conn from confte
 
 def test_importBankOfScotlandBalancesXMLFile(db_conn):
     # This test depends on bank accounts being imported first
-    bank_accounts_file_pattern = Path(get_wpp_input_dir()) / "Accounts.xlsx"
+    bank_accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx"
     bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
     assert bank_accounts_xls_filename_str, f"No accounts file found matching {bank_accounts_file_pattern}"
     importBankAccounts(db_conn, bank_accounts_xls_filename_str)
@@ -146,7 +143,7 @@ def test_importBankOfScotlandBalancesXMLFile(db_conn):
 
 
 def test_importPropertiesFile(db_conn):
-    tenants_file_pattern = Path(get_wpp_input_dir()) / "Tenants*.xlsx"
+    tenants_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
     properties_xls_filename_str = getLatestMatchingFileName(str(tenants_file_pattern))
     assert properties_xls_filename_str, f"No tenants/properties file found matching {tenants_file_pattern}"
     importPropertiesFile(db_conn, properties_xls_filename_str)
@@ -158,7 +155,7 @@ def test_importPropertiesFile(db_conn):
 
 def test_importEstatesFile(db_conn):
     # First, ensure properties are in the DB
-    properties_file_pattern = Path(get_wpp_input_dir()) / "Tenants*.xlsx"
+    properties_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
     properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
     assert properties_xls_filename_str, f"No tenants/properties file found matching {properties_file_pattern}"
     importPropertiesFile(db_conn, properties_xls_filename_str)
@@ -168,7 +165,7 @@ def test_importEstatesFile(db_conn):
     cursor.execute("UPDATE Properties SET property_name = NULL")
     db_conn.commit()
 
-    estates_file_pattern = Path(get_wpp_input_dir()) / "Estates*.xlsx"
+    estates_file_pattern = Path(get_wpp_static_input_dir()) / "Estates*.xlsx"
     estates_xls_filename_str = getLatestMatchingFileName(str(estates_file_pattern))
     assert estates_xls_filename_str, f"No estates file found matching {estates_file_pattern}"
     importEstatesFile(db_conn, estates_xls_filename_str)
@@ -210,24 +207,24 @@ def test_importBlockBankAccountNumbers(db_conn):
     # Assuming it should use "Accounts.xlsx" or a similar file from inputs
     # For now, let's use "Accounts.xlsx" as it seems most relevant for bank account numbers.
     # If this is wrong, the test will fail or need adjustment.
-    accounts_file_pattern = Path(get_wpp_input_dir()) / "Accounts.xlsx" # Adjusted
+    accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx" # Adjusted
     accounts_xls_filename_str = getLatestMatchingFileName(str(accounts_file_pattern))
     if not accounts_xls_filename_str:
-        pytest.skip(f"Required input file Accounts.xlsx not found in {get_wpp_input_dir()}")
+        pytest.skip(f"Required input file Accounts.xlsx not found in {get_wpp_static_input_dir()}")
         return
 
     # This function appears to be broken - it tries to update account_number column in Blocks table
-    # which doesn't exist. Instead of fixing the function (which may break other parts), 
+    # which doesn't exist. Instead of fixing the function (which may break other parts),
     # let's skip this test since the functionality is provided by importBankAccounts instead
     pytest.skip("importBlockBankAccountNumbers function is broken - uses non-existent account_number column in Blocks table")
 
 
 def test_importBankAccounts(db_conn):
     # Used "sample_bank_accounts.xlsx", let's assume "Accounts.xlsx"
-    bank_accounts_file_pattern = Path(get_wpp_input_dir()) / "Accounts.xlsx" # Adjusted
+    bank_accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx" # Adjusted
     bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
     if not bank_accounts_xls_filename_str:
-        pytest.skip(f"Required input file Accounts.xlsx not found in {get_wpp_input_dir()}")
+        pytest.skip(f"Required input file Accounts.xlsx not found in {get_wpp_static_input_dir()}")
         return
 
     importBankAccounts(db_conn, bank_accounts_xls_filename_str)
@@ -241,11 +238,11 @@ def test_importIrregularTransactionReferences(db_conn):
     # Used "sample_irregular_refs.xlsx".
     # Let's assume "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx" might contain such refs or similar data.
     # This is a guess; the test might need a specific file or adjustment.
-    irregular_refs_file_pattern = Path(get_wpp_input_dir()) / "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx" # Adjusted guess
+    irregular_refs_file_pattern = Path(get_wpp_static_input_dir()) / "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx" # Adjusted guess
     irregular_refs_filename_str = getLatestMatchingFileName(str(irregular_refs_file_pattern))
 
     if not irregular_refs_filename_str:
-        pytest.skip(f"Required input file for irregular refs not found in {get_wpp_input_dir()}")
+        pytest.skip(f"Required input file for irregular refs not found in {get_wpp_static_input_dir()}")
         return
 
     importIrregularTransactionReferences(db_conn, irregular_refs_filename_str)
@@ -267,7 +264,7 @@ def test_calculateSCFund():
 
 def test_importQubeEndOfDayBalancesFile(db_conn):
     # Ensure properties and blocks are imported first
-    properties_file_pattern = Path(get_wpp_input_dir()) / "Tenants*.xlsx"
+    properties_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
     properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
     assert properties_xls_filename_str, f"No tenants/properties file found matching {properties_file_pattern}"
     importPropertiesFile(db_conn, properties_xls_filename_str)

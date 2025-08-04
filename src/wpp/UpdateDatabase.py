@@ -12,7 +12,7 @@ from dateutil import parser
 from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
-from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
+from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_static_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
 from .db import get_last_insert_id, get_or_create_db, get_single_value
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
@@ -636,7 +636,7 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
         logger.info(f"{num_balances_added_to_db} Bank Of Scotland account balances added to the database.")
 
         # accounts_df = pd.DataFrame(accounts, columns=['Sort Code', 'Account Number', 'Account Type', 'PropertyOrBlock', 'Client Reference', 'Account Name'])
-        # ef = get_wpp_input_dir() + r'/accounts_temp.xlsx'
+        # ef = get_wpp_static_input_dir() + r'/accounts_temp.xlsx'
         # excel_writer = pd.ExcelWriter(ef, engine='openpyxl')
         # accounts_df.to_excel(excel_writer, index=False)
         # excel_writer.close()
@@ -1103,8 +1103,8 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         "Property / Fund",
         "Bank",
         "Excluded VAT",
-        "Auth Creditors",
-        "Available Funds",
+        AUTH_CREDITORS,
+        AVAILABLE_FUNDS,
     ]
     if not (A1_cell_value == "Property Management" and B1_cell_value == "Funds Available in Property Funds" and all(x[0] == x[1] for x in zip(cell_values_actual, cell_values_check))):
         logger.error("The spreadsheet {} does not look like a Qube balances report.")
@@ -1122,8 +1122,8 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         "PropertyName / Category",
         "Bank",
         "Excluded VAT",
-        "Auth Creditors",
-        "Available Funds",
+        AUTH_CREDITORS,
+        AVAILABLE_FUNDS,
     ]
 
     # Drop all empty rows and replace 'nan' values with 0
@@ -1347,7 +1347,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.debug(f"Creating Excel spreadsheet report file {excel_log_file}")
     excel_writer = pd.ExcelWriter(excel_log_file, engine="openpyxl")
 
-    irregular_transaction_refs_file_pattern = os.path.join(get_wpp_input_dir(), f"{get_config()['INPUTS']['IRREGULAR_TRANSACTION_REFS_FILE']}")
+    irregular_transaction_refs_file_pattern = os.path.join(get_wpp_static_input_dir(), f"{get_config()['INPUTS']['IRREGULAR_TRANSACTION_REFS_FILE']}")
     irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
         logger.info(f"Importing irregular transaction references from file {irregular_transaction_refs_file}")
@@ -1356,8 +1356,8 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find irregular transaction references file matching {irregular_transaction_refs_file_pattern}")
     logger.info("")
 
-    properties_file_pattern = os.path.join(get_wpp_input_dir(), "Properties*.xlsx")
-    tenants_file_pattern = os.path.join(get_wpp_input_dir(), "Tenants*.xlsx")
+    properties_file_pattern = os.path.join(get_wpp_static_input_dir(), "Properties*.xlsx")
+    tenants_file_pattern = os.path.join(get_wpp_static_input_dir(), "Tenants*.xlsx")
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
         logger.info(f"Importing Properties from file {properties_xls_file}")
@@ -1366,7 +1366,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logger.info("")
 
-    estates_file_pattern = os.path.join(get_wpp_input_dir(), "Estates*.xlsx")
+    estates_file_pattern = os.path.join(get_wpp_static_input_dir(), "Estates*.xlsx")
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logger.info(f"Importing Estates from file {estates_xls_file}")
@@ -1385,7 +1385,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Qube EOD Balances file matching {qube_eod_balances_file_pattern}")
     logger.info("")
 
-    accounts_file_pattern = os.path.join(get_wpp_input_dir(), "Accounts.xlsx")
+    accounts_file_pattern = os.path.join(get_wpp_static_input_dir(), "Accounts.xlsx")
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logger.info(f"Importing bank accounts from file {accounts_file}")
@@ -1490,6 +1490,7 @@ def main() -> None:
         return
 
     os.makedirs(get_wpp_input_dir(), exist_ok=True)
+    os.makedirs(get_wpp_static_input_dir(), exist_ok=True)
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
     logger.info("Beginning Import of data into the database, at {}".format(dt.datetime.today().strftime("%Y-%m-%d %H:%M:%S")))

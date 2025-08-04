@@ -12,6 +12,7 @@ WPP_TEST_DATA_ROOT = CONFTEST_SCRIPT_DIR / "Data"  # tests/Data/
 WPP_TEST_REPORTS_DIR = WPP_TEST_DATA_ROOT / "Reports"
 REFERENCE_REPORT_DIR = WPP_TEST_DATA_ROOT / "ReferenceReports" # tests/Data/ReferenceReports
 INPUT_DATA_DIR = WPP_TEST_DATA_ROOT / "Inputs"
+STATIC_INPUT_DATA_DIR = WPP_TEST_DATA_ROOT / "Inputs"   # Assuming static inputs are also in Inputs for this example
 WPP_TEST_LOGS_DIR = WPP_TEST_DATA_ROOT / "Logs"
 WPP_TEST_DB_DIR = WPP_TEST_DATA_ROOT / "Database"
 
@@ -57,7 +58,7 @@ def run_decrypt_script():
         raise RuntimeError(f"Decrypt script failed: {result.stderr}")
 
     # Verify that decryption was successful by checking for a known file
-    expected_file = INPUT_DATA_DIR / "Accounts.xlsx"
+    expected_file = STATIC_INPUT_DATA_DIR / "Accounts.xlsx"
     if not expected_file.exists():
         raise FileNotFoundError(f"Decryption failed: {expected_file} not found after running decrypt script.")
 

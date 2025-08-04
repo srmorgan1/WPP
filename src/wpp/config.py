@@ -26,6 +26,8 @@ def get_wpp_root_dir() -> Path:
 def get_wpp_input_dir() -> Path:
     return WPP_ROOT_DIR / "Inputs"
 
+def get_wpp_static_input_dir() -> Path:
+    return WPP_ROOT_DIR / "Inputs"  # Assuming static inputs are also in Inputs for now
 
 def get_wpp_report_dir() -> Path:
     return WPP_ROOT_DIR / "Reports"
