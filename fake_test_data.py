@@ -10,16 +10,18 @@ import pandas as pd
 from faker import Faker
 
 # Initialize Faker to generate UK-specific data
-fake = Faker('en_GB')
+fake = Faker("en_GB")
 
 # Column name constants
 SORT_CODE_COLUMN = "Sort Code"
 ACCOUNT_NUMBER_COLUMN = "Account Number"
 TENANT_NAME_COLUMN = "Name"
 
+
 def get_project_root() -> Path:
     """Returns the project root directory."""
     return Path(__file__).parent
+
 
 def run_command(command: list[str]):
     """Runs a command and raises an exception if it fails."""
@@ -31,6 +33,7 @@ def run_command(command: list[str]):
         raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout, stderr=result.stderr)
     return result
 
+
 def decrypt_files():
     """Decrypts all test data files."""
     print("Decrypting test data...")
@@ -38,12 +41,14 @@ def decrypt_files():
     run_command(["bash", str(decrypt_script_path)])
     print("Decryption complete.")
 
+
 def encrypt_files():
     """Encrypts all test data files."""
     print("Encrypting test data...")
     encrypt_script_path = get_project_root() / "encrypt_test_data.sh"
     run_command(["bash", str(encrypt_script_path)])
     print("Encryption complete.")
+
 
 def get_fake_name(name: str) -> str:
     """Generates a repeatable fake name from an original name."""
@@ -53,6 +58,7 @@ def get_fake_name(name: str) -> str:
     seed = int(hashlib.sha256(name.encode()).hexdigest(), 16)
     Faker.seed(seed)
     return fake.name()
+
 
 def get_fake_sort_code(sort_code: str) -> str:
     """Generates a repeatable fake sort code in the format XX-XX-XX."""
@@ -71,7 +77,7 @@ def get_fake_account_number(acc_num: str) -> str:
     # Seed the generator for repeatability
     seed = int(hashlib.sha256(str(acc_num).encode()).hexdigest(), 16)
     Faker.seed(seed)
-    return fake.numerify(text='########')
+    return fake.numerify(text="########")
 
 
 def fake_tenant_names(tenants_file: Path) -> dict[str, str]:
@@ -106,6 +112,7 @@ def fake_account_details(accounts_file: Path):
     df.to_excel(accounts_file, index=False)
     print("Faking account details complete.")
 
+
 def update_reference_reports(reports_path: Path, name_map: dict[str, str]):
     """Updates the reference reports with the new fake names."""
     print("Updating reference reports...")
@@ -117,6 +124,7 @@ def update_reference_reports(reports_path: Path, name_map: dict[str, str]):
             df.replace(to_replace=old_name, value=new_name, inplace=True)
         df.to_excel(report_file, index=False)
     print("Reference reports updated.")
+
 
 def backup_file(file_path: Path):
     """Backs up a single file to a 'backup' subdirectory."""
@@ -174,6 +182,7 @@ def main():
         # Always re-encrypt files
         encrypt_files()
         print("Fake data generation complete. All files have been re-encrypted.")
+
 
 if __name__ == "__main__":
     main()

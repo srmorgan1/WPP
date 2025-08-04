@@ -8,14 +8,12 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 
 def install_pyinstaller():
     """Install PyInstaller using uv."""
     try:
-        subprocess.run(["uv", "run", "--", "python", "-m", "pip", "show", "pyinstaller"], 
-                      check=True, capture_output=True)
+        subprocess.run(["uv", "run", "--", "python", "-m", "pip", "show", "pyinstaller"], check=True, capture_output=True)
         print("PyInstaller already installed")
     except subprocess.CalledProcessError:
         print("Installing PyInstaller...")
@@ -33,7 +31,7 @@ def clean_build_dirs():
 
 def create_spec_file():
     """Create PyInstaller spec file for the application."""
-    spec_content = '''# -*- mode: python ; coding: utf-8 -*-
+    spec_content = """# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
 
@@ -215,9 +213,9 @@ coll = COLLECT(
     upx_exclude=[],
     name='wpp',
 )
-'''
-    
-    with open('wpp.spec', 'w') as f:
+"""
+
+    with open("wpp.spec", "w") as f:
         f.write(spec_content)
     print("Created PyInstaller spec file: wpp.spec")
 
@@ -241,17 +239,17 @@ def build_executable():
 def main():
     """Main build process."""
     print("Starting WPP executable build process...")
-    
+
     # Ensure we're in the project root
     if not os.path.exists("pyproject.toml"):
         print("Error: Must run from project root directory")
         sys.exit(1)
-    
+
     install_pyinstaller()
     clean_build_dirs()
     create_spec_file()
     build_executable()
-    
+
     print("\nBuild process completed!")
     print("To run the web app: ./dist/wpp/wpp-streamlit")
     print("To run reports: ./dist/wpp/run-reports")

@@ -60,7 +60,7 @@ def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
 
 def removeDCReferencePostfix(tenant_ref: str | None) -> str | None:
     # Remove 'DC' from parsed tenant references paid by debit card
-    if tenant_ref is not None and tenant_ref[-2:] == "DC":
+    if tenant_ref is not None and tenant_ref.endswith("DC"):
         tenant_ref = tenant_ref[:-2].strip()
     return tenant_ref
 

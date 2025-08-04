@@ -12,7 +12,7 @@ from dateutil import parser
 from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
-from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_static_input_dir, get_wpp_report_dir, get_wpp_update_database_log_file
+from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .db import get_last_insert_id, get_or_create_db, get_single_value
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
@@ -218,7 +218,6 @@ def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | No
 
 
 def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor | None = None) -> tuple[str | None, str | None, str | None]:
-    # TODO: refactor to use chain of responsibilty pattern here instead of nested ifs
     property_ref, block_ref, tenant_ref = None, None, None
 
     if not isinstance(reference, str):
@@ -358,10 +357,8 @@ def get_element_text(parent_element: et.Element, child_element_name: str) -> str
     return child_element.text
 
 
-def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transactions_xml_file: str) -> tuple[list[list[Any]], list[list[Any]]]:
-    errors_list = []
-    duplicate_transactions = []
-
+def _prepare_bos_transaction_xml(transactions_xml_file: str) -> et.Element:
+    """Read and prepare Bank of Scotland transaction XML file for parsing."""
     with open_file(transactions_xml_file) as f:
         xml = f.read()
         if type(xml) is bytes:
@@ -374,130 +371,176 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
             r"<\1>",
             xml,
         )
-    tree = et.fromstring(xml)
+    return et.fromstring(xml)
+
+
+def _extract_transaction_data(transaction: et.Element) -> dict:
+    """Extract transaction data from XML transaction element."""
+    return {
+        "sort_code": get_element_text(transaction, "SortCode"),
+        "account_number": get_element_text(transaction, "AccountNumber"),
+        "transaction_type": get_element_text(transaction, "TransactionType"),
+        "amount": get_element_text(transaction, "TransactionAmount"),
+        "description": get_element_text(transaction, "TransactionDescription"),
+        "pay_date": get_element_text(transaction, "TransactionPostedDate"),
+    }
+
+
+def _should_process_transaction(transaction_data: dict) -> bool:
+    """Check if transaction should be processed based on account number."""
+    return transaction_data["account_number"] == CLIENT_CREDIT_ACCOUNT_NUMBER
+
+
+def _format_pay_date(pay_date: str) -> str:
+    """Format payment date to standard format."""
+    return parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
+
+
+def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, tenant_ref: str, 
+                             property_ref: str, block_ref: str) -> tuple[bool, bool]:
+    """Process a valid transaction and return (was_added, is_duplicate)."""
+    account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (transaction_data["sort_code"], transaction_data["account_number"]))
+    tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
+
+    if not tenant_id:
+        return False, False
+
+    # Check for duplicate transaction
+    transaction_id = get_id(
+        csr,
+        SELECT_TRANSACTION_SQL,
+        (
+            tenant_id,
+            transaction_data["description"],
+            transaction_data["pay_date"],
+            account_id,
+            transaction_data["transaction_type"],
+            transaction_data["amount"],
+            transaction_data["amount"],
+        ),
+    )
+
+    if transaction_id:
+        return False, True  # Duplicate found
+
+    # Add new transaction
+    csr.execute(
+        INSERT_TRANSACTION_SQL,
+        (
+            transaction_data["transaction_type"],
+            transaction_data["amount"],
+            transaction_data["description"],
+            transaction_data["pay_date"],
+            tenant_id,
+            account_id,
+        ),
+    )
+    logger.debug(f"\tAdding transaction {(transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'], transaction_data['pay_date'], tenant_ref)}")
+    return True, False
+
+
+def _create_error_record(transaction_data: dict, error_message: str) -> list:
+    """Create an error record for unprocessable transactions."""
+    return [
+        transaction_data["pay_date"],
+        transaction_data["sort_code"],
+        transaction_data["account_number"],
+        transaction_data["transaction_type"],
+        float(transaction_data["amount"]),
+        transaction_data["description"],
+        error_message,
+    ]
+
+
+def _create_duplicate_record(transaction_data: dict, tenant_ref: str) -> list:
+    """Create a duplicate transaction record."""
+    return [
+        transaction_data["pay_date"],
+        transaction_data["transaction_type"],
+        float(transaction_data["amount"]),
+        tenant_ref,
+        transaction_data["description"],
+    ]
+
+
+def _handle_transaction_processing_error(csr: sqlite3.Cursor, error: Exception, 
+                                       transaction_data: dict, tenant_id: int | None) -> None:
+    """Handle errors that occur during transaction processing."""
+    error_context = (
+        transaction_data.get("sort_code"),
+        transaction_data.get("account_number"),
+        transaction_data.get("transaction_type"),
+        transaction_data.get("amount"),
+        transaction_data.get("description"),
+        transaction_data.get("pay_date"),
+        tenant_id,
+    )
+
+    logger.error(str(error))
+    logger.error(f"The data which caused the failure is: {error_context}")
+    logger.error("No Bank Of Scotland transactions have been added to the database.")
+
+    if isinstance(error, sqlite3.Error):
+        logger.exception(error)
+    else:
+        logger.exception(error)
+
+    csr.execute("rollback")
+
+
+def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transactions_xml_file: str) -> tuple[list[list[Any]], list[list[Any]]]:
+    """Import Bank of Scotland transactions from XML file into database.
+
+    Returns:
+        tuple: (errors_list, duplicate_transactions) - Lists of problematic transactions
+    """
+    errors_list = []
+    duplicate_transactions = []
+    tree = _prepare_bos_transaction_xml(transactions_xml_file)
 
     num_transactions_added_to_db = 0
     num_import_errors = 0
     tenant_id = None
+    transaction_data = {}
 
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
-        for transaction in tree.iter("TransactionRecord"):
-            sort_code = get_element_text(transaction, "SortCode")
-            account_number = get_element_text(transaction, "AccountNumber")
-            transaction_type = get_element_text(transaction, "TransactionType")
-            amount = get_element_text(transaction, "TransactionAmount")
-            description = get_element_text(transaction, "TransactionDescription")
-            pay_date = get_element_text(transaction, "TransactionPostedDate")
 
-            # Only load transactions from the client credit account
-            if account_number != CLIENT_CREDIT_ACCOUNT_NUMBER:
+        for transaction in tree.iter("TransactionRecord"):
+            transaction_data = _extract_transaction_data(transaction)
+
+            if not _should_process_transaction(transaction_data):
                 continue
 
-            pay_date = parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
+            transaction_data["pay_date"] = _format_pay_date(transaction_data["pay_date"])
 
-            # Parse the description field to determine the property, block and tenant that it belongs to
-            property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(description, csr)
+            # Parse the description field to determine the property, block and tenant
+            property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(transaction_data["description"], csr)
 
-            # If uniquely identified the property, block and tenant, save in the DB
-            if tenant_ref:
-                if property_ref and block_ref:
-                    account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-                    tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
-                    if tenant_id:
-                        transaction_id = get_id(
-                            csr,
-                            SELECT_TRANSACTION_SQL,
-                            (
-                                tenant_id,
-                                description,
-                                pay_date,
-                                account_id,
-                                transaction_type,
-                                amount,
-                                amount,
-                            ),
-                        )
-                        if not transaction_id:
-                            csr.execute(
-                                INSERT_TRANSACTION_SQL,
-                                (
-                                    transaction_type,
-                                    amount,
-                                    description,
-                                    pay_date,
-                                    tenant_id,
-                                    account_id,
-                                ),
-                            )
-                            logger.debug(f"\tAdding transaction {(sort_code, account_number, transaction_type, amount, description, pay_date, tenant_ref)}")
-                            num_transactions_added_to_db += 1
-                        else:
-                            duplicate_transactions.append(
-                                [
-                                    pay_date,
-                                    transaction_type,
-                                    float(amount),
-                                    tenant_ref,
-                                    description,
-                                ]
-                            )
-                    else:
-                        num_import_errors += 1
-                        logger.debug(f"Cannot find tenant with reference '{tenant_ref}'. Ignoring transaction {(pay_date, sort_code, account_number, transaction_type, amount, description)}")
-                        errors_list.append(
-                            [
-                                pay_date,
-                                sort_code,
-                                account_number,
-                                transaction_type,
-                                float(amount),
-                                description,
-                                f"Cannot find tenant with reference '{tenant_ref}'",
-                            ]
-                        )
-                # elif property_ref:
-                # TODO: check if the property only has one block, if so we set block_ref to '01' and upload.
-                # TODO: else check if there is only one property with this tenant ref. If so, we then know the block and can upload (at least as a suggestion)
-                # pass
-            # elif property_ref or (property_ref and block_ref):
-            # TODO: try to make some kind of match from the description against the tenant name, and save
-            # them in the suggested tenant references table
-            # If we can't match anything, list all of the possible tenants that have not had a transaction allocated this month?
-            # Maybe the last part should go in the report script
-            # pass
+            if tenant_ref and property_ref and block_ref:
+                was_added, is_duplicate = _process_valid_transaction(csr, transaction_data, tenant_ref, property_ref, block_ref)
+
+                if was_added:
+                    num_transactions_added_to_db += 1
+                elif is_duplicate:
+                    duplicate_transactions.append(_create_duplicate_record(transaction_data, tenant_ref))
+                else:
+                    # Tenant not found in database
+                    num_import_errors += 1
+                    error_msg = f"Cannot find tenant with reference '{tenant_ref}'"
+                    logger.debug(f"{error_msg}. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}")
+                    errors_list.append(_create_error_record(transaction_data, error_msg))
             else:
+                # Cannot determine tenant from description
                 num_import_errors += 1
-                logger.debug(
-                    "Cannot determine tenant from description '{}'. Ignoring transaction {}".format(
-                        description,
-                        str(
-                            (
-                                pay_date,
-                                sort_code,
-                                account_number,
-                                transaction_type,
-                                amount,
-                                description,
-                            )
-                        ),
-                    )
-                )
-                errors_list.append(
-                    [
-                        pay_date,
-                        sort_code,
-                        account_number,
-                        transaction_type,
-                        float(amount),
-                        description,
-                        "Cannot determine tenant from description",
-                    ]
-                )
+                error_msg = "Cannot determine tenant from description"
+                logger.debug(f"{error_msg} '{transaction_data['description']}'. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}")
+                errors_list.append(_create_error_record(transaction_data, error_msg))
 
         csr.execute("end")
         db_conn.commit()
+
         if num_import_errors:
             logger.info(
                 f"Unable to import {num_import_errors} transactions into the database. "
@@ -507,54 +550,20 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
         logger.info(f"{num_transactions_added_to_db} Bank Of Scotland transactions added to the database.")
         return errors_list, duplicate_transactions
 
-    except db_conn.Error as err:
-        logger.error(str(err))
-        logger.error(
-            "The data which caused the failure is: "
-            + str(
-                (
-                    sort_code,
-                    account_number,
-                    transaction_type,
-                    amount,
-                    description,
-                    pay_date,
-                    tenant_id,
-                )
-            )
-        )
-        logger.error("No Bank Of Scotland transactions have been added to the database.")
-        logger.exception(err)
-        csr.execute("rollback")
-    except Exception as ex:
-        logger.error(str(ex))
-        logger.exception(ex)
-        logger.error(
-            "The data which caused the failure is: "
-            + str(
-                (
-                    sort_code,
-                    account_number,
-                    transaction_type,
-                    amount,
-                    description,
-                    pay_date,
-                    tenant_id,
-                )
-            )
-        )
-        logger.error("No Bank Of Scotland transactions have been added to the database.")
-        csr.execute("rollback")
-
-    return [], []
+    except (db_conn.Error, Exception) as error:
+        _handle_transaction_processing_error(csr, error, transaction_data, tenant_id)
+        return [], []
 
 
-def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xml_file: str) -> None:
+def _prepare_bos_xml(balances_xml_file: str) -> et.Element:
+    """Read and clean Bank of Scotland XML file, returning parsed tree."""
     with open_file(balances_xml_file) as f:
         xml = f.read()
         if isinstance(xml, bytes):
             xml = str(xml, "utf-8")
         xml = xml.replace("\n", "")
+
+        # Remove schema namespaces to simplify XML parsing
         for schema in ["BalanceDetailedReport", "EndOfDayBalanceExtract"]:
             xsd = f"https://isite.bankofscotland.co.uk/Schemas/{schema}.xsd"
             xml = re.sub(
@@ -562,125 +571,127 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
                 r"<\1>",
                 xml,
             )
-            # xml = xml.replace(" {}".format(xsd), '').replace(xsd, '')
-    tree = et.fromstring(xml)
 
+    return et.fromstring(xml)
+
+
+def _determine_account_type(client_ref: str | None) -> str:
+    """Determine account type from client reference."""
+    if not client_ref:
+        return "NA"
+
+    client_ref_upper = client_ref.upper()
+    if "RENT" in client_ref_upper:
+        return "GR"
+    elif "BANK" in client_ref_upper:
+        return "CL"
+    elif "RES" in client_ref_upper:
+        return "RE"
+    else:
+        return "NA"
+
+
+def _extract_balance_data(balance_element) -> dict:
+    """Extract balance data from XML balance element."""
+    client_ref_element = balance_element.find("ClientRef")
+    client_ref = client_ref_element.text if client_ref_element is not None else None
+
+    return {
+        "sort_code": get_element_text(balance_element, "SortCode"),
+        "account_number": get_element_text(balance_element, "AccountNumber"),
+        "client_ref": client_ref,
+        "account_name": get_element_text(balance_element, "LongName"),
+        "account_type": _determine_account_type(client_ref),
+        "current_balance": get_element_text(balance_element, "CurrentBalance"),
+        "available_balance": get_element_text(balance_element, "AvailableBalance"),
+    }
+
+
+def _process_balance_record(csr, balance_data: dict, at_date: str) -> bool:
+    """Process a single balance record and add to database if needed. Returns True if added."""
+    sort_code = balance_data["sort_code"]
+    account_number = balance_data["account_number"]
+
+    if not (sort_code and account_number):
+        logger.warning(f"Cannot determine bank account. Ignoring balance record {balance_data}")
+        return False
+
+    account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
+    if not account_id:
+        # Account doesn't exist in our system, skip
+        return False
+
+    # Check if balance already exists for this date
+    account_balance_id = get_id(csr, SELECT_BANK_ACCOUNT_BALANCE_SQL, (at_date, account_id))
+    if account_balance_id:
+        # Balance already exists, skip
+        return False
+
+    # Add new balance record
+    csr.execute(
+        INSERT_BANK_ACCOUNT_BALANCE_SQL,
+        (
+            balance_data["current_balance"],
+            balance_data["available_balance"],
+            at_date,
+            account_id,
+        ),
+    )
+
+    logger.debug(
+        f"\tAdding bank balance {(sort_code, account_number, balance_data['account_type'], balance_data['client_ref'], balance_data['account_name'], at_date, balance_data['current_balance'], balance_data['available_balance'])}"
+    )
+    return True
+
+
+def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xml_file: str) -> None:
+    """Import Bank of Scotland account balances from XML file into database."""
+    tree = _prepare_bos_xml(balances_xml_file)
     num_balances_added_to_db = 0
-    # accounts = []
+
+    # Variables for error handling context
+    sort_code = account_number = account_type = client_ref = None
+    account_name = at_date = current_balance = available_balance = None
 
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
+
         for reporting_day in tree.iter("ReportingDay"):
             at_date = get_element_text(reporting_day, "Date")
             at_date = parser.parse(at_date, dayfirst=True).strftime("%Y-%m-%d")
+
             for balance in reporting_day.iter("BalanceRecord"):
-                sort_code = get_element_text(balance, "SortCode")
-                account_number = get_element_text(balance, "AccountNumber")
-                client_ref = client_ref_element.text if (client_ref_element := balance.find("ClientRef")) is not None else None
-                account_name = get_element_text(balance, "LongName")
+                balance_data = _extract_balance_data(balance)
 
-                account_type = ""
-                if client_ref and "RENT" in client_ref.upper():
-                    account_type = "GR"
-                elif client_ref and "BANK" in client_ref.upper():
-                    account_type = "CL"
-                elif client_ref and "RES" in client_ref.upper():
-                    account_type = "RE"
-                else:
-                    account_type = "NA"
-                # elif client_ref: raise ValueError(f'Cannot determine account type from client reference {client_ref}')
+                # Update error context variables
+                sort_code = balance_data["sort_code"]
+                account_number = balance_data["account_number"]
+                account_type = balance_data["account_type"]
+                client_ref = balance_data["client_ref"]
+                account_name = balance_data["account_name"]
+                current_balance = balance_data["current_balance"]
+                available_balance = balance_data["available_balance"]
 
-                current_balance = get_element_text(balance, "CurrentBalance")
-                available_balance = get_element_text(balance, "AvailableBalance")
-
-                if sort_code and account_number:
-                    account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-                    if account_id:
-                        account_balance_id = get_id(csr, SELECT_BANK_ACCOUNT_BALANCE_SQL, (at_date, account_id))
-                        if not account_balance_id:
-                            csr.execute(
-                                INSERT_BANK_ACCOUNT_BALANCE_SQL,
-                                (
-                                    current_balance,
-                                    available_balance,
-                                    at_date,
-                                    account_id,
-                                ),
-                            )
-                            logger.debug(f"\tAdding bank balance {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
-                            num_balances_added_to_db += 1
-                    else:
-                        pass
-                        # accounts.append((sort_code, account_number, account_type, 'Block', client_ref, account_name))
-                else:
-                    logger.warning(
-                        "Cannot determine bank account. Ignoring balance record {}".format(
-                            str(
-                                (
-                                    sort_code,
-                                    account_number,
-                                    account_type,
-                                    client_ref,
-                                    account_name,
-                                    at_date,
-                                    current_balance,
-                                    available_balance,
-                                )
-                            )
-                        )
-                    )
+                if _process_balance_record(csr, balance_data, at_date):
+                    num_balances_added_to_db += 1
 
         csr.execute("end")
         db_conn.commit()
         logger.info(f"{num_balances_added_to_db} Bank Of Scotland account balances added to the database.")
 
-        # accounts_df = pd.DataFrame(accounts, columns=['Sort Code', 'Account Number', 'Account Type', 'PropertyOrBlock', 'Client Reference', 'Account Name'])
-        # ef = get_wpp_static_input_dir() + r'/accounts_temp.xlsx'
-        # excel_writer = pd.ExcelWriter(ef, engine='openpyxl')
-        # accounts_df.to_excel(excel_writer, index=False)
-        # excel_writer.close()
     except db_conn.Error as err:
         logger.error(str(err))
-        logger.error(
-            "The data which caused the failure is: "
-            + str(
-                (
-                    sort_code,
-                    account_number,
-                    account_type,
-                    client_ref,
-                    account_name,
-                    at_date,
-                    current_balance,
-                    available_balance,
-                )
-            )
-        )
+        logger.error(f"The data which caused the failure is: {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
         logger.error("No Bank Of Scotland account balances have been added to the database.")
         logger.exception(err)
         csr.execute("rollback")
     except Exception as ex:
         logger.error(str(ex))
-        logger.error(
-            "The data which caused the failure is: "
-            + str(
-                (
-                    sort_code,
-                    account_number,
-                    account_type,
-                    client_ref,
-                    account_name,
-                    at_date,
-                    current_balance,
-                    available_balance,
-                )
-            )
-        )
+        logger.error(f"The data which caused the failure is: {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
         logger.error("No Bank Of Scotland account balances have been added to the database.")
         logger.exception(ex)
         csr.execute("rollback")
-        # charges = {}
 
 
 def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) -> None:
@@ -1082,41 +1093,43 @@ def calculateSCFund(auth_creditors: float, available_funds: float, property_ref:
         return auth_creditors + available_funds
 
 
-def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str) -> None:
-    # nested_dict = lambda: defaultdict(nested_dict)
-    # charges = nested_dict()
+def _validate_qube_spreadsheet(workbook_sheet) -> None:
+    """Validate that the spreadsheet is a valid Qube balances report."""
+    A1_cell_value = workbook_sheet.cell(1, 1).value
+    B1_cell_value = workbook_sheet.cell(1, 2).value
+    produced_date_cell_value = workbook_sheet.cell(3, 1).value
 
-    num_charges_added_to_db = 0
-
-    # Read in the Qube balances report spreadsheet
-    qube_eod_balances_workbook = load_workbook(qube_eod_balances_xls_file, read_only=True, data_only=True)
-    qube_eod_balances_workbook_sheet = qube_eod_balances_workbook.worksheets[0]
-
-    # Check that this Qube balances report has some of the expected cells (that it is the correct report)
-    A1_cell_value = qube_eod_balances_workbook_sheet.cell(1, 1).value
-    B1_cell_value = qube_eod_balances_workbook_sheet.cell(1, 2).value
-    produced_date_cell_value = qube_eod_balances_workbook_sheet.cell(3, 1).value
     if not isinstance(produced_date_cell_value, str):
         raise ValueError(f"The produced date cell value is not a string: {produced_date_cell_value}")
-    cell_values_actual = [qube_eod_balances_workbook_sheet.cell(5, i + 1).value for i in range(0, 4)]
-    cell_values_check = [
+
+    cell_values_actual = [workbook_sheet.cell(5, i + 1).value for i in range(0, 4)]
+    cell_values_expected = [
         "Property / Fund",
         "Bank",
         "Excluded VAT",
         AUTH_CREDITORS,
         AVAILABLE_FUNDS,
     ]
-    if not (A1_cell_value == "Property Management" and B1_cell_value == "Funds Available in Property Funds" and all(x[0] == x[1] for x in zip(cell_values_actual, cell_values_check))):
-        logger.error("The spreadsheet {} does not look like a Qube balances report.")
 
-    # Get date that the Qube report was produced from the spreadsheet, and calculate the Qube COB date from that
+    is_valid_header = A1_cell_value == "Property Management" and B1_cell_value == "Funds Available in Property Funds"
+    is_valid_columns = all(actual == expected for actual, expected in zip(cell_values_actual, cell_values_expected))
+
+    if not (is_valid_header and is_valid_columns):
+        logger.error("The spreadsheet does not look like a Qube balances report.")
+
+
+def _extract_qube_date(workbook_sheet) -> str:
+    """Extract and parse the date from the Qube report."""
+    produced_date_cell_value = workbook_sheet.cell(3, 1).value
     at_date_str = " ".join(produced_date_cell_value.split()[-3:])
-    at_date = (parser.parse(at_date_str, dayfirst=True) - BUSINESS_DAY).strftime("%Y-%m-%d")
+    return (parser.parse(at_date_str, dayfirst=True) - BUSINESS_DAY).strftime("%Y-%m-%d")
 
-    # Read in the data table from the spreadsheet
+
+def _prepare_qube_dataframe(qube_eod_balances_xls_file: str) -> pd.DataFrame:
+    """Read and prepare the Qube balances dataframe."""
     qube_eod_balances_df = pd.read_excel(qube_eod_balances_xls_file, usecols="B:G", skiprows=4)
 
-    # Column names in Qube report are associated with the wrong values - fix them
+    # Fix column names
     qube_eod_balances_df.columns = [
         "PropertyCode / Fund",
         "PropertyName / Category",
@@ -1126,176 +1139,143 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         AVAILABLE_FUNDS,
     ]
 
-    # Drop all empty rows and replace 'nan' values with 0
+    # Clean data
     qube_eod_balances_df.dropna(how="all", inplace=True)
     qube_eod_balances_df.fillna(0, inplace=True)
+
+    return qube_eod_balances_df
+
+
+def _ensure_block_exists(csr, property_ref: str, block_ref: str) -> int | None:
+    """Ensure the block exists in the database and return its ID."""
+    property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
+    if not property_id:
+        return None
+
+    block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
+    if not block_id:
+        block_type = "P" if block_ref and block_ref.endswith("00") else "B"
+        csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
+        logger.debug(f"\tAdding block {block_ref}")
+        block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
+
+    return block_id
+
+
+def _update_block_name_if_needed(csr, block_ref: str, block_name: str, block_id: int) -> None:
+    """Update block name if it doesn't exist."""
+    if not get_id(csr, SELECT_BLOCK_NAME_SQL, (block_ref,)):
+        csr.execute(UPDATE_BLOCK_NAME_SQL, (block_name, block_id))
+        logger.debug(f"\tAdding block name {block_name} for block reference {block_ref}")
+
+
+def _add_charge_if_not_exists(csr, fund_id: int, category_id: int, type_id: int, at_date: str, amount: float, block_id: int) -> bool:
+    """Add a charge to the database if it doesn't already exist. Returns True if added."""
+    charges_id = get_id(csr, SELECT_CHARGES_SQL, (fund_id, category_id, type_id, block_id, at_date))
+    if not charges_id:
+        csr.execute(INSERT_CHARGES_SQL, (fund_id, category_id, type_id, at_date, amount, block_id))
+        return True
+    return False
+
+
+def _process_fund_category_data(
+    csr, property_code_or_fund: str, property_ref: str, block_ref: str, block_name: str, fund: str, category: str, auth_creditors: float, available_funds: float, at_date: str, type_ids: dict
+) -> int:
+    """Process fund/category data and add charges to database. Returns number of charges added."""
+    num_charges_added = 0
+
+    # Ensure block exists
+    block_id = _ensure_block_exists(csr, property_ref, block_ref)
+    if not block_id:
+        logger.warning(f"Cannot determine the block for the Qube balances from block reference {block_ref}")
+        return 0
+
+    # Update block name if needed
+    _update_block_name_if_needed(csr, block_ref, block_name, block_id)
+
+    # Get fund and category IDs
+    fund_id = get_id_from_key_table(csr, "fund", fund)
+    category_id = get_id_from_key_table(csr, "category", category)
+
+    # Add available funds charge
+    if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["available_funds"], at_date, available_funds, block_id):
+        logger.debug(f"\tAdding charge {(fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds)}")
+        num_charges_added += 1
+
+    # Add auth creditors and SC fund charges for specific fund types
+    if property_code_or_fund in ["Service Charge", "Tenant Recharge"]:
+        if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["auth_creditors"], at_date, auth_creditors, block_id):
+            logger.debug(f"\tAdding charge for {(fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors)}")
+            num_charges_added += 1
+
+        sc_fund = calculateSCFund(auth_creditors, available_funds, property_ref, block_ref)
+        if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["sc_fund"], at_date, sc_fund, block_id):
+            logger.debug(f"\tAdding charge for {(fund, category, SC_FUND, at_date, block_ref, sc_fund)}")
+            num_charges_added += 1
+
+    return num_charges_added
+
+
+def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str) -> None:
+    """Import Qube End of Day balances from Excel file into database."""
+    num_charges_added_to_db = 0
+
+    # Load and validate spreadsheet
+    qube_eod_balances_workbook = load_workbook(qube_eod_balances_xls_file, read_only=True, data_only=True)
+    qube_eod_balances_workbook_sheet = qube_eod_balances_workbook.worksheets[0]
+
+    _validate_qube_spreadsheet(qube_eod_balances_workbook_sheet)
+    at_date = _extract_qube_date(qube_eod_balances_workbook_sheet)
+    qube_eod_balances_df = _prepare_qube_dataframe(qube_eod_balances_xls_file)
 
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
+
+        # Get type IDs once for efficiency
+        type_ids = {
+            "auth_creditors": get_id_from_key_table(csr, "type", AUTH_CREDITORS),
+            "available_funds": get_id_from_key_table(csr, "type", AVAILABLE_FUNDS),
+            "sc_fund": get_id_from_key_table(csr, "type", SC_FUND),
+        }
+
+        # Process each row in the dataframe
         found_property = False
-        property_ref = None
-        block_ref = None
-        block_name = None
-        block_ref, fund, category, auth_creditors, block_id = (
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        property_ref = block_ref = block_name = None
+        block_ref = fund = category = auth_creditors = block_id = None  # For error handling
 
-        type_id_auth_creditors = get_id_from_key_table(csr, "type", AUTH_CREDITORS)
-        type_id_available_funds = get_id_from_key_table(csr, "type", AVAILABLE_FUNDS)
-        type_id_sc_fund = get_id_from_key_table(csr, "type", SC_FUND)
-
-        for i in range(0, qube_eod_balances_df.shape[0]):
+        for i in range(qube_eod_balances_df.shape[0]):
             property_code_or_fund = qube_eod_balances_df.iloc[i]["PropertyCode / Fund"]
             property_name_or_category = qube_eod_balances_df.iloc[i]["PropertyName / Category"]
 
+            # Check if this is a property/block reference
             try_property_ref, try_block_ref, _ = getPropertyBlockAndTenantRefs(property_code_or_fund)
+
             if try_property_ref and try_block_ref:
+                # Found a new property/block
                 found_property = True
                 property_ref = try_property_ref
                 block_ref = try_block_ref
                 block_name = property_name_or_category
-            elif found_property:
-                if property_code_or_fund in [
-                    "Service Charge",
-                    "Rent",
-                    "Tenant Recharge",
-                    "Admin Fund",
-                    "Reserve",
-                ]:
-                    fund = property_code_or_fund
-                    category = property_name_or_category
-                    fund_id = get_id_from_key_table(csr, "fund", fund)
-                    category_id = get_id_from_key_table(csr, "category", category)
 
-                    auth_creditors = qube_eod_balances_df.iloc[i][AUTH_CREDITORS]
-                    available_funds = qube_eod_balances_df.iloc[i][AVAILABLE_FUNDS]
-                    sc_fund = calculateSCFund(auth_creditors, available_funds, property_ref, block_ref)
+            elif found_property and property_code_or_fund in ["Service Charge", "Rent", "Tenant Recharge", "Admin Fund", "Reserve"]:
+                # Process fund/category data for current property/block
+                fund = property_code_or_fund
+                category = property_name_or_category
+                auth_creditors = qube_eod_balances_df.iloc[i][AUTH_CREDITORS]
+                available_funds = qube_eod_balances_df.iloc[i][AVAILABLE_FUNDS]
 
-                    # charges[property_ref][block_ref][fund][category][AUTH_CREDITORS] = auth_creditors
-                    # charges[property_ref][block_ref][fund][category][AVAILABLE_FUNDS] = available_funds
-                    # charges[property_ref][block_ref][fund][category][SC_FUND] = sc_fund
+                charges_added = _process_fund_category_data(csr, property_code_or_fund, property_ref, block_ref, block_name, fund, category, auth_creditors, available_funds, at_date, type_ids)
+                num_charges_added_to_db += charges_added
 
-                    # If the property exists then add the block if it doesn't exist,
-                    # otherwise find the existing block ID. This adds the xxx-00 estate references.
-                    property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
-                    if property_id:
-                        block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
-                        if not block_id:
-                            if block_ref is not None and block_ref.endswith("00"):
-                                block_type = "P"
-                            else:
-                                block_type = "B"
-                            csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-                            logger.debug(f"\tAdding block {block_ref}")
-                            block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
-
-                    if block_id:
-                        # Update block name
-                        if not get_id(csr, SELECT_BLOCK_NAME_SQL, (block_ref,)):
-                            csr.execute(UPDATE_BLOCK_NAME_SQL, (block_name, block_id))
-                            logger.debug(f"\tAdding block name {block_name} for block reference {block_ref}")
-
-                        # Add available funds charge
-                        charges_id = get_id(
-                            csr,
-                            SELECT_CHARGES_SQL,
-                            (
-                                fund_id,
-                                category_id,
-                                type_id_available_funds,
-                                block_id,
-                                at_date,
-                            ),
-                        )
-                        if not charges_id:
-                            csr.execute(
-                                INSERT_CHARGES_SQL,
-                                (
-                                    fund_id,
-                                    category_id,
-                                    type_id_available_funds,
-                                    at_date,
-                                    available_funds,
-                                    block_id,
-                                ),
-                            )
-                            logger.debug(f"\tAdding charge {(fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds)}")
-                            num_charges_added_to_db += 1
-
-                        if property_code_or_fund in [
-                            "Service Charge",
-                            "Tenant Recharge",
-                        ]:
-                            # Add auth creditors charge
-                            charges_id = get_id(
-                                csr,
-                                SELECT_CHARGES_SQL,
-                                (
-                                    fund_id,
-                                    category_id,
-                                    type_id_auth_creditors,
-                                    block_id,
-                                    at_date,
-                                ),
-                            )
-                            if not charges_id:
-                                csr.execute(
-                                    INSERT_CHARGES_SQL,
-                                    (
-                                        fund_id,
-                                        category_id,
-                                        type_id_auth_creditors,
-                                        at_date,
-                                        auth_creditors,
-                                        block_id,
-                                    ),
-                                )
-                                logger.debug(f"\tAdding charge for {(fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors)}")
-                                num_charges_added_to_db += 1
-
-                            # Add SC Fund charge
-                            charges_id = get_id(
-                                csr,
-                                SELECT_CHARGES_SQL,
-                                (
-                                    fund_id,
-                                    category_id,
-                                    type_id_sc_fund,
-                                    block_id,
-                                    at_date,
-                                ),
-                            )
-                            if not charges_id:
-                                csr.execute(
-                                    INSERT_CHARGES_SQL,
-                                    (
-                                        fund_id,
-                                        category_id,
-                                        type_id_sc_fund,
-                                        at_date,
-                                        sc_fund,
-                                        block_id,
-                                    ),
-                                )
-                                logger.debug(f"\tAdding charge for {(fund, category, SC_FUND, at_date, block_ref, sc_fund)}")
-                                num_charges_added_to_db += 1
-                    else:
-                        logger.warning(f"Cannot determine the block for the Qube balances from block reference {block_ref}")
-
-                elif property_code_or_fund == "Property Totals":
-                    found_property = False
-            else:
-                pass
-                # logger.info(f"Ignoring data with block reference '{property_code_or_fund}'")
+            elif property_code_or_fund == "Property Totals":
+                # Reset for next property
+                found_property = False
 
         csr.execute("end")
         db_conn.commit()
         logger.info(f"{num_charges_added_to_db} charges added to the database.")
+
     except db_conn.Error as err:
         logger.error(str(err))
         logger.error("The data which caused the failure is: " + str((block_ref, fund, category, at_date, auth_creditors, block_id)))
