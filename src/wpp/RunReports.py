@@ -294,12 +294,13 @@ def add_column_totals(df):
 
 
 def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
+    PROPERTY_BLOCK_COL = "Property / Block"
     pd.options.mode.chained_assignment = None
-    select = df["Property / Block"] == "050-01"
+    select = df[PROPERTY_BLOCK_COL] == "050-01"
     row = copy.copy(df[select])
     row["Name"] = row["Name"] + " GR"
     row[["Qube Total", "BOS", "Discrepancy"]] = row[["GR", "BOS GR", "Discrepancy GR"]]
-    row[["Property / Block", "SC Fund", "Reserve", "Admin"]] = [
+    row[[PROPERTY_BLOCK_COL, "SC Fund", "Reserve", "Admin"]] = [
         "050-01A",
         0.0,
         0.0,
@@ -365,7 +366,7 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
     logger.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
 
     if not checkDataIsPresent(db_conn, qube_date.isoformat(), bos_date.isoformat()):
-        raise Exception(f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}")
+        raise RuntimeError(f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}")
 
     # Create a Pandas Excel writer using openpyxl as the engine.
     excel_report_file = get_wpp_report_file(qube_date)

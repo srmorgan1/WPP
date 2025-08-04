@@ -140,7 +140,7 @@ def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
 
 def removeDCReferencePostfix(tenant_ref: str | None) -> str | None:
     # Remove 'DC' from parsed tenant references paid by debit card
-    if tenant_ref is not None and tenant_ref[-2:] == "DC":
+    if tenant_ref is not None and tenant_ref.endswith("DC"):
         tenant_ref = tenant_ref[:-2].strip()
     return tenant_ref
 
@@ -431,7 +431,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
                                     account_id,
                                 ),
                             )
-                            logger.debug("\tAdding transaction {}".format((sort_code, account_number, transaction_type, amount, description, pay_date, tenant_ref)))
+                            logger.debug(f"\tAdding transaction {(sort_code, account_number, transaction_type, amount, description, pay_date, tenant_ref)}")
                             num_transactions_added_to_db += 1
                         else:
                             duplicate_transactions.append(
@@ -445,7 +445,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
                             )
                     else:
                         num_import_errors += 1
-                        logger.debug("Cannot find tenant with reference '{}'. Ignoring transaction {}".format(tenant_ref, (pay_date, sort_code, account_number, transaction_type, amount, description)))
+                        logger.debug(f"Cannot find tenant with reference '{tenant_ref}'. Ignoring transaction {(pay_date, sort_code, account_number, transaction_type, amount, description)}")
                         errors_list.append(
                             [
                                 pay_date,
@@ -608,7 +608,7 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
                                     account_id,
                                 ),
                             )
-                            logger.debug("\tAdding bank balance {}".format((sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)))
+                            logger.debug(f"\tAdding bank balance {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
                             num_balances_added_to_db += 1
                     else:
                         pass
@@ -716,7 +716,7 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
 
             block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
             if not block_id:
-                block_type = "P" if block_ref and block_ref[-2:] == "00" else "B"
+                block_type = "P" if block_ref and block_ref.endswith("00") else "B"
                 csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
                 logger.debug(f"\tAdding block {block_ref} to the database")
                 num_blocks_added_to_db += 1
@@ -847,16 +847,15 @@ def addBlockToDB(
 
         if block_ref:
             block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
-            if not block_id:
-                if property_ref:
-                    if block_ref[-2:] == "00":
-                        block_type = "P"
-                    else:
-                        block_type = "B"
-                    property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
-                    csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-                    logger.debug(f"\tAdding block {block_ref}")
-                    block_id = get_last_insert_id(csr, "Blocks")
+            if not block_id and property_ref:
+                if block_ref.endswith("00"):
+                    block_type = "P"
+                else:
+                    block_type = "B"
+                property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
+                csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
+                logger.debug(f"\tAdding block {block_ref}")
+                block_id = get_last_insert_id(csr, "Blocks")
 
         csr.execute("end")
         db_conn.commit()
@@ -921,42 +920,42 @@ def addTenantToDB(
     return tenant_id
 
 
-def importBlockBankAccountNumbers(db_conn: sqlite3.Connection, bos_reconciliations_file: str) -> None:
-    # Read Excel spreadsheet into dataframe
-    bank_accounts_df = pd.read_excel(bos_reconciliations_file, "Accounts", dtype=str)
+# def importBlockBankAccountNumbers(db_conn: sqlite3.Connection, bos_reconciliations_file: str) -> None:
+#     # Read Excel spreadsheet into dataframe
+#     bank_accounts_df = pd.read_excel(bos_reconciliations_file, "Accounts", dtype=str)
 
-    num_bank_accounts_added_to_db = 0
+#     num_bank_accounts_added_to_db = 0
 
-    try:
-        csr = db_conn.cursor()
-        csr.execute("begin")
-        for index, row in bank_accounts_df.iterrows():
-            block_ref = row["Reference"]
-            account_number = row["Account Number"]
+#     try:
+#         csr = db_conn.cursor()
+#         csr.execute("begin")
+#         for index, row in bank_accounts_df.iterrows():
+#             block_ref = row["Reference"]
+#             account_number = row["Account Number"]
 
-            block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
-            if block_id:
-                id = get_id(csr, SELECT_BANK_ACCOUNT_SQL, (block_id,))
-                if id:
-                    csr.execute(UPDATE_BLOCK_ACCOUNT_NUMBER_SQL, (account_number, block_id))
-                    logger.debug(f"\tAdding bank account number {account_number} for block {block_id}")
-                    num_bank_accounts_added_to_db += 1
-        csr.execute("end")
-        db_conn.commit()
-        logger.info(f"{num_bank_accounts_added_to_db} bank account numbers added to the database.")
-    except db_conn.Error as err:
-        logger.error(str(err))
-        logger.error("The data which caused the failure is: " + str((block_ref, account_number)))
-        logger.error("No bank account numbers have been added to the database")
-        logger.exception(err)
-        csr.execute("rollback")
-    except Exception as ex:
-        logger.error(str(ex))
-        logger.error("The data which caused the failure is: " + str((block_ref, account_number)))
-        logger.error("No bank account numbers have been added to the database.")
-        logger.exception(ex)
-        csr.execute("rollback")
-        # charges = {}
+#             block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
+#             if block_id:
+#                 id = get_id(csr, SELECT_BANK_ACCOUNT_SQL, (block_id,))
+#                 if id:
+#                     csr.execute(UPDATE_BLOCK_ACCOUNT_NUMBER_SQL, (account_number, block_id))
+#                     logger.debug(f"\tAdding bank account number {account_number} for block {block_id}")
+#                     num_bank_accounts_added_to_db += 1
+#         csr.execute("end")
+#         db_conn.commit()
+#         logger.info(f"{num_bank_accounts_added_to_db} bank account numbers added to the database.")
+#     except db_conn.Error as err:
+#         logger.error(str(err))
+#         logger.error("The data which caused the failure is: " + str((block_ref, account_number)))
+#         logger.error("No bank account numbers have been added to the database")
+#         logger.exception(err)
+#         csr.execute("rollback")
+#     except Exception as ex:
+#         logger.error(str(ex))
+#         logger.error("The data which caused the failure is: " + str((block_ref, account_number)))
+#         logger.error("No bank account numbers have been added to the database.")
+#         logger.exception(ex)
+#         csr.execute("rollback")
+#         # charges = {}
 
 
 def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> None:
@@ -989,14 +988,14 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
             else:
                 raise ValueError(f"Unknown property/block type {property_or_block} for bank account ({sort_code}, {account_number})")
 
-            property_ref, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
+            _, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
 
-            if property_block == "P" and block_ref is not None and block_ref[-2:] != "00":
+            if property_block == "P" and block_ref is not None and not block_ref.endswith("00"):
                 raise ValueError(f"Block reference ({reference}) for an estate must end in 00, for bank account ({sort_code}, {account_number})")
 
             block_id = get_id_from_ref(csr, "Blocks", "block", reference)
-            id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
-            if sort_code and account_number and not id:
+            _id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
+            if sort_code and account_number and not _id:
                 csr.execute(
                     INSERT_BANK_ACCOUNT_SQL,
                     (
@@ -1045,12 +1044,12 @@ def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_
             tenant_reference = row["Tenant Reference"].strip()
             payment_reference_pattern = row["Payment Reference Pattern"].strip()
 
-            id = get_id(
+            _id = get_id(
                 csr,
                 SELECT_IRREGULAR_TRANSACTION_REF_ID_SQL,
                 (tenant_reference, payment_reference_pattern),
             )
-            if tenant_reference and not id:
+            if tenant_reference and not _id:
                 csr.execute(
                     INSERT_IRREGULAR_TRANSACTION_REF_SQL,
                     (tenant_reference, payment_reference_pattern),
@@ -1187,7 +1186,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                     if property_id:
                         block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
                         if not block_id:
-                            if block_ref[-2:] == "00":
+                            if block_ref is not None and block_ref.endswith("00"):
                                 block_type = "P"
                             else:
                                 block_type = "B"
@@ -1225,7 +1224,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                                     block_id,
                                 ),
                             )
-                            logger.debug("\tAdding charge {}".format((fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds)))
+                            logger.debug(f"\tAdding charge {(fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds)}")
                             num_charges_added_to_db += 1
 
                         if property_code_or_fund in [
@@ -1256,7 +1255,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                                         block_id,
                                     ),
                                 )
-                                logger.debug("\tAdding charge for {}".format((fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors)))
+                                logger.debug(f"\tAdding charge for {(fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors)}")
                                 num_charges_added_to_db += 1
 
                             # Add SC Fund charge
@@ -1283,7 +1282,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                                         block_id,
                                     ),
                                 )
-                                logger.debug("\tAdding charge for {}".format((fund, category, SC_FUND, at_date, block_ref, sc_fund)))
+                                logger.debug(f"\tAdding charge for {(fund, category, SC_FUND, at_date, block_ref, sc_fund)}")
                                 num_charges_added_to_db += 1
                     else:
                         logger.warning(f"Cannot determine the block for the Qube balances from block reference {block_ref}")
@@ -1303,15 +1302,12 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         logger.error("No Qube balances have been added to the database.")
         logger.exception(err)
         csr.execute("rollback")
-        # charges = {}
     except Exception as ex:
         logger.error(str(ex))
         logger.error("The data which caused the failure is: " + str((block_ref, fund, category, at_date, auth_creditors, block_id)))
         logger.error("No Qube balances have been added to the database.")
         logger.exception(ex)
         csr.execute("rollback")
-        # charges = {}
-    # return charges
 
 
 def add_misc_data_to_db(db_conn: sqlite3.Connection) -> None:

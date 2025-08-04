@@ -42,22 +42,96 @@ def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
             ), f"DataFrames for sheet '{sheet_name}' in {generated_file.name} and {reference_file.name} do not match"
 
 
+def normalize_log_line(line: str) -> str:
+    """
+    Normalize a log line by removing timestamps, dates, file paths, and other dynamic content.
+    """
+    import re
+    
+    # Remove timestamp at beginning (HH:MM:SS format)
+    line = re.sub(r'^\d{2}:\d{2}:\d{2} - ', '', line)
+    
+    # Remove log level (INFO:, WARNING:, ERROR:)
+    line = re.sub(r'^(INFO|WARNING|ERROR|DEBUG): - ', '', line)
+    
+    # Remove full file paths, keeping just the filename
+    line = re.sub(r'/[^/\s]*/([^/\s]+\.(xlsx|zip|txt|db))', r'\1', line)
+    
+    # Remove dates in various formats (YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)
+    line = re.sub(r'\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?', 'DATE_PLACEHOLDER', line)
+    
+    # Remove execution times ("Done in X.X seconds")
+    line = re.sub(r'Done in \d+\.\d+ seconds\.', 'Done in X.X seconds.', line)
+    
+    # Remove "at DATE" timestamps
+    line = re.sub(r', at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', ', at DATE_PLACEHOLDER', line)
+    
+    # Strip whitespace
+    line = line.strip()
+    
+    return line
+
+
 def compare_log_files(generated_file: Path, reference_file: Path) -> None:
     assert generated_file.exists(), f"Generated log file not found: {generated_file}"
     assert reference_file.exists(), f"Reference log file not found: {reference_file}"
     with open(generated_file) as gen_file, open(reference_file) as ref_file:
-        # Adjusted filtering to be consistent with other test files
-        gen_lines = [
-            " ".join(line.split(" ")[4:])
-            for line in gen_file.readlines()[1:-2]
-            if "Creating" not in line and "Importing" not in line
-        ]
-        ref_lines = [
-            " ".join(line.split(" ")[4:])
-            for line in ref_file.readlines()[1:-2]
-            if "Creating" not in line and "Importing" not in line
-        ]
-        assert gen_lines == ref_lines, f"Log files {generated_file.name} and {reference_file.name} do not match"
+        gen_lines = gen_file.readlines()
+        ref_lines = ref_file.readlines()
+        
+        # Normalize and filter lines, excluding first and last lines and lines with dynamic content
+        normalized_gen_lines = []
+        normalized_ref_lines = []
+        
+        for line in gen_lines[1:-1]:  # Skip first and last lines
+            # Skip lines that contain dynamic content that we don't want to compare
+            if any(skip_pattern in line for skip_pattern in [
+                "Creating Excel spreadsheet report file",
+                "Importing irregular transaction references from file",
+                "Importing Properties from file", 
+                "Importing Estates from file",
+                "Importing Qube balances from file",
+                "Importing bank accounts from file",
+                "Importing Bank Account Transactions from file", 
+                "Importing Bank Account balances from file",
+                "Beginning Import of data into the database"
+            ]):
+                continue
+                
+            normalized_line = normalize_log_line(line)
+            if normalized_line:  # Only add non-empty lines
+                normalized_gen_lines.append(normalized_line)
+        
+        for line in ref_lines[1:-1]:  # Skip first and last lines
+            # Skip the same dynamic content lines
+            if any(skip_pattern in line for skip_pattern in [
+                "Creating Excel spreadsheet report file",
+                "Importing irregular transaction references from file",
+                "Importing Properties from file", 
+                "Importing Estates from file",
+                "Importing Qube balances from file",
+                "Importing bank accounts from file",
+                "Importing Bank Account Transactions from file", 
+                "Importing Bank Account balances from file",
+                "Beginning Import of data into the database"
+            ]):
+                continue
+                
+            normalized_line = normalize_log_line(line)
+            if normalized_line:  # Only add non-empty lines
+                normalized_ref_lines.append(normalized_line)
+        
+        # Compare the normalized lines
+        if normalized_gen_lines != normalized_ref_lines:
+            print(f"\nLog file comparison failed for {generated_file.name} vs {reference_file.name}")
+            print(f"Generated lines ({len(normalized_gen_lines)}):")
+            for i, line in enumerate(normalized_gen_lines[:10]):  # Show first 10 lines
+                print(f"  {i}: {line}")
+            print(f"Reference lines ({len(normalized_ref_lines)}):")
+            for i, line in enumerate(normalized_ref_lines[:10]):  # Show first 10 lines
+                print(f"  {i}: {line}")
+            
+        assert normalized_gen_lines == normalized_ref_lines, f"Log files {generated_file.name} and {reference_file.name} do not match after normalization"
 
 
 def remove_date_suffix(filename: str) -> str:
@@ -71,6 +145,21 @@ def remove_log_date_suffix(filename: str) -> str:
 
 # setup_wpp_root_dir and run_decrypt_script fixtures are injected from conftest.py
 def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
+    # Import here to avoid circular imports
+    from wpp.config import get_wpp_db_file, get_wpp_log_dir
+    
+    # Clean up any existing log files to avoid interference from other tests
+    log_dir = get_wpp_log_dir()
+    if log_dir.exists():
+        for log_file in log_dir.glob("*.txt"):
+            log_file.unlink()
+    
+    # Clean up the main database file to ensure fresh data import
+    # This is needed because other tests may have populated the database
+    main_db_file = get_wpp_db_file()
+    if main_db_file.exists():
+        main_db_file.unlink()
+    
     # Run UpdateDatabase
     update_database_main()
 

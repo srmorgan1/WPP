@@ -1,17 +1,17 @@
 import logging
-import os
-import shutil # Added
-from pathlib import Path # Added
 from datetime import datetime
+from pathlib import Path  # Added
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-from pandas import ExcelFile # Added
 import pytest
-from dateutil import parser # Added
+from dateutil import parser  # Added
+from pandas import ExcelFile  # Added
 
 # FILE: tests/test_RunReports.py
 from wpp.calendars import EnglandAndWalesHolidayCalendar
+from wpp.config import get_wpp_log_dir, get_wpp_report_dir  # Added
+
 # from wpp.db import get_db_connection # Removed, conftest db_conn is used
 from wpp.logger import StdErrFilter, StdOutFilter
 from wpp.RunReports import (
@@ -21,13 +21,12 @@ from wpp.RunReports import (
     get_args,
     get_single_value,
     join_sql_queries,
+    main as run_reports_main,  # Added
     run_sql_query,
     runReports,
     union_sql_queries,
-    main as run_reports_main, # Added
 )
-from wpp.UpdateDatabase import main as update_database_main # Added
-from wpp.config import get_wpp_log_dir, get_wpp_report_dir # Added
+from wpp.UpdateDatabase import main as update_database_main  # Added
 
 # Define paths relative to this test file's parent (tests/) for reference data
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -170,10 +169,21 @@ def test_checkDataIsPresent(mock_get_single_value, db_conn): # Added db_conn fro
     assert result is True # Explicitly check for True
 
 
+@patch("pandas.DataFrame.to_excel")
 @patch("wpp.RunReports.checkDataIsPresent", return_value=True)
 @patch("wpp.RunReports.run_sql_query")
 @patch("wpp.RunReports.pd.ExcelWriter")
-def test_runReports(mock_excel_writer, mock_run_sql_query, mock_checkDataIsPresent, db_conn):
+@patch("wpp.RunReports.get_wpp_report_file")
+def test_runReports(mock_get_wpp_report_file, mock_excel_writer, mock_run_sql_query, mock_checkDataIsPresent, mock_to_excel, db_conn):
+    # Mock the report file path to return a dummy path
+    mock_get_wpp_report_file.return_value = "/tmp/test_report.xlsx"
+    
+    # Create a proper mock for ExcelWriter that behaves like a context manager
+    mock_writer_instance = MagicMock()
+    mock_writer_instance.__enter__ = MagicMock(return_value=mock_writer_instance)
+    mock_writer_instance.__exit__ = MagicMock(return_value=None)
+    mock_excel_writer.return_value = mock_writer_instance
+    
     mock_run_sql_query.side_effect = [
         pd.DataFrame([{"Reference": "050-01", "Name": "Test Block", "Total Paid SC": 100, "Account Number": "12345"}]),
         pd.DataFrame([{"Block": "050-01"}]), # For BLOCKS_NOT_IN_COMREC_REPORT
@@ -211,7 +221,6 @@ def test_run_reports_main_output(mock_update_dt, mock_run_dt, db_conn, clean_out
     mock_run_dt.date.today.return_value = parser.parse("2022-10-11").date()
     mock_run_dt.datetime.today.return_value = parser.parse("2022-10-11")
     # Mock the date to control the output filename
-    
 
     # 1. Populate the database using the test data
     update_database_main()
@@ -267,3 +276,116 @@ def test_run_reports_main_output(mock_update_dt, mock_run_dt, db_conn, clean_out
     assert reference_log_file.exists(), f"Reference log file not found: {reference_log_file}"
 
     compare_log_files(generated_log_file, reference_log_file)
+
+
+# Additional tests to cover missing lines
+
+def test_add_extra_rows_exception_handling():
+    """Test add_extra_rows function with data that causes exceptions"""
+    # Create a DataFrame that will cause exceptions in the Qube Total and GR handling
+    df = pd.DataFrame({
+        "Property / Block": ["050-01"],
+        "Name": ["Test Block"],
+        "Qube Total": [None],  # This will cause issues
+        "BOS": [90],
+        "Discrepancy": [10],
+        "GR": [None],  # This will cause issues
+        "BOS GR": [None],  # This will cause issues
+        "Discrepancy GR": [1],
+    })
+    
+    # This should handle exceptions gracefully (lines 314-315, 323-324)
+    result = add_extra_rows(df)
+    assert len(result) > 1
+    # The function should still work despite the exceptions
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_checkDataIsPresent_with_missing_data(db_conn):
+    """Test checkDataIsPresent when data is missing"""
+    # Test with a date that has no data
+    result = checkDataIsPresent(db_conn, "1999-01-01", "1999-01-01")
+    assert result is False
+
+
+@patch("wpp.RunReports.checkDataIsPresent", return_value=False)
+def test_runReports_raises_exception_when_no_data(mock_checkDataIsPresent, db_conn):
+    """Test that runReports raises exception when data is not present (line 368)"""
+    qube_date = parser.parse("1999-01-01").date()
+    bos_date = parser.parse("1999-01-01").date()
+    
+    with pytest.raises(Exception) as exc_info:
+        runReports(db_conn, qube_date, bos_date)
+    
+    assert "The required data is not in the database" in str(exc_info.value)
+
+
+@patch("argparse.ArgumentParser.parse_args")
+def test_get_args_error_handling(mock_parse_args):
+    """Test get_args error handling for invalid argument combinations (lines 488-489)"""
+    import sys
+    from unittest.mock import MagicMock
+    
+    # Mock args with bos_date but no qube_date (invalid combination)
+    mock_args = MagicMock()
+    mock_args.bos_date = "2023-01-01"
+    mock_args.qube_date = None
+    mock_parse_args.return_value = mock_args
+    
+    # Mock sys.exit to capture the exit call
+    with patch('sys.exit') as mock_exit:
+        with patch('builtins.print') as mock_print:
+            get_args()
+            
+            # Should print error message and exit
+            mock_print.assert_called_with("ERROR: --bos_date can only be provided with --qube_date")
+            mock_exit.assert_called_with(1)
+
+
+@patch("wpp.RunReports.get_log_file")
+@patch("wpp.RunReports.get_args")
+@patch("wpp.RunReports.get_run_date_args")
+@patch("wpp.RunReports.runReports")
+@patch("sqlite3.connect")
+def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_date_args, mock_get_args, mock_get_log_file):
+    """Test main function exception handling (lines 522-523)"""
+    # Mock the logger
+    mock_logger = MagicMock()
+    mock_get_log_file.return_value = mock_logger
+    
+    # Mock the args
+    mock_args = MagicMock()
+    mock_args.verbose = False
+    mock_get_args.return_value = mock_args
+    
+    # Mock database connection
+    mock_db_conn = MagicMock()
+    mock_connect.return_value = mock_db_conn
+    
+    # Mock date args
+    mock_get_run_date_args.return_value = (parser.parse("2023-01-01").date(), parser.parse("2023-01-01").date())
+    
+    # Make runReports raise an exception
+    mock_runReports.side_effect = Exception("Test exception")
+    
+    # This should catch the exception and log it (lines 522-523)
+    run_reports_main()
+    
+    # Verify that logger.exception was called
+    mock_logger.exception.assert_called_with("Test exception")
+
+
+def test_main_script_execution():
+    """Test the if __name__ == '__main__' block (line 534)"""
+    # This is a simple test to ensure the main script execution path exists
+    # We can't easily test the actual execution without complex mocking
+    # But we can at least verify the code structure is correct
+    import wpp.RunReports
+    import inspect
+    
+    # Get the source code of the module
+    source = inspect.getsource(wpp.RunReports)
+    
+    # Verify that the if __name__ == '__main__' block exists
+    assert 'if __name__ == "__main__":' in source
+    assert 'main()' in source
