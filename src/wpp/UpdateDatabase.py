@@ -694,14 +694,66 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
         csr.execute("rollback")
 
 
-def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) -> None:
-    # Read Excel spreadsheet into dataframe
+def _read_properties_df(properties_xls_file: str) -> pd.DataFrame:
+    """Reads properties data from an Excel file into a DataFrame."""
     properties_df = pd.read_excel(properties_xls_file)
     properties_df.fillna("", inplace=True)
+    return properties_df
+
+
+def _is_valid_reference(reference: str) -> bool:
+    """Checks if a reference is valid for processing."""
+    if not reference or reference.startswith("9") or "Y" in reference.upper() or "Z" in reference.upper():
+        return False
+    return True
+
+
+def _process_property(csr: sqlite3.Cursor, property_ref: str) -> tuple[int, int]:
+    """Processes a property, adding it to the DB if it doesn't exist."""
+    property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
+    if not property_id:
+        csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
+        logger.debug(f"\tAdding property {property_ref} to the database")
+        return get_last_insert_id(csr, "Properties"), 1
+    return property_id, 0
+
+
+def _process_block(csr: sqlite3.Cursor, block_ref: str, property_id: int) -> tuple[int, int]:
+    """Processes a block, adding it to the DB if it doesn't exist."""
+    block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
+    if not block_id:
+        block_type = "P" if block_ref and block_ref.endswith("00") else "B"
+        csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
+        logger.debug(f"\tAdding block {block_ref} to the database")
+        return get_last_insert_id(csr, "Blocks"), 1
+    return block_id, 0
+
+
+def _process_tenant(csr: sqlite3.Cursor, tenant_ref: str, tenant_name: str, block_id: int) -> int:
+    """Processes a tenant, adding or updating it in the DB."""
+    tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
+    if tenant_ref and not tenant_id:
+        csr.execute(INSERT_TENANT_SQL, (tenant_ref, tenant_name, block_id))
+        logger.debug(f"\tAdding tenant {tenant_ref} to the database")
+        return 1
+    elif tenant_id:
+        old_tenant_name = get_single_value(csr, SELECT_TENANT_NAME_BY_ID_SQL, (tenant_id,))
+        if tenant_name and tenant_name != old_tenant_name:
+            csr.execute(UPDATE_TENANT_NAME_SQL, (tenant_name, tenant_id))
+            logger.info(f"Updated tenant name to {tenant_name} for tenant reference {tenant_ref}")
+    return 0
+
+
+def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) -> None:
+    # Read Excel spreadsheet into dataframe
+    properties_df = _read_properties_df(properties_xls_file)
 
     num_properties_added_to_db = 0
     num_blocks_added_to_db = 0
     num_tenants_added_to_db = 0
+
+    # Define variables for error logging scope
+    reference, tenant_name, property_ref, block_ref, tenant_ref = (None,) * 5
 
     # Import into DB
     try:
@@ -710,39 +762,24 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
         for index, row in properties_df.iterrows():
             reference = row["Reference"]
             tenant_name = row["Name"]
-            # If the tenant reference begins with a '9' or contains a 'Y' or 'Z',then ignore this data
-            if reference is None or reference[0] == "9" or "Y" in reference.upper() or "Z" in reference.upper():
+
+            if not _is_valid_reference(reference):
                 continue
 
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(reference)
-            if (property_ref, block_ref, tenant_ref) == (None, None, None):
+            if not all((property_ref, block_ref, tenant_ref)):
                 logger.warning(f"\tUnable to parse tenant reference {reference}, will not add to the database.")
                 continue
-            property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
-            if not property_id:
-                csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
-                logger.debug(f"\tAdding property {property_ref} to the database")
-                num_properties_added_to_db += 1
-                property_id = get_last_insert_id(csr, "Properties")
 
-            block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
-            if not block_id:
-                block_type = "P" if block_ref and block_ref.endswith("00") else "B"
-                csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-                logger.debug(f"\tAdding block {block_ref} to the database")
-                num_blocks_added_to_db += 1
-                block_id = get_last_insert_id(csr, "Blocks")
+            prop_id, props_added = _process_property(csr, property_ref)
+            num_properties_added_to_db += props_added
 
-            tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
-            if tenant_ref and not tenant_id:
-                csr.execute(INSERT_TENANT_SQL, (tenant_ref, tenant_name, block_id))
-                logger.debug(f"\tAdding tenant {tenant_ref} to the database")
-                num_tenants_added_to_db += 1
-            else:
-                old_tenant_name = get_single_value(csr, SELECT_TENANT_NAME_BY_ID_SQL, (tenant_id,))
-                if tenant_name and tenant_name != old_tenant_name:
-                    csr.execute(UPDATE_TENANT_NAME_SQL, (tenant_name, tenant_id))
-                    logger.info(f"Updated tenant name to {tenant_name} for tenant reference {tenant_ref}")
+            blk_id, blocks_added = _process_block(csr, block_ref, prop_id)
+            num_blocks_added_to_db += blocks_added
+
+            tenants_added = _process_tenant(csr, tenant_ref, tenant_name, blk_id)
+            num_tenants_added_to_db += tenants_added
+
         csr.execute("end")
         db_conn.commit()
         logger.info(f"{num_properties_added_to_db} properties added to the database.")
