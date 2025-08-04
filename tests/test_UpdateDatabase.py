@@ -1,12 +1,10 @@
-import os
-import shutil # Added
 from pathlib import Path
 
 import pytest
 
 # Use get_wpp_input_dir and get_wpp_log_dir which respect the WPP_ROOT_DIR set by conftest.py's setup_wpp_root_dir
 from wpp.config import get_wpp_db_dir, get_wpp_input_dir, get_wpp_log_dir
-from wpp.db import get_data, get_or_create_db # get_or_create_db might be needed if tests create dbs directly
+from wpp.db import get_data, get_or_create_db  # get_or_create_db might be needed if tests create dbs directly
 from wpp.UpdateDatabase import (
     add_misc_data_to_db,
     addBlockToDB,
@@ -28,7 +26,7 @@ from wpp.UpdateDatabase import (
     importIrregularTransactionReferences,
     importPropertiesFile,
     importQubeEndOfDayBalancesFile,
-    main as update_database_main, # Added for the new test
+    main as update_database_main,  # Added for the new test
 )
 from wpp.utils import getLatestMatchingFileName, getMatchingFileNames, open_file
 
