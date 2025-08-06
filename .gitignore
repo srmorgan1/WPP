@@ -264,7 +264,6 @@ tests/Data/*/backup/
 tests/*.db
 
 *.db
-.qodo
 
 # Decrypted files
 tests/Data/Inputs/*
@@ -272,6 +271,7 @@ tests/Data/Inputs/*
 tests/Data/ReferenceReports/*
 !tests/Data/ReferenceReports/*.gpg
 
-# Aider AI
+# AI tooling
+.qodo
+.opencode
 .aider*
-
