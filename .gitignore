@@ -242,6 +242,19 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 
 # My additions for WPP
+.DS_Store
 *.zip
 *Programs_DO_NOT_CHANGE*
 *.spec
+*.db
+.qodo
+
+# Decrypted files
+tests/Data/Inputs/*
+!tests/Data/Inputs/*.gpg
+tests/Data/ReferenceReports/*
+!tests/Data/ReferenceReports/*.gpg
+
+# Aider AI
+.aider*
+
