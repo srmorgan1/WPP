@@ -245,3 +245,20 @@ fabric.properties
 *.zip
 *Programs_DO_NOT_CHANGE*
 *.spec
+
+# MacOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Aider AI
+.aider*
+
+# Tests data
+tests/Data/*/backup/
+tests/*.db
+
