@@ -1,7 +1,9 @@
+import csv
 import re
 import sqlite3
 from abc import ABC, abstractmethod
 
+from wpp.config import get_wpp_ref_matcher_log_file
 from wpp.db import get_single_value
 from wpp.utils import getLongestCommonSubstring
 
@@ -122,6 +124,9 @@ class MatchingStrategy(ABC):
     @abstractmethod
     def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
         pass
+
+    def name(self) -> str:
+        return self.__class__.__name__
 
 
 class MatchValidationException(Exception):
@@ -295,21 +300,37 @@ class NoHyphenRegexStrategy(MatchingStrategy):
 class PropertyBlockTenantRefMatcher:
     def __init__(self):
         self.strategies: list[MatchingStrategy] = []
+        self.log_file = get_wpp_ref_matcher_log_file()
+        self._setup_log_file()
+
+    def _setup_log_file(self):
+        if not self.log_file.exists():
+            with open(self.log_file, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["description", "property_ref", "block_ref", "tenant_ref", "strategy"])
 
     def add_strategy(self, strategy: MatchingStrategy):
         self.strategies.append(strategy)
 
     def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        try:
-            for strategy in self.strategies:
+        for strategy in self.strategies:
+            try:
                 property_ref, block_ref, tenant_ref = strategy.match(description, db_cursor)
                 if property_ref or block_ref or tenant_ref:
+                    self._log_match(description, property_ref, block_ref, tenant_ref, strategy.name())
                     return property_ref, block_ref, tenant_ref
-        except MatchValidationException:
-            # Exception raised when a strategy matches but fails post-match validation, break out of the loop and don't try any more strategies
-            pass
+            except MatchValidationException:
+                # Exception raised when a strategy matches but fails post-match validation, break out of the loop and don't try any more strategies
+                self._log_match(description, None, None, None, strategy.name())
+                return None, None, None
 
+        self._log_match(description, None, None, None, "NoMatch")
         return None, None, None
+
+    def _log_match(self, description: str, property_ref: str | None, block_ref: str | None, tenant_ref: str | None, strategy_name: str):
+        with open(self.log_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([description, property_ref, block_ref, tenant_ref, strategy_name])
 
 
 def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:

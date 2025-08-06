@@ -63,6 +63,10 @@ def get_wpp_run_reports_log_file(date: dt.date | dt.datetime) -> Path:
     return get_wpp_log_dir() / f"Log_RunReports_{str(date).replace(':', '.')}.txt"
 
 
+def get_wpp_ref_matcher_log_file() -> Path:
+    return get_wpp_log_dir() / "ref_matcher.csv"
+
+
 @cache
 def get_config(file_path: str | None = None) -> dict:
     """

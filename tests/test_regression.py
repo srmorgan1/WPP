@@ -67,6 +67,23 @@ def normalize_log_line(line: str) -> str:
     return line
 
 
+def compare_csv_files(generated_file: Path, reference_file: Path) -> None:
+    assert generated_file.exists(), f"Generated CSV file not found: {generated_file}"
+    assert reference_file.exists(), f"Reference CSV file not found: {reference_file}"
+
+    with open(generated_file) as gen_file, open(reference_file) as ref_file:
+        gen_df = pd.read_csv(gen_file)
+        ref_df = pd.read_csv(ref_file)
+
+        # Verify the basic structure first
+        expected_columns = ['description', 'property_ref', 'block_ref', 'tenant_ref', 'strategy']
+        assert list(gen_df.columns) == expected_columns, f"Generated CSV columns {list(gen_df.columns)} don't match expected {expected_columns}"
+        assert list(ref_df.columns) == expected_columns, f"Reference CSV columns {list(ref_df.columns)} don't match expected {expected_columns}"
+
+        # Compare the dataframes
+        pd.testing.assert_frame_equal(gen_df, ref_df, check_dtype=False, check_like=True)
+
+
 def compare_log_files(generated_file: Path, reference_file: Path) -> None:
     assert generated_file.exists(), f"Generated log file not found: {generated_file}"
     assert reference_file.exists(), f"Reference log file not found: {reference_file}"
@@ -155,6 +172,10 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
     if log_dir.exists():
         for log_file in log_dir.glob("*.txt"):
             log_file.unlink()
+        # Also clean up any existing ref_matcher.csv
+        ref_matcher_csv = log_dir / "ref_matcher.csv"
+        if ref_matcher_csv.exists():
+            ref_matcher_csv.unlink()
 
     # Clean up the main database file to ensure fresh data import
     # This is needed because other tests may have populated the database
@@ -164,6 +185,12 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
 
     # Run UpdateDatabase
     update_database_main()
+
+    # List files in log dir for debugging
+    log_dir_path = get_wpp_log_dir()
+    print(f"Listing files in {log_dir_path}:")
+    for f in log_dir_path.iterdir():
+        print(f)
 
     # Run RunReports
     qube_date = parser.parse("2022-10-11").date()
@@ -210,3 +237,8 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
         ref_log_to_compare = reference_log_by_type.get(log_type)
         assert ref_log_to_compare is not None, f"No matching reference log found for generated log: {generated_log.name}."
         compare_log_files(generated_log, ref_log_to_compare)
+
+    # Compare ref_matcher.csv
+    generated_ref_matcher_log = get_wpp_log_dir() / "ref_matcher.csv"
+    reference_ref_matcher_log = REFERENCE_LOG_DIR / "ref_matcher.csv"
+    compare_csv_files(generated_ref_matcher_log, reference_ref_matcher_log)

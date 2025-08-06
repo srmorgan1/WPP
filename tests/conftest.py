@@ -27,6 +27,9 @@ def _clean_up_output_dirs():
         shutil.rmtree(WPP_TEST_LOGS_DIR)
     if WPP_TEST_DB_DIR.exists():
         shutil.rmtree(WPP_TEST_DB_DIR)
+    ref_matcher_log = WPP_TEST_LOGS_DIR / "ref_matcher.csv"
+    if ref_matcher_log.exists():
+        ref_matcher_log.unlink()
 
 
 def _remove_decrypted_data():
@@ -83,6 +86,7 @@ def setup_wpp_root_dir():
     WPP_TEST_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     WPP_TEST_LOGS_DIR.mkdir(parents=True, exist_ok=True)
     WPP_TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
+    WPP_TEST_LOGS_DIR.mkdir(parents=True, exist_ok=True)
     yield
     _clean_up_output_dirs()
     _remove_decrypted_data()
