@@ -6,16 +6,26 @@ if [ -z "$GPG_PASSPHRASE" ]; then
   exit 1
 fi
 
-# Define the file suffixes to encrypt
-SUFFIXES=("xlsx" "zip")
-
-# Encrypt files with the specified suffixes
-for suffix in "${SUFFIXES[@]}"; do
-  for file in tests/Data/Inputs/*.$suffix tests/Data/ReferenceReports/*.$suffix; do
-  echo $file
-    # Skip if no files match the suffix
-    [ -e "$file" ] || continue
-    gpg --batch --yes --passphrase "$GPG_PASSPHRASE" --symmetric --cipher-algo AES256 --output "${file}.gpg" "$file"
-    echo "Encrypted $file to ${file}.gpg"
+# Function to encrypt files with specified suffixes in a given directory
+encrypt_files() {
+  local directory="$1"
+  shift
+  local suffixes=("$@")
+  
+  for suffix in "${suffixes[@]}"; do
+    for file in "$directory"/*.$suffix; do
+      echo $file
+      # Skip if no files match the suffix
+      [ -e "$file" ] || continue
+      gpg --batch --yes --passphrase "$GPG_PASSPHRASE" --symmetric --cipher-algo AES256 --output "${file}.gpg" "$file"
+      echo "Encrypted $file to ${file}.gpg"
+    done
   done
-done
+}
+
+# Encrypt xlsx and zip files in Data/Inputs and Data/ReferenceReports
+encrypt_files "tests/Data/Inputs" "xlsx" "zip"
+encrypt_files "tests/Data/ReferenceReports" "xlsx" "zip"
+
+# Encrypt csv files in Data/ReferenceLogs
+encrypt_files "tests/Data/ReferenceLogs" "csv"
