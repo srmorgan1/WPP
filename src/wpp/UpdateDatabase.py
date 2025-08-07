@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
-from .db import get_last_insert_id, get_or_create_db, get_single_value
+from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -50,7 +50,6 @@ SELECT_CHARGES_SQL = "SELECT ID FROM Charges WHERE fund_id = ? AND category_id =
 SELECT_BANK_ACCOUNT_SQL = "SELECT ID FROM Blocks WHERE ID = ? AND account_number IS Null;"
 SELECT_BANK_ACCOUNT_SQL1 = "SELECT ID FROM Accounts WHERE sort_code = ? AND account_number = ?;"
 SELECT_BANK_ACCOUNT_BALANCE_SQL = "SELECT ID FROM AccountBalances WHERE at_date = ? AND account_id = ?;"
-SELECT_TENANT_NAME_SQL = "SELECT tenant_name FROM Tenants WHERE tenant_ref = ?;"
 SELECT_BLOCK_NAME_SQL = "SELECT block_name FROM Blocks WHERE block_ref = ?;"
 SELECT_TENANT_NAME_BY_ID_SQL = "SELECT tenant_name FROM Tenants WHERE ID = ?;"
 SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL = "select tenant_ref from IrregularTransactionRefs where instr(?, transaction_ref_pattern) > 0;"
@@ -100,7 +99,7 @@ def get_id_from_ref(db_cursor: sqlite3.Cursor, table_name: str, field_name: str,
         return None
 
 
-def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value: str) -> int | None:
+def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value: str) -> int:
     sql = SELECT_ID_FROM_KEY_TABLE_SQL.format(key_table_name)
     db_cursor.execute(sql, (value,))
     _id = db_cursor.fetchone()
@@ -112,9 +111,6 @@ def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value:
         return get_last_insert_id(db_cursor, f"Key_{key_table_name}")
 
 
-def checkTenantExists(db_cursor: sqlite3.Cursor, tenant_ref: str) -> str | None:
-    tenant_name = get_single_value(db_cursor, SELECT_TENANT_NAME_SQL, (tenant_ref,))
-    return tenant_name
 
 
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
@@ -182,11 +178,10 @@ def getPropertyBlockAndTenantRefsFromRegexMatch(
 
 
 def doubleCheckTenantRef(db_cursor: sqlite3.Cursor, tenant_ref: str, reference: str) -> bool:
-    tenant_name = checkTenantExists(db_cursor, tenant_ref)
-    if tenant_name:
-        return matchTransactionRef(tenant_name, reference)
-    else:
+    if not checkTenantExists(db_cursor, tenant_ref):
         return False
+    tenant_name = getTenantName(db_cursor, tenant_ref)
+    return matchTransactionRef(tenant_name, reference)
 
 
 def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> tuple[str | None, str | None, str | None]:
@@ -722,9 +717,7 @@ def _process_property(csr: sqlite3.Cursor, property_ref: str) -> tuple[int, int]
     if not property_id:
         csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
         logger.debug(f"\tAdding property {property_ref} to the database")
-        new_id = get_last_insert_id(csr, "Properties")
-        assert new_id is not None, "Failed to get last insert ID for Properties"
-        return new_id, 1
+        return get_last_insert_id(csr, "Properties"), 1
     assert property_id is not None  # For mypy
     return property_id, 0
 
@@ -736,9 +729,7 @@ def _process_block(csr: sqlite3.Cursor, block_ref: str, property_id: int) -> tup
         block_type = "P" if block_ref and block_ref.endswith("00") else "B"
         csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
         logger.debug(f"\tAdding block {block_ref} to the database")
-        new_id = get_last_insert_id(csr, "Blocks")
-        assert new_id is not None, "Failed to get last insert ID for Blocks"
-        return new_id, 1
+        return get_last_insert_id(csr, "Blocks"), 1
     assert block_id is not None  # For mypy
     return block_id, 0
 
@@ -1252,10 +1243,6 @@ def _process_fund_category_data(
     # Get fund and category IDs
     fund_id = get_id_from_key_table(csr, "fund", fund)
     category_id = get_id_from_key_table(csr, "category", category)
-    
-    if fund_id is None or category_id is None:
-        logger.error(f"Could not get fund_id ({fund_id}) or category_id ({category_id}) for {fund}/{category}")
-        return 0
 
     # Add available funds charge
     if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["available_funds"], at_date, available_funds, block_id):

@@ -4,13 +4,12 @@ import sqlite3
 from abc import ABC, abstractmethod
 
 from wpp.config import get_wpp_ref_matcher_log_file
-from wpp.db import get_single_value
+from wpp.db import get_single_value, checkTenantExists, getTenantName
 from wpp.utils import getLongestCommonSubstring
 
 #
 # SQL
 #
-SELECT_TENANT_NAME_SQL = "SELECT tenant_name FROM Tenants WHERE tenant_ref = ?;"
 SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL = "select tenant_ref from IrregularTransactionRefs where instr(?, transaction_ref_pattern) > 0;"
 
 #
@@ -33,10 +32,6 @@ PT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,|/)")
 PB_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,|/)")
 P_REGEX = re.compile(r"(?:^|\s+)(\d\d\d)(?:$|\s+)")
 
-
-def checkTenantExists(db_cursor: sqlite3.Cursor, tenant_ref: str) -> str | None:
-    tenant_name = get_single_value(db_cursor, SELECT_TENANT_NAME_SQL, (tenant_ref,))
-    return tenant_name
 
 
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
@@ -103,11 +98,10 @@ def getPropertyBlockAndTenantRefsFromRegexMatch(
 
 
 def doubleCheckTenantRef(db_cursor: sqlite3.Cursor, tenant_ref: str, reference: str) -> bool:
-    tenant_name = checkTenantExists(db_cursor, tenant_ref)
-    if tenant_name:
-        return matchTransactionRef(tenant_name, reference)
-    else:
+    if not checkTenantExists(db_cursor, tenant_ref):
         return False
+    tenant_name = getTenantName(db_cursor, tenant_ref)
+    return matchTransactionRef(tenant_name, reference)
 
 
 def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> tuple[str | None, str | None, str | None]:

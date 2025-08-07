@@ -64,7 +64,7 @@ def test_checkTenantExists_with_none_result():
 
     # Test with non-existent tenant
     result = checkTenantExists(cursor, "999-99-999")
-    assert result is None
+    assert result is False
 
     conn.close()
 
