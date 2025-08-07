@@ -76,7 +76,7 @@ def compare_csv_files(generated_file: Path, reference_file: Path) -> None:
         ref_df = pd.read_csv(ref_file)
 
         # Verify the basic structure first
-        expected_columns = ['description', 'property_ref', 'block_ref', 'tenant_ref', 'strategy']
+        expected_columns = ["description", "property_ref", "block_ref", "tenant_ref", "strategy"]
         assert list(gen_df.columns) == expected_columns, f"Generated CSV columns {list(gen_df.columns)} don't match expected {expected_columns}"
         assert list(ref_df.columns) == expected_columns, f"Reference CSV columns {list(ref_df.columns)} don't match expected {expected_columns}"
 
