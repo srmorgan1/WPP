@@ -14,6 +14,7 @@ from openpyxl import load_workbook
 from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
+from .exceptions import database_transaction
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -749,23 +750,19 @@ def _process_tenant(csr: sqlite3.Cursor, tenant_ref: str, tenant_name: str, bloc
 
 
 def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) -> None:
-    # Read Excel spreadsheet into dataframe
+    """Import properties data from Excel file into database."""
     properties_df = _read_properties_df(properties_xls_file)
 
     num_properties_added_to_db = 0
     num_blocks_added_to_db = 0
     num_tenants_added_to_db = 0
+    current_data = {}
 
-    # Define variables for error logging scope
-    reference, tenant_name, property_ref, block_ref, tenant_ref = (None,) * 5
-
-    # Import into DB
-    try:
-        csr = db_conn.cursor()
-        csr.execute("begin")
+    with database_transaction(db_conn, logger, "importing properties file") as csr:
         for index, row in properties_df.iterrows():
             reference = row["Reference"]
             tenant_name = row["Name"]
+            current_data = {"reference": reference, "tenant_name": tenant_name}
 
             if not _is_valid_reference(reference):
                 continue
@@ -775,37 +772,33 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
                 logger.warning(f"\tUnable to parse tenant reference {reference}, will not add to the database.")
                 continue
 
+            current_data.update({
+                "property_ref": property_ref,
+                "block_ref": block_ref,
+                "tenant_ref": tenant_ref
+            })
+
             # Type assertions for mypy since we know they're not None after the all() check
             assert property_ref is not None
             assert block_ref is not None
             assert tenant_ref is not None
 
-            prop_id, props_added = _process_property(csr, property_ref)
-            num_properties_added_to_db += props_added
+            try:
+                prop_id, props_added = _process_property(csr, property_ref)
+                num_properties_added_to_db += props_added
 
-            blk_id, blocks_added = _process_block(csr, block_ref, prop_id)
-            num_blocks_added_to_db += blocks_added
+                blk_id, blocks_added = _process_block(csr, block_ref, prop_id)
+                num_blocks_added_to_db += blocks_added
 
-            tenants_added = _process_tenant(csr, tenant_ref, tenant_name, blk_id)
-            num_tenants_added_to_db += tenants_added
+                tenants_added = _process_tenant(csr, tenant_ref, tenant_name, blk_id)
+                num_tenants_added_to_db += tenants_added
+            except Exception as ex:
+                logger.error(f"Failed to process record: {current_data}")
+                raise
 
-        csr.execute("end")
-        db_conn.commit()
-        logger.info(f"{num_properties_added_to_db} properties added to the database.")
-        logger.info(f"{num_blocks_added_to_db} blocks added to the database.")
-        logger.info(f"{num_tenants_added_to_db} tenants added to the database.")
-    except db_conn.Error as err:
-        logger.error(str(err))
-        logger.error("The data which caused the failure is: " + str((reference, tenant_name, property_ref, block_ref, tenant_ref)))
-        logger.error("No properties, blocks or tenants have been added to the database")
-        csr.execute("rollback")
-        raise
-    except Exception as ex:
-        logger.error(str(ex))
-        logger.error("The data which caused the failure is: " + str((reference, tenant_name, property_ref, block_ref, tenant_ref)))
-        logger.error("No properties, blocks or tenants have been added to the database.")
-        csr.execute("rollback")
-        raise
+    logger.info(f"{num_properties_added_to_db} properties added to the database.")
+    logger.info(f"{num_blocks_added_to_db} blocks added to the database.")
+    logger.info(f"{num_tenants_added_to_db} tenants added to the database.")
 
 
 def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str) -> None:

@@ -278,7 +278,7 @@ def test_get_args_error_handling(mock_parse_args):
 @patch("wpp.RunReports.runReports")
 @patch("sqlite3.connect")
 def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_date_args, mock_get_args, mock_get_log_file):
-    """Test main function exception handling (lines 522-523)"""
+    """Test main function exception handling using log_exceptions decorator"""
     # Mock the logger
     mock_logger = MagicMock()
     mock_get_log_file.return_value = mock_logger
@@ -298,11 +298,13 @@ def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_dat
     # Make runReports raise an exception
     mock_runReports.side_effect = Exception("Test exception")
 
-    # This should catch the exception and log it (lines 522-523)
+    # The log_exceptions decorator should catch and log the exception without re-raising
     run_reports_main()
 
-    # Verify that logger.exception was called
-    mock_logger.exception.assert_called_with("Test exception")
+    # Verify that logger.error was called with the expected message format
+    # The decorator adds "running reports: " prefix to the error message
+    mock_logger.error.assert_any_call("running reports: Test exception")
+    mock_logger.exception.assert_called_with(mock_runReports.side_effect)
 
 
 def test_main_script_execution():

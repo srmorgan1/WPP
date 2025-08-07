@@ -15,6 +15,7 @@ from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file,
 from wpp.db import get_single_value, join_sql_queries, run_sql_query, union_sql_queries
 from wpp.logger import get_log_file
 from wpp.utils import is_running_via_pytest
+from wpp.exceptions import safe_pandas_operation, log_exceptions
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -311,20 +312,16 @@ def add_extra_rows(df: pd.DataFrame) -> pd.DataFrame:
     row.reset_index()
 
     qube_total, qube_gr = None, None
-    try:
+    with safe_pandas_operation():
         qube_total = df.loc[select, "Qube Total"].iloc[0]
         qube_gr = df.loc[select, "GR"].iloc[0]
-    except Exception:
-        pass
     if qube_total is not None and qube_gr is not None:
         df.loc[select, ["Qube Total"]] = qube_total - qube_gr
 
     bos_gr, bos = None, None
-    try:
+    with safe_pandas_operation():
         bos = df.loc[select, "BOS"].iloc[0]
         bos_gr = df.loc[select, "BOS GR"].iloc[0]
-    except Exception:
-        pass
     if bos is not None and bos_gr is not None:
         df.loc[select, ["BOS"]] = bos - bos_gr
 
@@ -516,7 +513,8 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
         qube_date, bos_date = get_run_date_args(args, qube_date, bos_date)
         runReports(db_conn, qube_date, bos_date)
     except Exception as ex:
-        logger.exception(str(ex))
+        logger.error(f"running reports: {ex}")
+        logger.exception(ex)
 
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
