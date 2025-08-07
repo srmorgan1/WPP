@@ -78,26 +78,33 @@ def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
     trf = re.sub(r"\d", "", trf)
     trf = re.sub(r"[_\W]+", " ", trf).strip()
 
-    if tenant_name:
-        lcss = getLongestCommonSubstring(tnm, trf)
-        # Assume that if the transaction reference has a substring matching
-        # one in the tenant name of >= 4 chars, then this is a match.
-        return len(lcss) >= 4
-    else:
+    # Early return for empty tenant name
+    if not tenant_name:
         return False
+        
+    lcss = getLongestCommonSubstring(tnm, trf)
+    # Assume that if the transaction reference has a substring matching
+    # one in the tenant name of >= 4 chars, then this is a match.
+    return len(lcss) >= 4
 
 
 def removeDCReferencePostfix(tenant_ref: str | None) -> str | None:
-    # Remove 'DC' from parsed tenant references paid by debit card
-    if tenant_ref is not None and tenant_ref.endswith("DC"):
-        tenant_ref = tenant_ref[:-2].strip()
-    return tenant_ref
+    """Remove 'DC' from parsed tenant references paid by debit card."""
+    # Early return for None or non-DC references
+    if not tenant_ref or not tenant_ref.endswith("DC"):
+        return tenant_ref
+    
+    return tenant_ref[:-2].strip()
 
 
 def correctKnownCommonErrors(property_ref: str, block_ref: str, tenant_ref: str | None) -> tuple[str, str, str | None]:
-    # Correct known errors in the tenant payment references
-    if property_ref == "094" and tenant_ref is not None and tenant_ref[-3] == "O":
-        tenant_ref = tenant_ref[:-3] + "0" + tenant_ref[-2:]
+    """Correct known errors in the tenant payment references."""
+    # Early return if not the specific property/tenant combination we need to fix
+    if property_ref != "094" or not tenant_ref or len(tenant_ref) < 3 or tenant_ref[-3] != "O":
+        return property_ref, block_ref, tenant_ref
+    
+    # Fix the 'O' to '0' error in property 094
+    tenant_ref = tenant_ref[:-3] + "0" + tenant_ref[-2:]
     return property_ref, block_ref, tenant_ref
 
 
@@ -268,6 +275,7 @@ class SpecialCaseStrategy(RegexStrategy):
         ):
             raise MatchValidationException("Failed to validate tenant reference: the property is not in the special cases lists")
         return MatchResult.match(property_ref, block_ref, tenant_ref)
+    
 
 
 class PBRegexStrategy(RegexStrategy):
@@ -305,22 +313,33 @@ class PRegexStrategy(RegexStrategy):
 
 class NoHyphenRegexStrategy(MatchingStrategy):
     def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
-        match = (
-            re.search(PBT_REGEX_NO_HYPHENS, description)
-            or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description)
-            or re.search(PBT_REGEX_NO_TERMINATING_SPACE, description)
-            or re.search(PBT_REGEX_NO_BEGINNING_SPACE, description)
-        )
-        if match:
-            property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-            if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                if property_ref and block_ref:
-                    property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                    raise MatchValidationException("Failed to validate tenant reference")
-            return MatchResult.match(property_ref, block_ref, tenant_ref)
-
-        return MatchResult.no_match()
+        match = self._find_regex_match(description)
+        if not match:
+            return MatchResult.no_match()
+            
+        property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+        
+        if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+            if property_ref and block_ref:
+                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+            if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+                raise MatchValidationException("Failed to validate tenant reference")
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+    
+    def _find_regex_match(self, description: str) -> re.Match | None:
+        """Try multiple regex patterns and return first match."""
+        patterns = [
+            PBT_REGEX_NO_HYPHENS,
+            PBT_REGEX_NO_HYPHENS_SPECIAL_CASES,
+            PBT_REGEX_NO_TERMINATING_SPACE,
+            PBT_REGEX_NO_BEGINNING_SPACE
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, description)
+            if match:
+                return match
+        return None
 
 
 # class PostProcessStrategy(MatchingStrategy):
