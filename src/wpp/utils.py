@@ -40,7 +40,7 @@ def open_files(file_paths: list[Path]) -> list[IO]:
                 if "__MACOSX" not in finfo.filename:
                     files.append(zfile.open(finfo))
         else:
-            files.append(file_path.open(mode="b"))
+            files.append(file_path.open(mode="rb"))
     return files
 
 

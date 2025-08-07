@@ -10,7 +10,6 @@ from pandas import ExcelFile  # Added
 
 # FILE: tests/test_RunReports.py
 from wpp.calendars import EnglandAndWalesHolidayCalendar
-from wpp.config import get_wpp_log_dir, get_wpp_report_dir  # Added
 
 # from wpp.db import get_db_connection # Removed, conftest db_conn is used
 from wpp.logger import StdErrFilter, StdOutFilter
@@ -204,65 +203,7 @@ def test_get_args(mock_parse_args):
     assert args.qube_date == "2023-01-01"
 
 
-# New integration test for RunReports.main()
-@patch("wpp.RunReports.dt")
-@patch("wpp.UpdateDatabase.dt")
-def test_run_reports_main_output(mock_update_dt, mock_run_dt, db_conn, clean_output_dirs):
-    # Mock the date to control the output filename
-    mock_update_dt.date.today.return_value = parser.parse("2022-10-11").date()
-    mock_run_dt.date.today.return_value = parser.parse("2022-10-11").date()
-    mock_run_dt.datetime.today.return_value = parser.parse("2022-10-11")
-    # Mock the date to control the output filename
-
-    # 1. Populate the database using the test data
-    update_database_main()
-
-    # 2. Define dates and run RunReports.main()
-    qube_date = parser.parse("2022-10-11").date()
-    bos_date = qube_date
-    run_reports_main(qube_date=qube_date, bos_date=bos_date)
-
-    # 3. Compare generated reports
-    report_dir = Path(get_wpp_report_dir())
-    generated_reports = sorted([report for report in report_dir.iterdir() if report.suffix == ".xlsx"])
-    reference_reports_paths = sorted([report for report in REFERENCE_REPORT_DIR.iterdir() if report.suffix == ".xlsx" and not report.name.endswith(".gpg")])
-
-    assert len(generated_reports) > 0, "No reports were generated."
-    assert len(generated_reports) == len(reference_reports_paths), f"Number of generated reports ({len(generated_reports)}) does not match reference reports ({len(reference_reports_paths)})."
-
-    for gen_report, ref_report_path in zip(generated_reports, reference_reports_paths):
-        expected_report_name = f"WPP_Report_{qube_date.strftime('%Y-%m-%d')}.xlsx"
-        data_import_issues_name = f"Data_Import_Issues_{qube_date.strftime('%Y-%m-%d')}.xlsx"
-
-        if gen_report.name == expected_report_name:
-            ref_to_compare = REFERENCE_REPORT_DIR / f"WPP_Report_{qube_date.strftime('%Y-%m-%d')}.xlsx"
-            compare_excel_files(gen_report, ref_to_compare)
-        elif gen_report.name == data_import_issues_name:
-            ref_to_compare = REFERENCE_REPORT_DIR / f"Data_Import_Issues_{qube_date.strftime('%Y-%m-%d')}.xlsx"
-            if not ref_to_compare.exists():
-                pytest.skip(f"Reference file {ref_to_compare.name} not found for comparison. Check test data alignment.")
-            else:
-                compare_excel_files(gen_report, ref_to_compare)
-        else:
-            pytest.fail(f"Unexpected generated report: {gen_report.name}")
-
-    # 4. Compare generated log
-    log_dir = Path(get_wpp_log_dir())
-    # Expecting a log file like Log_RunReports_YYYY-MM-DD_HHMMSS.txt
-    generated_logs = list(log_dir.glob("Log_RunReports_*.txt"))
-    assert len(generated_logs) == 1, f"Expected 1 RunReports log file, found {len(generated_logs)} in {log_dir}"
-    generated_log_file = generated_logs[0]
-
-    # Reference log file name is fixed: Log_RunReports_2025-02-25.txt
-    # This date mismatch (2025-02-25 in ref vs. dynamic date in generated) needs careful handling.
-    # For this test, we'll assume the content should match despite the filename date difference,
-    # or the reference log should be named according to the test date if content is date-specific.
-    # Given the regression test setup, it's likely the content is what matters.
-    # Let's use the provided reference log name.
-    reference_log_file = REFERENCE_LOG_DIR / "Log_RunReports_2025-02-25.txt"
-    assert reference_log_file.exists(), f"Reference log file not found: {reference_log_file}"
-
-    compare_log_files(generated_log_file, reference_log_file)
+# Removed test_run_reports_main_output - redundant with comprehensive regression test
 
 
 # Additional tests to cover missing lines

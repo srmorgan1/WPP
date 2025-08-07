@@ -1,0 +1,353 @@
+import re
+import sqlite3
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from wpp.ref_matcher import (
+    PBT_REGEX,
+    IrregularTenantRefStrategy,
+    MatchingStrategy,
+    MatchValidationException,
+    NoHyphenRegexStrategy,
+    PBRegexStrategy,
+    PBTRegex4Strategy,
+    PRegexStrategy,
+    PropertyBlockTenantRefMatcher,
+    PTRegexStrategy,
+    RegexStrategy,
+    SpecialCaseStrategy,
+    checkForIrregularTenantRefInDatabase,
+    checkTenantExists,
+    correctKnownCommonErrors,
+    getPropertyBlockAndTenantRefsFromRegexMatch,
+    matchTransactionRef,
+    postProcessPropertyBlockTenantRefs,
+    recodeSpecialBlockReferenceCases,
+    recodeSpecialPropertyReferenceCases,
+    removeDCReferencePostfix,
+)
+
+
+class MockStrategy(MatchingStrategy):
+    """Mock strategy for testing."""
+
+    def __init__(self, return_value=None):
+        self.return_value = return_value or (None, None, None)
+
+    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+        return self.return_value
+
+
+def test_matching_strategy_name_method():
+    """Test that MatchingStrategy.name() returns class name."""
+    strategy = MockStrategy()
+    assert strategy.name() == "MockStrategy"
+
+    # Test with actual strategies
+    regex_strategy = RegexStrategy(PBT_REGEX)
+    assert regex_strategy.name() == "RegexStrategy"
+
+    irregular_strategy = IrregularTenantRefStrategy()
+    assert irregular_strategy.name() == "IrregularTenantRefStrategy"
+
+
+def test_checkTenantExists_with_none_result():
+    """Test checkTenantExists when tenant doesn't exist."""
+    # Create in-memory database
+    conn = sqlite3.connect(":memory:")
+    cursor = conn.cursor()
+
+    # Create Tenants table without any data
+    cursor.execute("CREATE TABLE Tenants (tenant_ref TEXT, tenant_name TEXT)")
+
+    # Test with non-existent tenant
+    result = checkTenantExists(cursor, "999-99-999")
+    assert result is None
+
+    conn.close()
+
+
+def test_matchTransactionRef_edge_cases():
+    """Test matchTransactionRef with edge cases."""
+    # Test with empty tenant name (should return False)
+    result = matchTransactionRef("", "some transaction ref")
+    assert result is False
+
+    # Test with very short common substring (less than 4 chars)
+    result = matchTransactionRef("abc", "xyz")
+    assert result is False
+
+    # Test with exactly 4 char common substring (should return True)
+    result = matchTransactionRef("abcdef", "abcd123")
+    assert result is True
+
+
+def test_removeDCReferencePostfix():
+    """Test removeDCReferencePostfix function."""
+    # Test with None input
+    assert removeDCReferencePostfix(None) is None
+
+    # Test with DC postfix
+    assert removeDCReferencePostfix("123-45-678 DC") == "123-45-678"
+    assert removeDCReferencePostfix("123-45-678DC") == "123-45-678"
+
+    # Test without DC postfix
+    assert removeDCReferencePostfix("123-45-678") == "123-45-678"
+
+
+def test_correctKnownCommonErrors():
+    """Test correctKnownCommonErrors function."""
+    # Test specific error correction for property 094
+    prop_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", "094-01-O23")
+    assert tenant_ref == "094-01-023"
+
+    # Test with None tenant_ref
+    prop_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", None)
+    assert tenant_ref is None
+
+    # Test with different property (no correction)
+    prop_ref, block_ref, tenant_ref = correctKnownCommonErrors("095", "095-01", "095-01-O23")
+    assert tenant_ref == "095-01-O23"
+
+
+def test_recodeSpecialPropertyReferenceCases():
+    """Test recodeSpecialPropertyReferenceCases function."""
+    # Test 020-03 recoding
+    prop_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("020", "020-03", "020-03-001")
+    assert prop_ref == "020A"
+
+    # Test 064-01 recoding
+    prop_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("064", "064-01", "064-01-001")
+    assert prop_ref == "064A"
+
+    # Test no recoding needed
+    prop_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("021", "021-01", "021-01-001")
+    assert prop_ref == "021"
+
+
+def test_recodeSpecialBlockReferenceCases():
+    """Test recodeSpecialBlockReferenceCases function."""
+    # Test 101-02 recoding
+    prop_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", "101-02-001")
+    assert block_ref == "101-01"
+    assert tenant_ref == "101-01-001"
+
+    # Test with None tenant_ref
+    prop_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", None)
+    assert block_ref == "101-01"
+    assert tenant_ref is None
+
+    # Test no recoding needed
+    prop_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("102", "102-01", "102-01-001")
+    assert block_ref == "102-01"
+
+
+def test_getPropertyBlockAndTenantRefsFromRegexMatch():
+    """Test getPropertyBlockAndTenantRefsFromRegexMatch function."""
+    # Test with valid match
+    pattern = re.compile(r"(\d{3})-(\d{2})-(\d{3})")
+    match = pattern.search("123-45-678")
+    prop_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+    assert prop_ref == "123"
+    assert block_ref == "123-45"
+    assert tenant_ref == "123-45-678"
+
+    # Test with None match
+    prop_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(None)
+    assert prop_ref is None
+    assert block_ref is None
+    assert tenant_ref is None
+
+
+def test_postProcessPropertyBlockTenantRefs():
+    """Test postProcessPropertyBlockTenantRefs function."""
+    # Test filtering out refs with Z or Y
+    result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-Z01")
+    assert result == (None, None, None)
+
+    result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-Y01")
+    assert result == (None, None, None)
+
+    # Test filtering out property refs >= 900
+    result = postProcessPropertyBlockTenantRefs("900", "900-01", "900-01-001")
+    assert result == (None, None, None)
+
+    result = postProcessPropertyBlockTenantRefs("999", "999-01", "999-01-001")
+    assert result == (None, None, None)
+
+    # Test valid refs that should pass through
+    result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-001")
+    assert result == ("123", "123-01", "123-01-001")
+
+
+def test_special_case_strategy_edge_cases():
+    """Test SpecialCaseStrategy with edge cases."""
+    strategy = SpecialCaseStrategy()
+
+    # Test without database cursor (should use hardcoded validation)
+    prop_ref, block_ref, tenant_ref = strategy.match("093-01-ABC", None)
+    assert prop_ref == "093"  # 093 is in the allowed list
+
+    # Test with property not in special cases
+    with pytest.raises(MatchValidationException):
+        strategy.match("999-01-ABC", None)
+
+
+def test_pbt_regex4_strategy_validation():
+    """Test PBTRegex4Strategy validation logic."""
+    strategy = PBTRegex4Strategy()
+
+    # Create in-memory database for testing
+    conn = sqlite3.connect(":memory:")
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE Tenants (tenant_ref TEXT, tenant_name TEXT)")
+
+    # Test validation failure
+    with pytest.raises(MatchValidationException):
+        strategy.match("12-34-567", cursor)  # Should fail validation
+
+    conn.close()
+
+
+def test_property_block_tenant_ref_matcher_logging():
+    """Test PropertyBlockTenantRefMatcher CSV logging."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create matcher with custom log file
+        matcher = PropertyBlockTenantRefMatcher()
+        matcher.log_file = Path(temp_dir) / "test_ref_matcher.csv"
+        matcher._setup_log_file()
+
+        # Add a simple strategy
+        matcher.add_strategy(MockStrategy(return_value=("123", "123-01", "123-01-001")))
+
+        # Test matching
+        result = matcher.match("123-01-001", None)
+        assert result == ("123", "123-01", "123-01-001")
+
+        # Verify log file was created and contains data
+        assert matcher.log_file.exists()
+        content = matcher.log_file.read_text()
+        assert "description,property_ref,block_ref,tenant_ref,strategy" in content
+        assert "123-01-001,123,123-01,123-01-001,MockStrategy" in content
+
+
+def test_property_block_tenant_ref_matcher_no_match():
+    """Test PropertyBlockTenantRefMatcher when no strategy matches."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        matcher = PropertyBlockTenantRefMatcher()
+        matcher.log_file = Path(temp_dir) / "test_no_match.csv"
+        matcher._setup_log_file()
+
+        # Add strategy that returns None
+        matcher.add_strategy(MockStrategy(return_value=(None, None, None)))
+
+        # Test no match
+        result = matcher.match("nomatch", None)
+        assert result == (None, None, None)
+
+        # Verify logging of no match
+        content = matcher.log_file.read_text()
+        assert "nomatch,,,,NoMatch" in content
+
+
+def test_property_block_tenant_ref_matcher_validation_exception():
+    """Test PropertyBlockTenantRefMatcher handling of MatchValidationException."""
+
+    class FailingStrategy(MatchingStrategy):
+        def match(self, description: str, db_cursor: sqlite3.Cursor | None):
+            # First return a match, then raise validation exception
+            raise MatchValidationException("Validation failed")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        matcher = PropertyBlockTenantRefMatcher()
+        matcher.log_file = Path(temp_dir) / "test_validation_fail.csv"
+        matcher._setup_log_file()
+
+        # Add failing strategy
+        matcher.add_strategy(FailingStrategy())
+
+        # Test validation failure
+        result = matcher.match("test", None)
+        assert result == (None, None, None)
+
+        # Verify logging of validation failure
+        content = matcher.log_file.read_text()
+        assert "test,,,,FailingStrategy" in content
+
+
+def test_no_hyphen_regex_strategy():
+    """Test NoHyphenRegexStrategy with various patterns."""
+    strategy = NoHyphenRegexStrategy()
+
+    # Test successful match
+    result = strategy.match("123 45 678", None)
+    assert result == ("123", "123-45", "123-45-678")
+
+    # Test no match
+    result = strategy.match("no numbers here", None)
+    assert result == (None, None, None)
+
+
+def test_checkForIrregularTenantRefInDatabase():
+    """Test checkForIrregularTenantRefInDatabase function."""
+    # Create in-memory database
+    conn = sqlite3.connect(":memory:")
+    cursor = conn.cursor()
+
+    # Create table and add test data
+    cursor.execute("CREATE TABLE IrregularTransactionRefs (tenant_ref TEXT, transaction_ref_pattern TEXT)")
+    cursor.execute("INSERT INTO IrregularTransactionRefs VALUES ('123-45-678', 'SPECIAL_REF')")
+
+    # Test finding irregular ref
+    result = checkForIrregularTenantRefInDatabase("SPECIAL_REF", cursor)
+    # This will depend on the getPropertyBlockAndTenantRefs implementation
+    # For now, just test that it doesn't crash
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+
+    # Test with None cursor
+    result = checkForIrregularTenantRefInDatabase("anything", None)
+    assert result == (None, None, None)
+
+    conn.close()
+
+
+def test_pt_regex_strategy():
+    """Test PTRegexStrategy."""
+    strategy = PTRegexStrategy()
+
+    # Test matching pattern like "123-456"
+    result = strategy.match("123-456", None)
+    assert result == ("123", "01", "456")  # Note: block_ref defaults to "01"
+
+    # Test no match
+    result = strategy.match("nomatch", None)
+    assert result == (None, None, None)
+
+
+def test_pb_regex_strategy():
+    """Test PBRegexStrategy."""
+    strategy = PBRegexStrategy()
+
+    # Test matching pattern like "123-45"
+    result = strategy.match("123-45", None)
+    assert result == ("123", "123-45", None)  # tenant_ref is None for PB pattern
+
+    # Test no match
+    result = strategy.match("nomatch", None)
+    assert result == (None, None, None)
+
+
+def test_p_regex_strategy():
+    """Test PRegexStrategy."""
+    strategy = PRegexStrategy()
+
+    # Test matching pattern like "123"
+    result = strategy.match(" 123 ", None)  # Needs spaces around for P_REGEX
+    assert result == ("123", None, None)  # Only property_ref is set
+
+    # Test no match
+    result = strategy.match("nomatch", None)
+    assert result == (None, None, None)

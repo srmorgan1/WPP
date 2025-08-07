@@ -42,6 +42,13 @@ def _remove_decrypted_data():
     for report in reference_reports:
         report.unlink(missing_ok=True)
 
+    # Clean up decrypted CSV files in ReferenceLogs
+    reference_logs_dir = WPP_TEST_DATA_ROOT / "ReferenceLogs"
+    if reference_logs_dir.exists():
+        reference_logs = sorted([log for log in reference_logs_dir.iterdir() if log.suffix == ".csv"])
+        for log in reference_logs:
+            log.unlink(missing_ok=True)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def run_decrypt_script():
