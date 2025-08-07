@@ -15,6 +15,7 @@ from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
 from .exceptions import database_transaction
+from .data_classes import TransactionReferences, ChargeData
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -395,10 +396,10 @@ def _format_pay_date(pay_date: str) -> str:
     return parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
 
 
-def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, tenant_ref: str, property_ref: str, block_ref: str) -> tuple[bool, bool]:
+def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, refs: TransactionReferences) -> tuple[bool, bool]:
     """Process a valid transaction and return (was_added, is_duplicate)."""
     account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (transaction_data["sort_code"], transaction_data["account_number"]))
-    tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
+    tenant_id = get_id_from_ref(csr, "Tenants", "tenant", refs.tenant_ref) if refs.tenant_ref else None
 
     if not tenant_id:
         return False, False
@@ -434,7 +435,7 @@ def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, tena
         ),
     )
     logger.debug(
-        f"\tAdding transaction {(transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'], transaction_data['pay_date'], tenant_ref)}"
+        f"\tAdding transaction {(transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'], transaction_data['pay_date'], refs.tenant_ref)}"
     )
     return True, False
 
@@ -518,7 +519,8 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(transaction_data["description"], csr)
 
             if tenant_ref and property_ref and block_ref:
-                was_added, is_duplicate = _process_valid_transaction(csr, transaction_data, tenant_ref, property_ref, block_ref)
+                refs = TransactionReferences(property_ref, block_ref, tenant_ref)
+                was_added, is_duplicate = _process_valid_transaction(csr, transaction_data, refs)
 
                 if was_added:
                     num_transactions_added_to_db += 1
@@ -1208,11 +1210,11 @@ def _update_block_name_if_needed(csr, block_ref: str, block_name: str, block_id:
         logger.debug(f"\tAdding block name {block_name} for block reference {block_ref}")
 
 
-def _add_charge_if_not_exists(csr, fund_id: int, category_id: int, type_id: int, at_date: str, amount: float, block_id: int) -> bool:
+def _add_charge_if_not_exists(csr, charge: ChargeData) -> bool:
     """Add a charge to the database if it doesn't already exist. Returns True if added."""
-    charges_id = get_id(csr, SELECT_CHARGES_SQL, (fund_id, category_id, type_id, block_id, at_date))
+    charges_id = get_id(csr, SELECT_CHARGES_SQL, (charge.fund_id, charge.category_id, charge.type_id, charge.block_id, charge.at_date))
     if not charges_id:
-        csr.execute(INSERT_CHARGES_SQL, (fund_id, category_id, type_id, at_date, amount, block_id))
+        csr.execute(INSERT_CHARGES_SQL, (charge.fund_id, charge.category_id, charge.type_id, charge.at_date, charge.amount, charge.block_id))
         return True
     return False
 
@@ -1237,18 +1239,21 @@ def _process_fund_category_data(
     category_id = get_id_from_key_table(csr, "category", category)
 
     # Add available funds charge
-    if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["available_funds"], at_date, available_funds, block_id):
+    available_charge = ChargeData(fund_id, category_id, type_ids["available_funds"], at_date, available_funds, block_id)
+    if _add_charge_if_not_exists(csr, available_charge):
         logger.debug(f"\tAdding charge {(fund, category, AVAILABLE_FUNDS, at_date, block_ref, available_funds)}")
         num_charges_added += 1
 
     # Add auth creditors and SC fund charges for specific fund types
     if property_code_or_fund in ["Service Charge", "Tenant Recharge"]:
-        if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["auth_creditors"], at_date, auth_creditors, block_id):
+        auth_charge = ChargeData(fund_id, category_id, type_ids["auth_creditors"], at_date, auth_creditors, block_id)
+        if _add_charge_if_not_exists(csr, auth_charge):
             logger.debug(f"\tAdding charge for {(fund, category, AUTH_CREDITORS, at_date, block_ref, auth_creditors)}")
             num_charges_added += 1
 
         sc_fund = calculateSCFund(auth_creditors, available_funds, property_ref, block_ref)
-        if _add_charge_if_not_exists(csr, fund_id, category_id, type_ids["sc_fund"], at_date, sc_fund, block_id):
+        sc_charge = ChargeData(fund_id, category_id, type_ids["sc_fund"], at_date, sc_fund, block_id)
+        if _add_charge_if_not_exists(csr, sc_charge):
             logger.debug(f"\tAdding charge for {(fund, category, SC_FUND, at_date, block_ref, sc_fund)}")
             num_charges_added += 1
 

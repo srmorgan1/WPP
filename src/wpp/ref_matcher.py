@@ -9,6 +9,7 @@ from typing import Optional
 
 from wpp.config import get_wpp_ref_matcher_log_file
 from wpp.db import get_single_value, checkTenantExists, getTenantName
+from wpp.data_classes import MatchLogData
 from wpp.utils import getLongestCommonSubstring
 
 
@@ -353,20 +354,23 @@ class PropertyBlockTenantRefMatcher:
             try:
                 result = strategy.match(description, db_cursor)
                 if result.matched:
-                    self._log_match(description, result.property_ref, result.block_ref, result.tenant_ref, strategy.name())
+                    match_data = MatchLogData(description, result.property_ref, result.block_ref, result.tenant_ref, strategy.name())
+                    self._log_match(match_data)
                     return result
             except MatchValidationException:
                 # Exception raised when a strategy matches but fails post-match validation, break out of the loop and don't try any more strategies
-                self._log_match(description, None, None, None, strategy.name())
+                match_data = MatchLogData(description, None, None, None, strategy.name())
+                self._log_match(match_data)
                 return MatchResult.no_match()
 
-        self._log_match(description, None, None, None, "NoMatch")
+        match_data = MatchLogData(description, None, None, None, "NoMatch")
+        self._log_match(match_data)
         return MatchResult.no_match()
 
-    def _log_match(self, description: str, property_ref: str | None, block_ref: str | None, tenant_ref: str | None, strategy_name: str):
+    def _log_match(self, match_data: MatchLogData):
         with open(self.log_file, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([description, property_ref, block_ref, tenant_ref, strategy_name])
+            writer.writerow([match_data.description, match_data.property_ref, match_data.block_ref, match_data.tenant_ref, match_data.strategy_name])
 
 
 def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:

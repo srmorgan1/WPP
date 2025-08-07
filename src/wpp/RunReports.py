@@ -16,6 +16,7 @@ from wpp.db import get_single_value, join_sql_queries, run_sql_query, union_sql_
 from wpp.logger import get_log_file
 from wpp.utils import is_running_via_pytest
 from wpp.exceptions import safe_pandas_operation, log_exceptions
+from wpp.data_classes import RunConfiguration
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -487,9 +488,9 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def get_run_date_args(args: argparse.Namespace, qube_date: dt.date | None, bos_date: dt.date | None) -> tuple[dt.date, dt.date]:
-    qube_date = qube_date or (parser.parse(args.qube_date, dayfirst=False).date() if args.qube_date else (dt.date.today() - BUSINESS_DAY))
-    bos_date = bos_date or (parser.parse(args.bos_date, dayfirst=False).date() if args.bos_date else qube_date)
+def get_run_date_args(args: argparse.Namespace, config: RunConfiguration) -> tuple[dt.date, dt.date]:
+    qube_date = config.qube_date or (parser.parse(args.qube_date, dayfirst=False).date() if args.qube_date else (dt.date.today() - BUSINESS_DAY))
+    bos_date = config.bos_date or (parser.parse(args.bos_date, dayfirst=False).date() if args.bos_date else qube_date)
     return qube_date, bos_date
 
 
@@ -510,7 +511,8 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
     logger.info("Running Reports")
     try:
         db_conn = sqlite3.connect(get_wpp_db_file())
-        qube_date, bos_date = get_run_date_args(args, qube_date, bos_date)
+        config = RunConfiguration(qube_date, bos_date)
+        qube_date, bos_date = get_run_date_args(args, config)
         runReports(db_conn, qube_date, bos_date)
     except Exception as ex:
         logger.error(f"running reports: {ex}")
