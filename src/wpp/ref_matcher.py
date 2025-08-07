@@ -1,11 +1,45 @@
+from __future__ import annotations
+
 import csv
 import re
 import sqlite3
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Optional
 
 from wpp.config import get_wpp_ref_matcher_log_file
 from wpp.db import get_single_value, checkTenantExists, getTenantName
 from wpp.utils import getLongestCommonSubstring
+
+#
+# Data Classes
+#
+@dataclass
+class MatchResult:
+    """Result of a property/block/tenant reference matching attempt."""
+    property_ref: Optional[str] = None
+    block_ref: Optional[str] = None
+    tenant_ref: Optional[str] = None
+    matched: bool = False
+    
+    @classmethod
+    def no_match(cls) -> MatchResult:
+        """Create a MatchResult representing no match found."""
+        return cls(matched=False)
+    
+    @classmethod
+    def match(cls, property_ref: Optional[str], block_ref: Optional[str], tenant_ref: Optional[str]) -> MatchResult:
+        """Create a MatchResult representing a successful match."""
+        return cls(
+            property_ref=property_ref,
+            block_ref=block_ref,
+            tenant_ref=tenant_ref,
+            matched=True
+        )
+    
+    def to_tuple(self) -> tuple[str | None, str | None, str | None]:
+        """Convert to the legacy tuple format for backward compatibility."""
+        return (self.property_ref, self.block_ref, self.tenant_ref)
 
 #
 # SQL
@@ -120,7 +154,7 @@ def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str 
 
 class MatchingStrategy(ABC):
     @abstractmethod
-    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         pass
 
     def name(self) -> str:
@@ -132,41 +166,39 @@ class MatchValidationException(Exception):
 
 
 class IrregularTenantRefStrategy(MatchingStrategy):
-    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        property_ref, block_ref, tenant_ref = checkForIrregularTenantRefInDatabase(description, db_cursor)
-        if property_ref and block_ref and tenant_ref:
-            return property_ref, block_ref, tenant_ref
-        return None, None, None
+    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        result = checkForIrregularTenantRefInDatabase(description, db_cursor)
+        return result
 
 
 class RegexStrategy(MatchingStrategy):
     def __init__(self, regex: re.Pattern):
         self.regex = regex
 
-    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         match = re.search(self.regex, description)
         if match:
             return self.process_match(match, description, db_cursor)
         else:
-            return None, None, None
+            return MatchResult.no_match()
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         # This was originally a check for the tenant reference in the database with PBT_REGEX (commented out in old code)
         # if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
-        #    return None, None, None
+        #    return MatchResult.no_match()
         property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
         # if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
         #    raise MatchValidationException("Failed to validate tenant reference")
-        return property_ref, block_ref, tenant_ref
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
 class RegexDoubleCheckStrategy(RegexStrategy):
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        property_ref, block_ref, tenant_ref = super().process_match(match, description, db_cursor)
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        result = super().process_match(match, description, db_cursor)
 
-        if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+        if db_cursor and result.tenant_ref and not doubleCheckTenantRef(db_cursor, result.tenant_ref, description):
             raise MatchValidationException("Failed to validate tenant reference")
-        return property_ref, block_ref, tenant_ref
+        return result
 
 
 class PBTRegex3Strategy(RegexStrategy):
@@ -174,14 +206,15 @@ class PBTRegex3Strategy(RegexStrategy):
     def __init__(self):
         super().__init__(PBT_REGEX3)
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        property_ref, block_ref, tenant_ref = super().process_match(match, description, db_cursor)
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        result = super().process_match(match, description, db_cursor)
 
-        if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+        if db_cursor and result.tenant_ref and not doubleCheckTenantRef(db_cursor, result.tenant_ref, description):
             tenant_ref = f"{match.group(1)}-{match.group(2)}-0{match.group(3)}"
             if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                 raise MatchValidationException("Failed to validate tenant reference")
-        return property_ref, block_ref, tenant_ref
+            return MatchResult.match(result.property_ref, result.block_ref, tenant_ref)
+        return result
 
 
 class PBTRegex4Strategy(RegexStrategy):
@@ -189,16 +222,17 @@ class PBTRegex4Strategy(RegexStrategy):
     def __init__(self):
         super().__init__(PBT_REGEX4)
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        property_ref, block_ref, tenant_ref = super().process_match(match, description, db_cursor)
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        result = super().process_match(match, description, db_cursor)
 
-        if db_cursor and tenant_ref and not checkTenantExists(db_cursor, tenant_ref):
+        if db_cursor and result.tenant_ref and not checkTenantExists(db_cursor, result.tenant_ref):
             property_ref = f"0{match.group(1)}"
             block_ref = f"{property_ref}-{match.group(2)}"
             tenant_ref = f"{block_ref}-{match.group(3)}"
             if not checkTenantExists(db_cursor, tenant_ref):
                 raise MatchValidationException(f"Failed to validate tenant reference: tenant {tenant_ref} does not exist")
-        return property_ref, block_ref, tenant_ref
+            return MatchResult.match(property_ref, block_ref, tenant_ref)
+        return result
 
 
 class SpecialCaseStrategy(RegexStrategy):
@@ -206,7 +240,7 @@ class SpecialCaseStrategy(RegexStrategy):
     def __init__(self):
         super().__init__(PBT_REGEX_SPECIAL_CASES)
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         property_ref: str | None = match.group(1)
         block_ref: str | None = f"{match.group(1)}-{match.group(2)}"
         tenant_ref: str | None = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
@@ -235,18 +269,18 @@ class SpecialCaseStrategy(RegexStrategy):
             or (property_ref in ["020", "022", "039", "053", "064"] and match.group(3)[-1] != "Z")
         ):
             raise MatchValidationException("Failed to validate tenant reference: the property is not in the special cases lists")
-        return property_ref, block_ref, tenant_ref
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
 class PBRegexStrategy(RegexStrategy):
     def __init__(self):
         super().__init__(PB_REGEX)
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         property_ref = match.group(1)
         block_ref = f"{match.group(1)}-{match.group(2)}"
         tenant_ref = None
-        return property_ref, block_ref, tenant_ref
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
 class PTRegexStrategy(RegexStrategy):
@@ -254,25 +288,25 @@ class PTRegexStrategy(RegexStrategy):
     def __init__(self):
         super().__init__(PT_REGEX)
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         property_ref = match.group(1)
         tenant_ref = match.group(2)  # Non-unique tenant ref, may be useful
         block_ref = "01"  # Null block indicates that the tenant and block can't be matched uniquely
-        return property_ref, block_ref, tenant_ref
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
 class PRegexStrategy(RegexStrategy):
     def __init__(self):
         super().__init__(P_REGEX)
 
-    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         property_ref = match.group(1)
         block_ref, tenant_ref = None, None
-        return property_ref, block_ref, tenant_ref
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
 class NoHyphenRegexStrategy(MatchingStrategy):
-    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         match = (
             re.search(PBT_REGEX_NO_HYPHENS, description)
             or re.search(PBT_REGEX_NO_HYPHENS_SPECIAL_CASES, description)
@@ -286,9 +320,9 @@ class NoHyphenRegexStrategy(MatchingStrategy):
                     property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
                 if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                     raise MatchValidationException("Failed to validate tenant reference")
-            return property_ref, block_ref, tenant_ref
+            return MatchResult.match(property_ref, block_ref, tenant_ref)
 
-        return None, None, None
+        return MatchResult.no_match()
 
 
 # class PostProcessStrategy(MatchingStrategy):
@@ -313,19 +347,24 @@ class PropertyBlockTenantRefMatcher:
         self.strategies.append(strategy)
 
     def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
+        result = self.match_result(description, db_cursor)
+        return result.to_tuple()
+    
+    def match_result(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        """Internal method that returns MatchResult instead of tuple."""
         for strategy in self.strategies:
             try:
-                property_ref, block_ref, tenant_ref = strategy.match(description, db_cursor)
-                if property_ref or block_ref or tenant_ref:
-                    self._log_match(description, property_ref, block_ref, tenant_ref, strategy.name())
-                    return property_ref, block_ref, tenant_ref
+                result = strategy.match(description, db_cursor)
+                if result.matched:
+                    self._log_match(description, result.property_ref, result.block_ref, result.tenant_ref, strategy.name())
+                    return result
             except MatchValidationException:
                 # Exception raised when a strategy matches but fails post-match validation, break out of the loop and don't try any more strategies
                 self._log_match(description, None, None, None, strategy.name())
-                return None, None, None
+                return MatchResult.no_match()
 
         self._log_match(description, None, None, None, "NoMatch")
-        return None, None, None
+        return MatchResult.no_match()
 
     def _log_match(self, description: str, property_ref: str | None, block_ref: str | None, tenant_ref: str | None, strategy_name: str):
         with open(self.log_file, "a", newline="") as f:
@@ -333,8 +372,8 @@ class PropertyBlockTenantRefMatcher:
             writer.writerow([description, property_ref, block_ref, tenant_ref, strategy_name])
 
 
-def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-    # Look for known irregular transaction refs which we know some tenants use
+def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+    """Look for known irregular transaction refs which we know some tenants use."""
     if db_cursor:
         tenant_ref = get_single_value(db_cursor, SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL, (reference,))
         if tenant_ref:
@@ -343,12 +382,13 @@ def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Curs
         #    transaction_ref_data = get_data(db_cursor, SELECT_ALL_IRREGULAR_TRANSACTION_REFS_SQL)
         #    for tenant_ref, transaction_ref_pattern in transaction_ref_data:
         #        pass
-    return None, None, None
+    return MatchResult.no_match()
 
 
-def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | None = None) -> tuple[str | None, str | None, str | None]:
+def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | None = None) -> MatchResult:
+    """Parse property, block and tenant references from a transaction description."""
     if not isinstance(reference, str):
-        return None, None, None
+        return MatchResult.no_match()
 
     description = str(reference).strip()
     # if "MEDHURST K M 10501001 RP4652285818999300" in description:
@@ -367,5 +407,9 @@ def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | No
     matcher.add_strategy(NoHyphenRegexStrategy())
     # matcher.add_strategy(PRegexStrategy())
 
-    property_ref, block_ref, tenant_ref = matcher.match(description, db_cursor)
-    return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)
+    result = matcher.match_result(description, db_cursor)
+    if result.matched:
+        property_ref, block_ref, tenant_ref = postProcessPropertyBlockTenantRefs(result.property_ref, result.block_ref, result.tenant_ref)
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+    else:
+        return MatchResult.no_match()

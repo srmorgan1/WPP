@@ -211,7 +211,8 @@ def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Curs
 
 def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | None = None) -> tuple[str | None, str | None, str | None]:
     # return getPropertyBlockAndTenantRefsImpl(reference, db_cursor)
-    return getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
+    result = getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
+    return result.to_tuple()
 
 
 def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor | None = None) -> tuple[str | None, str | None, str | None]:
