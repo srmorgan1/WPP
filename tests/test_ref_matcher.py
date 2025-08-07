@@ -14,10 +14,12 @@ from wpp.ref_matcher import (
     NoHyphenRegexStrategy,
     PBRegexStrategy,
     PBTRegex4Strategy,
+    PBTRegex3Strategy,
     PRegexStrategy,
     PropertyBlockTenantRefMatcher,
     PTRegexStrategy,
     RegexStrategy,
+    RegexDoubleCheckStrategy,
     SpecialCaseStrategy,
     checkForIrregularTenantRefInDatabase,
     checkTenantExists,
@@ -375,3 +377,128 @@ def test_p_regex_strategy():
     # Test no match
     result = strategy.match("nomatch", None)
     assert result.matched == False
+
+
+def test_double_check_tenant_ref():
+    """Test doubleCheckTenantRef function."""
+    from wpp.ref_matcher import doubleCheckTenantRef
+    
+    # Create mock cursor
+    class MockCursor:
+        def __init__(self, tenant_exists=True, tenant_name="Test Tenant"):
+            self.tenant_exists = tenant_exists
+            self.tenant_name = tenant_name
+        
+        def execute(self, sql, params):
+            pass
+            
+        def fetchone(self):
+            if self.tenant_exists:
+                return (self.tenant_name,)
+            return None
+    
+    # Test successful validation
+    cursor = MockCursor(tenant_exists=True, tenant_name="JOHN SMITH")
+    result = doubleCheckTenantRef(cursor, "123-01-001", "JOHN SMITH reference")
+    assert result is True
+    
+    # Test tenant doesn't exist
+    cursor = MockCursor(tenant_exists=False)
+    result = doubleCheckTenantRef(cursor, "999-99-999", "any reference")
+    assert result is False
+
+
+def test_regex_double_check_strategy():
+    """Test RegexDoubleCheckStrategy validation."""
+    from wpp.ref_matcher import PBT_REGEX
+    
+    class TestRegexDoubleCheckStrategy(RegexDoubleCheckStrategy):
+        def __init__(self):
+            super().__init__(PBT_REGEX)
+    
+    strategy = TestRegexDoubleCheckStrategy()
+    
+    # Test without database cursor (should work)
+    result = strategy.match("123-01-001", None)
+    assert result.property_ref == "123"
+    
+    # Test with mock cursor that returns invalid tenant
+    class MockCursor:
+        def execute(self, sql, params):
+            pass
+        def fetchone(self):
+            return None  # Tenant doesn't exist
+    
+    # Should raise exception for non-existent tenant
+    with pytest.raises(MatchValidationException):
+        strategy.match("123-01-001", MockCursor())
+
+
+def test_pbt_regex3_strategy_fallback():
+    """Test PBTRegex3Strategy fallback logic."""
+    strategy = PBTRegex3Strategy()
+    
+    # Create a mock cursor that always returns None (tenant doesn't exist)
+    class MockCursor:
+        def execute(self, sql, params):
+            pass
+        def fetchone(self):
+            return None
+    
+    # Test the fallback logic with 2-digit tenant (line 211-214)
+    # This should trigger the fallback to add "0" prefix to tenant
+    with pytest.raises(MatchValidationException):
+        # Pattern that matches PBT_REGEX3: property-block-XX format
+        strategy.match("123-01-55", MockCursor())
+
+
+def test_special_case_strategy_without_database():
+    """Test SpecialCaseStrategy without database cursor."""
+    strategy = SpecialCaseStrategy()
+    
+    # Test valid property in special cases list
+    result = strategy.match("093-01-001A", None)
+    assert result.property_ref == "093"
+    assert result.matched == True
+    
+    # Test valid property with non-Z suffix (Z suffix should fail)
+    result = strategy.match("020-01-001A", None) 
+    assert result.property_ref == "020"
+    assert result.matched == True
+    
+    # Test property with Z suffix should fail validation
+    with pytest.raises(MatchValidationException, match="property is not in the special cases lists"):
+        strategy.match("020-01-001Z", None)
+    
+    # Test invalid property not in special cases
+    with pytest.raises(MatchValidationException, match="property is not in the special cases lists"):
+        strategy.match("999-01-001", None)
+
+
+def test_abstract_matching_strategy():
+    """Test abstract MatchingStrategy methods."""
+    # Test that we can't instantiate abstract class
+    with pytest.raises(TypeError):
+        MatchingStrategy()
+    
+    # Test name method on concrete strategy
+    strategy = PBRegexStrategy()
+    assert strategy.name() == "PBRegexStrategy"
+
+
+def test_match_validation_exception():
+    """Test MatchValidationException."""
+    exception = MatchValidationException("Test message")
+    assert str(exception) == "Test message"
+
+
+def test_irregular_tenant_ref_strategy_coverage():
+    """Test IrregularTenantRefStrategy for coverage."""
+    strategy = IrregularTenantRefStrategy()
+    
+    # Test with None cursor (should return no match)
+    result = strategy.match("any reference", None)
+    assert result.matched == False
+    
+    # Test name method
+    assert strategy.name() == "IrregularTenantRefStrategy"
