@@ -256,9 +256,9 @@ def get_or_create_db(db_file: Path, logger: logging.Logger = logging.getLogger()
 
 def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> int | None:
     db_cursor.execute(SELECT_LAST_RECORD_ID_SQL, (table_name,))
-    id = db_cursor.fetchone()
-    if id:
-        return id[0]
+    _id = db_cursor.fetchone()
+    if _id:
+        return _id[0]
     else:
         return None
 

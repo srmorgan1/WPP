@@ -115,8 +115,12 @@ def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str 
     # e.g. Block 020-03 belongs to a different property than the other 020-xx blocks.
     if (tenant_ref is not None and ("Z" in tenant_ref or "Y" in tenant_ref)) or (property_ref is not None and property_ref.isnumeric() and int(property_ref) >= 900):
         return None, None, None
-    property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref)
-    property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref)
+    
+    # Only apply special recoding if we have non-None property_ref and block_ref
+    if property_ref is not None and block_ref is not None:
+        property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref)
+        property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref)
+    
     return property_ref, block_ref, tenant_ref
 
 
@@ -166,7 +170,7 @@ class RegexDoubleCheckStrategy(RegexStrategy):
     def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
         property_ref, block_ref, tenant_ref = super().process_match(match, description, db_cursor)
 
-        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+        if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
             raise MatchValidationException("Failed to validate tenant reference")
         return property_ref, block_ref, tenant_ref
 
@@ -179,7 +183,7 @@ class PBTRegex3Strategy(RegexStrategy):
     def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
         property_ref, block_ref, tenant_ref = super().process_match(match, description, db_cursor)
 
-        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+        if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
             tenant_ref = f"{match.group(1)}-{match.group(2)}-0{match.group(3)}"
             if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                 raise MatchValidationException("Failed to validate tenant reference")
@@ -194,7 +198,7 @@ class PBTRegex4Strategy(RegexStrategy):
     def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
         property_ref, block_ref, tenant_ref = super().process_match(match, description, db_cursor)
 
-        if db_cursor and not checkTenantExists(db_cursor, tenant_ref):
+        if db_cursor and tenant_ref and not checkTenantExists(db_cursor, tenant_ref):
             property_ref = f"0{match.group(1)}"
             block_ref = f"{property_ref}-{match.group(2)}"
             tenant_ref = f"{block_ref}-{match.group(3)}"
@@ -209,14 +213,15 @@ class SpecialCaseStrategy(RegexStrategy):
         super().__init__(PBT_REGEX_SPECIAL_CASES)
 
     def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        property_ref = match.group(1)
-        block_ref = f"{match.group(1)}-{match.group(2)}"
-        tenant_ref = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+        property_ref: str | None = match.group(1)
+        block_ref: str | None = f"{match.group(1)}-{match.group(2)}"
+        tenant_ref: str | None = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
         if db_cursor:
-            tenant_ref = removeDCReferencePostfix(tenant_ref)
-            if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+            tenant_ref = removeDCReferencePostfix(tenant_ref) or tenant_ref  # Keep original if None
+            if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+                if property_ref and block_ref:
+                    property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                     raise MatchValidationException("Failed to validate tenant reference")
         elif not (
             (
@@ -282,9 +287,10 @@ class NoHyphenRegexStrategy(MatchingStrategy):
         )
         if match:
             property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-            if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
-                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+            if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
+                if property_ref and block_ref:
+                    property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                     raise MatchValidationException("Failed to validate tenant reference")
             return property_ref, block_ref, tenant_ref
 

@@ -1,12 +1,12 @@
 import typing
 
-from pandas.tseries.holiday import MO, AbstractHolidayCalendar, DateOffset, EasterMonday, GoodFriday, Holiday, next_monday, next_monday_or_tuesday
-from pandas.tseries.offsets import CDay
+from pandas.tseries.holiday import MO, AbstractHolidayCalendar, EasterMonday, GoodFriday, Holiday, next_monday, next_monday_or_tuesday  # type: ignore[attr-defined]
+from pandas.tseries.offsets import CDay, DateOffset
 
 
 # Set up holiday calendar
 class EnglandAndWalesHolidayCalendar(AbstractHolidayCalendar):
-    rules: typing.ClassVar = [
+    rules = [
         Holiday("New Years Day", month=1, day=1, observance=next_monday),
         GoodFriday,
         EasterMonday,
