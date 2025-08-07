@@ -354,28 +354,8 @@ def checkDataIsPresent(db_conn: sqlite3.Connection, qube_date: str, bos_date: st
     return is_data_present
 
 
-def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date) -> None:
-    # Get start and end dates for this calendar month
-    # today = dt.date.today()
-    # year = int(today.strftime("%Y"))
-    # month = int(today.strftime("%m"))
-    # month_name = today.strftime("%b")
-    # last_day_of_month = calendar.monthrange(year, month)[-1]
-    # start_date = "{}-{}-{}".format(year, month, "1")
-    # end_date = "{}-{}-{}".format(year, month, last_day_of_month)
-
-    logger.info(f"Qube Date: {qube_date}")
-    logger.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
-
-    if not checkDataIsPresent(db_conn, qube_date.isoformat(), bos_date.isoformat()):
-        raise RuntimeError(f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}")
-
-    # Create a Pandas Excel writer using openpyxl as the engine.
-    excel_report_file = get_wpp_report_file(qube_date)
-    logger.info(f"Creating Excel spreadsheet report file {excel_report_file}")
-    excel_writer = pd.ExcelWriter(excel_report_file, engine="openpyxl")
-
-    # Run SC total transactions by block (COMREC) report for given run date
+def _generate_comrec_report(db_conn: sqlite3.Connection, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+    """Generate COMREC report showing total paid SC by property and block."""
     logger.info(f"Running COMREC report for {bos_date}")
     sql = union_sql_queries(
         SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL,
@@ -391,11 +371,16 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
         index=False,
         float_format="%.2f",
     )
+    
+    # Check for blocks missing from COMREC report
     df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger)
     blocks = df["Block"].tolist()
     if len(blocks) > 0:
         logger.info("Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}".format(", ".join(blocks)))
 
+
+def _generate_transactions_reports(db_conn: sqlite3.Connection, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+    """Generate both non-PAY and PAY transaction reports."""
     # Non-DC/PAY type transactions
     logger.info(f"Running Transactions report for {bos_date}")
     logger.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
@@ -415,37 +400,23 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
         float_format="%.2f",
     )
 
-    # Run Qube BOS By Block report for given run date
-    # logger.info(f'Running Qube BOS By Block report for {qube_date}')
+
+def _generate_qube_bos_report(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+    """Generate Qube BOS reconciliation report."""
+    logger.info(f"Running Qube BOS report for {qube_date}")
+    
     qube_by_block_sql = join_sql_queries(
         QUBE_BOS_SHEET_BY_BLOCK_SQL,
         QUBE_BOS_REPORT_BY_BLOCK_SQL,
         BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL,
     )
-    # logger.debug(qube_by_block_sql)
-    # qube_by_block_df = run_sql_query(db_conn, qube_by_block_sql, (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()), logger)
-    # qube_by_block_df = add_extra_rows(qube_by_block_df)
-    # qube_by_block_df = qube_by_block_df.sort_values(by='Property / Block')
-    # qube_by_block_df = add_column_totals(qube_by_block_df)
-    # qube_by_block_df.drop(['BOS GR', 'Discrepancy GR'], axis=1, inplace=True)
-    # qube_by_block_df.to_excel(excel_writer, sheet_name=f'Qube BOS By Block {qube_date}', index=False, float_format = '%.2f')
-
-    # Run Qube BOS By Property report for given run date
-    # logger.info(f'Running Qube BOS By Property report for {qube_date}')
+    
     qube_by_property_sql = join_sql_queries(
         QUBE_BOS_SHEET_BY_PROPERTY_SQL,
         QUBE_BOS_REPORT_BY_PROPERTY_SQL,
         BOS_ACCOUNT_BALANCES_BY_PROPERTY_SQL,
     )
-    # logger.debug(qube_by_property_sql)
-    # qube_by_property_df = run_sql_query(db_conn, qube_by_property_sql, (qube_date.isoformat(), qube_date.isoformat(), bos_date.isoformat()), logger)
-    # qube_by_property_df = qube_by_property_df.sort_values(by='Property / Block')
-    # qube_by_property_df = add_column_totals(qube_by_property_df)
-    # qube_by_property_df.drop(['BOS GR', 'Discrepancy GR'], axis=1, inplace=True)
-    # qube_by_property_df.to_excel(excel_writer, sheet_name=f'Qube BOS By Property {qube_date}', index=False, float_format = '%.2f')
-
-    # Run Qube BOS report for given run date
-    logger.info(f"Running Qube BOS report for {qube_date}")
+    
     sql = union_sql_queries(qube_by_property_sql, qube_by_block_sql)
     logger.debug(sql)
     df = run_sql_query(
@@ -465,7 +436,9 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
         float_format="%.2f",
     )
 
-    # Run SC total transactions by tenant report for given run date
+
+def _generate_tenant_report(db_conn: sqlite3.Connection, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+    """Generate total SC paid by tenant report."""
     logger.info(f"Running Total SC Paid By Tenant on {bos_date} report")
     logger.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
     df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date.isoformat(),) * 2, logger)
@@ -477,7 +450,27 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
         float_format="%.2f",
     )
 
-    excel_writer.close()
+
+def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date) -> None:
+    """Generate all WPP reports for the given dates."""
+    logger.info(f"Qube Date: {qube_date}")
+    logger.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
+
+    if not checkDataIsPresent(db_conn, qube_date.isoformat(), bos_date.isoformat()):
+        raise RuntimeError(f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}")
+
+    # Create a Pandas Excel writer using openpyxl as the engine.
+    excel_report_file = get_wpp_report_file(qube_date)
+    logger.info(f"Creating Excel spreadsheet report file {excel_report_file}")
+    excel_writer = pd.ExcelWriter(excel_report_file, engine="openpyxl")
+
+    try:
+        _generate_comrec_report(db_conn, bos_date, excel_writer)
+        _generate_transactions_reports(db_conn, bos_date, excel_writer)
+        _generate_qube_bos_report(db_conn, qube_date, bos_date, excel_writer)
+        _generate_tenant_report(db_conn, bos_date, excel_writer)
+    finally:
+        excel_writer.close()
 
 
 def get_args() -> argparse.Namespace:
