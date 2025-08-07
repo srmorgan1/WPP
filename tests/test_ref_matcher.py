@@ -9,6 +9,7 @@ from wpp.ref_matcher import (
     PBT_REGEX,
     IrregularTenantRefStrategy,
     MatchingStrategy,
+    MatchResult,
     MatchValidationException,
     NoHyphenRegexStrategy,
     PBRegexStrategy,
@@ -34,10 +35,16 @@ class MockStrategy(MatchingStrategy):
     """Mock strategy for testing."""
 
     def __init__(self, return_value=None):
-        self.return_value = return_value or (None, None, None)
+        if return_value is None:
+            self.return_result = MatchResult.no_match()
+        elif return_value == (None, None, None):
+            self.return_result = MatchResult.no_match()
+        else:
+            property_ref, block_ref, tenant_ref = return_value
+            self.return_result = MatchResult.match(property_ref, block_ref, tenant_ref)
 
-    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
-        return self.return_value
+    def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        return self.return_result
 
 
 def test_matching_strategy_name_method():
@@ -64,7 +71,7 @@ def test_checkTenantExists_with_none_result():
 
     # Test with non-existent tenant
     result = checkTenantExists(cursor, "999-99-999")
-    assert result is None
+    assert result is False
 
     conn.close()
 
@@ -187,8 +194,9 @@ def test_special_case_strategy_edge_cases():
     strategy = SpecialCaseStrategy()
 
     # Test without database cursor (should use hardcoded validation)
-    prop_ref, block_ref, tenant_ref = strategy.match("093-01-ABC", None)
-    assert prop_ref == "093"  # 093 is in the allowed list
+    result = strategy.match("093-01-ABC", None)
+    assert result.property_ref == "093"  # 093 is in the allowed list
+    assert result.matched == True
 
     # Test with property not in special cases
     with pytest.raises(MatchValidationException):
@@ -283,11 +291,14 @@ def test_no_hyphen_regex_strategy():
 
     # Test successful match
     result = strategy.match("123 45 678", None)
-    assert result == ("123", "123-45", "123-45-678")
+    assert result.property_ref == "123"
+    assert result.block_ref == "123-45"
+    assert result.tenant_ref == "123-45-678"
+    assert result.matched == True
 
     # Test no match
     result = strategy.match("no numbers here", None)
-    assert result == (None, None, None)
+    assert result.matched == False
 
 
 def test_checkForIrregularTenantRefInDatabase():
@@ -303,13 +314,17 @@ def test_checkForIrregularTenantRefInDatabase():
     # Test finding irregular ref
     result = checkForIrregularTenantRefInDatabase("SPECIAL_REF", cursor)
     # This will depend on the getPropertyBlockAndTenantRefs implementation
-    # For now, just test that it doesn't crash
-    assert isinstance(result, tuple)
-    assert len(result) == 3
+    # For now, just test that it doesn't crash and returns MatchResult
+    assert isinstance(result, MatchResult)
+    assert result.matched == True
+    assert result.property_ref == "123"
+    assert result.block_ref == "123-45"
+    assert result.tenant_ref == "123-45-678"
 
     # Test with None cursor
     result = checkForIrregularTenantRefInDatabase("anything", None)
-    assert result == (None, None, None)
+    assert isinstance(result, MatchResult)
+    assert result.matched == False
 
     conn.close()
 
@@ -320,11 +335,14 @@ def test_pt_regex_strategy():
 
     # Test matching pattern like "123-456"
     result = strategy.match("123-456", None)
-    assert result == ("123", "01", "456")  # Note: block_ref defaults to "01"
+    assert result.property_ref == "123"
+    assert result.block_ref == "01"  # Note: block_ref defaults to "01"
+    assert result.tenant_ref == "456"
+    assert result.matched == True
 
     # Test no match
     result = strategy.match("nomatch", None)
-    assert result == (None, None, None)
+    assert result.matched == False
 
 
 def test_pb_regex_strategy():
@@ -333,11 +351,14 @@ def test_pb_regex_strategy():
 
     # Test matching pattern like "123-45"
     result = strategy.match("123-45", None)
-    assert result == ("123", "123-45", None)  # tenant_ref is None for PB pattern
+    assert result.property_ref == "123"
+    assert result.block_ref == "123-45"
+    assert result.tenant_ref is None  # tenant_ref is None for PB pattern
+    assert result.matched == True
 
     # Test no match
     result = strategy.match("nomatch", None)
-    assert result == (None, None, None)
+    assert result.matched == False
 
 
 def test_p_regex_strategy():
@@ -346,8 +367,11 @@ def test_p_regex_strategy():
 
     # Test matching pattern like "123"
     result = strategy.match(" 123 ", None)  # Needs spaces around for P_REGEX
-    assert result == ("123", None, None)  # Only property_ref is set
+    assert result.property_ref == "123"
+    assert result.block_ref is None
+    assert result.tenant_ref is None  # Only property_ref is set
+    assert result.matched == True
 
     # Test no match
     result = strategy.match("nomatch", None)
-    assert result == (None, None, None)
+    assert result.matched == False

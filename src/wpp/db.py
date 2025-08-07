@@ -12,6 +12,7 @@ from wpp.config import get_wpp_db_dir
 # SQL
 #
 SELECT_LAST_RECORD_ID_SQL = "SELECT seq FROM sqlite_sequence WHERE name = ?;"
+SELECT_TENANT_NAME_SQL = "SELECT tenant_name FROM Tenants WHERE tenant_ref = ?;"
 
 #
 # Tables
@@ -254,13 +255,13 @@ def get_or_create_db(db_file: Path, logger: logging.Logger = logging.getLogger()
     return conn
 
 
-def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> int | None:
+def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> int:
     db_cursor.execute(SELECT_LAST_RECORD_ID_SQL, (table_name,))
-    id = db_cursor.fetchone()
-    if id:
-        return id[0]
+    _id = db_cursor.fetchone()
+    if _id:
+        return _id[0]
     else:
-        return None
+        raise RuntimeError(f"Failed to get last insert ID from table {table_name}")
 
 
 def get_single_value(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> Any | None:
@@ -270,6 +271,18 @@ def get_single_value(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()
         return value[0]
     else:
         return None
+
+
+def checkTenantExists(db_cursor: sqlite3.Cursor, tenant_ref: str) -> bool:
+    tenant_name = get_single_value(db_cursor, SELECT_TENANT_NAME_SQL, (tenant_ref,))
+    return tenant_name is not None
+
+
+def getTenantName(db_cursor: sqlite3.Cursor, tenant_ref: str) -> str:
+    tenant_name = get_single_value(db_cursor, SELECT_TENANT_NAME_SQL, (tenant_ref,))
+    if tenant_name is None:
+        raise ValueError(f"Tenant with reference '{tenant_ref}' does not exist")
+    return tenant_name
 
 
 def get_data(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> list[tuple]:

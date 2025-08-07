@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
-from .db import get_last_insert_id, get_or_create_db, get_single_value
+from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -50,7 +50,6 @@ SELECT_CHARGES_SQL = "SELECT ID FROM Charges WHERE fund_id = ? AND category_id =
 SELECT_BANK_ACCOUNT_SQL = "SELECT ID FROM Blocks WHERE ID = ? AND account_number IS Null;"
 SELECT_BANK_ACCOUNT_SQL1 = "SELECT ID FROM Accounts WHERE sort_code = ? AND account_number = ?;"
 SELECT_BANK_ACCOUNT_BALANCE_SQL = "SELECT ID FROM AccountBalances WHERE at_date = ? AND account_id = ?;"
-SELECT_TENANT_NAME_SQL = "SELECT tenant_name FROM Tenants WHERE tenant_ref = ?;"
 SELECT_BLOCK_NAME_SQL = "SELECT block_name FROM Blocks WHERE block_ref = ?;"
 SELECT_TENANT_NAME_BY_ID_SQL = "SELECT tenant_name FROM Tenants WHERE ID = ?;"
 SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL = "select tenant_ref from IrregularTransactionRefs where instr(?, transaction_ref_pattern) > 0;"
@@ -100,7 +99,7 @@ def get_id_from_ref(db_cursor: sqlite3.Cursor, table_name: str, field_name: str,
         return None
 
 
-def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value: str) -> int | None:
+def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value: str) -> int:
     sql = SELECT_ID_FROM_KEY_TABLE_SQL.format(key_table_name)
     db_cursor.execute(sql, (value,))
     _id = db_cursor.fetchone()
@@ -110,11 +109,6 @@ def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value:
         sql = INSERT_KEY_TABLE_SQL.format(key_table_name)
         db_cursor.execute(sql, (value,))
         return get_last_insert_id(db_cursor, f"Key_{key_table_name}")
-
-
-def checkTenantExists(db_cursor: sqlite3.Cursor, tenant_ref: str) -> str | None:
-    tenant_name = get_single_value(db_cursor, SELECT_TENANT_NAME_SQL, (tenant_ref,))
-    return tenant_name
 
 
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
@@ -182,11 +176,10 @@ def getPropertyBlockAndTenantRefsFromRegexMatch(
 
 
 def doubleCheckTenantRef(db_cursor: sqlite3.Cursor, tenant_ref: str, reference: str) -> bool:
-    tenant_name = checkTenantExists(db_cursor, tenant_ref)
-    if tenant_name:
-        return matchTransactionRef(tenant_name, reference)
-    else:
+    if not checkTenantExists(db_cursor, tenant_ref):
         return False
+    tenant_name = getTenantName(db_cursor, tenant_ref)
+    return matchTransactionRef(tenant_name, reference)
 
 
 def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> tuple[str | None, str | None, str | None]:
@@ -194,8 +187,10 @@ def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str 
     # e.g. Block 020-03 belongs to a different property than the other 020-xx blocks.
     if (tenant_ref is not None and ("Z" in tenant_ref or "Y" in tenant_ref)) or (property_ref is not None and property_ref.isnumeric() and int(property_ref) >= 900):
         return None, None, None
-    property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref)
-    property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref)
+    # Only apply special recoding if we have non-None property_ref and block_ref
+    if property_ref is not None and block_ref is not None:
+        property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref)
+        property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref)
     return property_ref, block_ref, tenant_ref
 
 
@@ -214,7 +209,8 @@ def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Curs
 
 def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | None = None) -> tuple[str | None, str | None, str | None]:
     # return getPropertyBlockAndTenantRefsImpl(reference, db_cursor)
-    return getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
+    result = getPropertyBlockAndTenantRefs_strategy(reference, db_cursor)
+    return result.to_tuple()
 
 
 def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor | None = None) -> tuple[str | None, str | None, str | None]:
@@ -278,10 +274,11 @@ def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor 
                             block_ref = f"{match.group(1)}-{match.group(2)}"
                             tenant_ref = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
                             if db_cursor:
-                                tenant_ref = removeDCReferencePostfix(tenant_ref)
-                                if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                    property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                                    if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                tenant_ref = removeDCReferencePostfix(tenant_ref) or tenant_ref
+                                if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                    if property_ref and block_ref:
+                                        property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                                    if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
                                         return None, None, None
                             elif not (
                                 (
@@ -310,7 +307,7 @@ def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor 
                             else:
                                 # Match property and tenant only
                                 # Prevent this case from matching for now, or move to the end of the match blocks
-                                match = re.search(PT_REGEX, description) and False
+                                match = None  # Disabled: re.search(PT_REGEX, description)
                                 if match:
                                     pass
                                     # property_ref = match.group(1)
@@ -331,9 +328,10 @@ def getPropertyBlockAndTenantRefsImpl(reference: str, db_cursor: sqlite3.Cursor 
                                     )
                                     if match:
                                         property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
-                                        if db_cursor and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
-                                            property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
-                                            if not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                        if db_cursor and tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
+                                            if property_ref and block_ref:
+                                                property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
+                                            if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, reference):
                                                 return None, None, None
                                     # else:
                                     #    # Match property reference only
@@ -719,6 +717,7 @@ def _process_property(csr: sqlite3.Cursor, property_ref: str) -> tuple[int, int]
         csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
         logger.debug(f"\tAdding property {property_ref} to the database")
         return get_last_insert_id(csr, "Properties"), 1
+    assert property_id is not None  # For mypy
     return property_id, 0
 
 
@@ -730,6 +729,7 @@ def _process_block(csr: sqlite3.Cursor, block_ref: str, property_id: int) -> tup
         csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
         logger.debug(f"\tAdding block {block_ref} to the database")
         return get_last_insert_id(csr, "Blocks"), 1
+    assert block_id is not None  # For mypy
     return block_id, 0
 
 
@@ -774,6 +774,11 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
             if not all((property_ref, block_ref, tenant_ref)):
                 logger.warning(f"\tUnable to parse tenant reference {reference}, will not add to the database.")
                 continue
+
+            # Type assertions for mypy since we know they're not None after the all() check
+            assert property_ref is not None
+            assert block_ref is not None
+            assert tenant_ref is not None
 
             prop_id, props_added = _process_property(csr, property_ref)
             num_properties_added_to_db += props_added
@@ -1171,7 +1176,7 @@ def _prepare_qube_dataframe(qube_eod_balances_xls_file: str) -> pd.DataFrame:
     qube_eod_balances_df = pd.read_excel(qube_eod_balances_xls_file, usecols="B:G", skiprows=4)
 
     # Fix column names
-    qube_eod_balances_df.columns = [
+    qube_eod_balances_df.columns = [  # type: ignore[assignment]
         "PropertyCode / Fund",
         "PropertyName / Category",
         "Bank",
@@ -1305,6 +1310,16 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                 category = property_name_or_category
                 auth_creditors = qube_eod_balances_df.iloc[i][AUTH_CREDITORS]
                 available_funds = qube_eod_balances_df.iloc[i][AVAILABLE_FUNDS]
+
+                # Skip if we don't have all required data
+                if not all([property_ref, block_ref, block_name, fund, category]):
+                    logger.warning(f"Missing required data: property_ref={property_ref}, block_ref={block_ref}, block_name={block_name}, fund={fund}, category={category}")
+                    continue
+
+                # Type assertions for mypy since we verified they're not None
+                assert property_ref is not None
+                assert block_ref is not None
+                assert block_name is not None
 
                 charges_added = _process_fund_category_data(csr, property_code_or_fund, property_ref, block_ref, block_name, fund, category, auth_creditors, available_funds, at_date, type_ids)
                 num_charges_added_to_db += charges_added

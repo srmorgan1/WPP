@@ -12,6 +12,7 @@ from wpp.UpdateDatabase import (
     addTenantToDB,
     calculateSCFund,
     checkTenantExists,
+    getTenantName,
     get_element_text,
     get_id,
     get_id_from_key_table,
@@ -299,12 +300,15 @@ def test_checkTenantExists(db_conn):
     cursor = db_conn.cursor()
 
     # Test existing tenant
-    tenant_name = checkTenantExists(cursor, "100-01-001")
+    tenant_exists = checkTenantExists(cursor, "100-01-001")
+    assert tenant_exists is True
+
+    tenant_name = getTenantName(cursor, "100-01-001")
     assert tenant_name == "John Smith"
 
     # Test non-existing tenant
-    tenant_name = checkTenantExists(cursor, "999-99-999")
-    assert tenant_name is None
+    tenant_exists = checkTenantExists(cursor, "999-99-999")
+    assert tenant_exists is False
 
 
 def test_matchTransactionRef():
