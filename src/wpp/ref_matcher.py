@@ -11,35 +11,33 @@ from wpp.config import get_wpp_ref_matcher_log_file
 from wpp.db import get_single_value, checkTenantExists, getTenantName
 from wpp.utils import getLongestCommonSubstring
 
+
 #
 # Data Classes
 #
 @dataclass
 class MatchResult:
     """Result of a property/block/tenant reference matching attempt."""
+
     property_ref: Optional[str] = None
     block_ref: Optional[str] = None
     tenant_ref: Optional[str] = None
     matched: bool = False
-    
+
     @classmethod
     def no_match(cls) -> MatchResult:
         """Create a MatchResult representing no match found."""
         return cls(matched=False)
-    
+
     @classmethod
     def match(cls, property_ref: Optional[str], block_ref: Optional[str], tenant_ref: Optional[str]) -> MatchResult:
         """Create a MatchResult representing a successful match."""
-        return cls(
-            property_ref=property_ref,
-            block_ref=block_ref,
-            tenant_ref=tenant_ref,
-            matched=True
-        )
-    
+        return cls(property_ref=property_ref, block_ref=block_ref, tenant_ref=tenant_ref, matched=True)
+
     def to_tuple(self) -> tuple[str | None, str | None, str | None]:
         """Convert to the legacy tuple format for backward compatibility."""
         return (self.property_ref, self.block_ref, self.tenant_ref)
+
 
 #
 # SQL
@@ -65,7 +63,6 @@ PBT_REGEX_FWD_SLASHES = re.compile(r"(?:^|\s+|,)(\d\d\d)/0?(\d\d)/(\d\d\d)\s?(?:
 PT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,|/)")
 PB_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,|/)")
 P_REGEX = re.compile(r"(?:^|\s+)(\d\d\d)(?:$|\s+)")
-
 
 
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
@@ -143,12 +140,12 @@ def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str 
     # e.g. Block 020-03 belongs to a different property than the other 020-xx blocks.
     if (tenant_ref is not None and ("Z" in tenant_ref or "Y" in tenant_ref)) or (property_ref is not None and property_ref.isnumeric() and int(property_ref) >= 900):
         return None, None, None
-    
+
     # Only apply special recoding if we have non-None property_ref and block_ref
     if property_ref is not None and block_ref is not None:
         property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases(property_ref, block_ref, tenant_ref)
         property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases(property_ref, block_ref, tenant_ref)
-    
+
     return property_ref, block_ref, tenant_ref
 
 
@@ -349,7 +346,7 @@ class PropertyBlockTenantRefMatcher:
     def match(self, description: str, db_cursor: sqlite3.Cursor | None) -> tuple[str | None, str | None, str | None]:
         result = self.match_result(description, db_cursor)
         return result.to_tuple()
-    
+
     def match_result(self, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         """Internal method that returns MatchResult instead of tuple."""
         for strategy in self.strategies:

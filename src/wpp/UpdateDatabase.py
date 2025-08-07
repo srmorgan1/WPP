@@ -111,8 +111,6 @@ def get_id_from_key_table(db_cursor: sqlite3.Cursor, key_table_name: str, value:
         return get_last_insert_id(db_cursor, f"Key_{key_table_name}")
 
 
-
-
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
     tnm = re.sub(r"(?:^|\s+)mr?s?\s+", "", tenant_name.lower())
     tnm = re.sub(r"\s+and\s+", "", tnm)
@@ -1320,7 +1318,7 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
 
                 # Type assertions for mypy since we verified they're not None
                 assert property_ref is not None
-                assert block_ref is not None 
+                assert block_ref is not None
                 assert block_name is not None
 
                 charges_added = _process_fund_category_data(csr, property_code_or_fund, property_ref, block_ref, block_name, fund, category, auth_creditors, available_funds, at_date, type_ids)

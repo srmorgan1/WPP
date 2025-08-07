@@ -302,7 +302,7 @@ def test_checkTenantExists(db_conn):
     # Test existing tenant
     tenant_exists = checkTenantExists(cursor, "100-01-001")
     assert tenant_exists is True
-    
+
     tenant_name = getTenantName(cursor, "100-01-001")
     assert tenant_name == "John Smith"
 
