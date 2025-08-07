@@ -288,6 +288,8 @@ ORDER BY block_ref
 def add_column_totals(df):
     if len(df) > 0:
         total_row = df.sum(numeric_only=True).rename("Total")
+        # Convert to object dtype to allow string assignment without warning
+        total_row = total_row.astype(object)
         total_row[df.columns[0]] = "TOTAL"
         df = pd.concat([df, pd.DataFrame([total_row])])
     return df
