@@ -400,8 +400,7 @@ def _format_pay_date(pay_date: str) -> str:
     return parser.parse(pay_date, dayfirst=True).strftime("%Y-%m-%d")
 
 
-def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, tenant_ref: str, 
-                             property_ref: str, block_ref: str) -> tuple[bool, bool]:
+def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, tenant_ref: str, property_ref: str, block_ref: str) -> tuple[bool, bool]:
     """Process a valid transaction and return (was_added, is_duplicate)."""
     account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (transaction_data["sort_code"], transaction_data["account_number"]))
     tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
@@ -439,7 +438,9 @@ def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, tena
             account_id,
         ),
     )
-    logger.debug(f"\tAdding transaction {(transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'], transaction_data['pay_date'], tenant_ref)}")
+    logger.debug(
+        f"\tAdding transaction {(transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'], transaction_data['pay_date'], tenant_ref)}"
+    )
     return True, False
 
 
@@ -467,8 +468,7 @@ def _create_duplicate_record(transaction_data: dict, tenant_ref: str) -> list:
     ]
 
 
-def _handle_transaction_processing_error(csr: sqlite3.Cursor, error: Exception, 
-                                       transaction_data: dict, tenant_id: int | None) -> None:
+def _handle_transaction_processing_error(csr: sqlite3.Cursor, error: Exception, transaction_data: dict, tenant_id: int | None) -> None:
     """Handle errors that occur during transaction processing."""
     error_context = (
         transaction_data.get("sort_code"),
@@ -533,13 +533,17 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
                     # Tenant not found in database
                     num_import_errors += 1
                     error_msg = f"Cannot find tenant with reference '{tenant_ref}'"
-                    logger.debug(f"{error_msg}. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}")
+                    logger.debug(
+                        f"{error_msg}. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}"
+                    )
                     errors_list.append(_create_error_record(transaction_data, error_msg))
             else:
                 # Cannot determine tenant from description
                 num_import_errors += 1
                 error_msg = "Cannot determine tenant from description"
-                logger.debug(f"{error_msg} '{transaction_data['description']}'. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}")
+                logger.debug(
+                    f"{error_msg} '{transaction_data['description']}'. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}"
+                )
                 errors_list.append(_create_error_record(transaction_data, error_msg))
 
         csr.execute("end")
