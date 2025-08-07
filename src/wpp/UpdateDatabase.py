@@ -16,6 +16,7 @@ from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp
 from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
 from .exceptions import database_transaction
 from .data_classes import TransactionReferences, ChargeData
+from .database_commands import DatabaseCommandExecutor, InsertTenantCommand, UpdateTenantNameCommand, InsertPropertyCommand, InsertBlockCommand, UpdateBlockNameCommand, InsertChargeCommand, InsertTransactionCommand
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -423,20 +424,20 @@ def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, refs
         return False, True  # Duplicate found
 
     # Add new transaction
-    csr.execute(
-        INSERT_TRANSACTION_SQL,
-        (
-            transaction_data["transaction_type"],
-            transaction_data["amount"],
-            transaction_data["description"],
-            transaction_data["pay_date"],
-            tenant_id,
-            account_id,
-        ),
+    executor = DatabaseCommandExecutor(csr, logger)
+    command = InsertTransactionCommand(
+        transaction_data["transaction_type"],
+        transaction_data["amount"],
+        transaction_data["description"],
+        transaction_data["pay_date"],
+        tenant_id,
+        account_id,
+        transaction_data["sort_code"],
+        transaction_data["account_number"],
+        refs.tenant_ref,
+        INSERT_TRANSACTION_SQL
     )
-    logger.debug(
-        f"\tAdding transaction {(transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'], transaction_data['pay_date'], refs.tenant_ref)}"
-    )
+    executor.execute(command)
     return True, False
 
 
@@ -715,39 +716,42 @@ def _is_valid_reference(reference: str) -> bool:
 
 def _process_property(csr: sqlite3.Cursor, property_ref: str) -> tuple[int, int]:
     """Processes a property, adding it to the DB if it doesn't exist."""
+    executor = DatabaseCommandExecutor(csr, logger)
     property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
     if not property_id:
-        csr.execute(INSERT_PROPERTY_SQL, (property_ref,))
-        logger.debug(f"\tAdding property {property_ref} to the database")
-        return get_last_insert_id(csr, "Properties"), 1
+        command = InsertPropertyCommand(property_ref, INSERT_PROPERTY_SQL)
+        new_id = executor.execute(command)
+        return new_id, 1
     assert property_id is not None  # For mypy
     return property_id, 0
 
 
 def _process_block(csr: sqlite3.Cursor, block_ref: str, property_id: int) -> tuple[int, int]:
     """Processes a block, adding it to the DB if it doesn't exist."""
+    executor = DatabaseCommandExecutor(csr, logger)
     block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
     if not block_id:
         block_type = "P" if block_ref and block_ref.endswith("00") else "B"
-        csr.execute(INSERT_BLOCK_SQL, (block_ref, block_type, property_id))
-        logger.debug(f"\tAdding block {block_ref} to the database")
-        return get_last_insert_id(csr, "Blocks"), 1
+        command = InsertBlockCommand(block_ref, block_type, property_id, INSERT_BLOCK_SQL)
+        new_id = executor.execute(command)
+        return new_id, 1
     assert block_id is not None  # For mypy
     return block_id, 0
 
 
 def _process_tenant(csr: sqlite3.Cursor, tenant_ref: str, tenant_name: str, block_id: int) -> int:
     """Processes a tenant, adding or updating it in the DB."""
+    executor = DatabaseCommandExecutor(csr, logger)
     tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
     if tenant_ref and not tenant_id:
-        csr.execute(INSERT_TENANT_SQL, (tenant_ref, tenant_name, block_id))
-        logger.debug(f"\tAdding tenant {tenant_ref} to the database")
+        command = InsertTenantCommand(tenant_ref, tenant_name, block_id, INSERT_TENANT_SQL)
+        executor.execute(command)
         return 1
     elif tenant_id:
         old_tenant_name = get_single_value(csr, SELECT_TENANT_NAME_BY_ID_SQL, (tenant_id,))
         if tenant_name and tenant_name != old_tenant_name:
-            csr.execute(UPDATE_TENANT_NAME_SQL, (tenant_name, tenant_id))
-            logger.info(f"Updated tenant name to {tenant_name} for tenant reference {tenant_ref}")
+            command = UpdateTenantNameCommand(tenant_name, tenant_id, tenant_ref, UPDATE_TENANT_NAME_SQL)
+            executor.execute(command)
     return 0
 
 
@@ -1212,9 +1216,11 @@ def _update_block_name_if_needed(csr, block_ref: str, block_name: str, block_id:
 
 def _add_charge_if_not_exists(csr, charge: ChargeData) -> bool:
     """Add a charge to the database if it doesn't already exist. Returns True if added."""
+    executor = DatabaseCommandExecutor(csr, logger)
     charges_id = get_id(csr, SELECT_CHARGES_SQL, (charge.fund_id, charge.category_id, charge.type_id, charge.block_id, charge.at_date))
     if not charges_id:
-        csr.execute(INSERT_CHARGES_SQL, (charge.fund_id, charge.category_id, charge.type_id, charge.at_date, charge.amount, charge.block_id))
+        command = InsertChargeCommand(charge, INSERT_CHARGES_SQL)
+        executor.execute(command)
         return True
     return False
 
