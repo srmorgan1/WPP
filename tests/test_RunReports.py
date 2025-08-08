@@ -301,10 +301,9 @@ def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_dat
     # The log_exceptions decorator should catch and log the exception without re-raising
     run_reports_main()
 
-    # Verify that logger.error was called with the expected message format
-    # The decorator adds "running reports: " prefix to the error message
-    mock_logger.error.assert_any_call("running reports: Test exception")
-    mock_logger.exception.assert_called_with(mock_runReports.side_effect)
+    # Verify that logger.exception was called with the expected message format
+    # Now using logger.exception which includes both message and stack trace
+    mock_logger.exception.assert_any_call("running reports: Test exception")
 
 
 def test_main_script_execution():

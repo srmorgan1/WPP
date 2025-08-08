@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
-from .exceptions import database_transaction
+from .exceptions import database_transaction, log_database_error, create_validation_error
 from .data_classes import TransactionReferences, ChargeData
 from .database_commands import DatabaseCommandExecutor, InsertTenantCommand, UpdateTenantNameCommand, InsertPropertyCommand, InsertBlockCommand, UpdateBlockNameCommand, InsertChargeCommand, InsertTransactionCommand
 from .logger import get_log_file
@@ -69,23 +69,23 @@ AUTH_CREDITORS = "Auth Creditors"
 AVAILABLE_FUNDS = "Available Funds"
 SC_FUND = "SC Fund"
 
-# Regular expressions
-PBT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX2 = re.compile(r"(?:^|\s+|,)(\d\d\d)\s-\s(\d\d)\s-\s(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX3 = re.compile(r"(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX4 = re.compile(r"(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,|/)")
-PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r"(?:^|\s*|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,|/)")
-PBT_REGEX_SPECIAL_CASES = re.compile(
-    r"(?:^|\s+|,|\.)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)",
-    re.ASCII,
-)
-PBT_REGEX_NO_HYPHENS = re.compile(r"(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\d\d\d)(?:$|\s+|,|/)")
-PBT_REGEX_NO_HYPHENS_SPECIAL_CASES = re.compile(r"(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\w{3})(?:$|\s+|,|/)", re.ASCII)
-PBT_REGEX_FWD_SLASHES = re.compile(r"(?:^|\s+|,)(\d\d\d)/0?(\d\d)/(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,|/)")
-PB_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,|/)")
-P_REGEX = re.compile(r"(?:^|\s+)(\d\d\d)(?:$|\s+)")
+# # Regular expressions
+# PBT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
+# PBT_REGEX2 = re.compile(r"(?:^|\s+|,)(\d\d\d)\s-\s(\d\d)\s-\s(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
+# PBT_REGEX3 = re.compile(r"(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
+# PBT_REGEX4 = re.compile(r"(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
+# PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,|/)")
+# PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r"(?:^|\s*|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,|/)")
+# PBT_REGEX_SPECIAL_CASES = re.compile(
+#     r"(?:^|\s+|,|\.)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)",
+#     re.ASCII,
+# )
+# PBT_REGEX_NO_HYPHENS = re.compile(r"(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\d\d\d)(?:$|\s+|,|/)")
+# PBT_REGEX_NO_HYPHENS_SPECIAL_CASES = re.compile(r"(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\w{3})(?:$|\s+|,|/)", re.ASCII)
+# PBT_REGEX_FWD_SLASHES = re.compile(r"(?:^|\s+|,)(\d\d\d)/0?(\d\d)/(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
+# PT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,|/)")
+# PB_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,|/)")
+# P_REGEX = re.compile(r"(?:^|\s+)(\d\d\d)(?:$|\s+)")
 
 
 def get_id(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> int | None:
@@ -467,24 +467,19 @@ def _create_duplicate_record(transaction_data: dict, tenant_ref: str) -> list:
 
 def _handle_transaction_processing_error(csr: sqlite3.Cursor, error: Exception, transaction_data: dict, tenant_id: int | None) -> None:
     """Handle errors that occur during transaction processing."""
-    error_context = (
-        transaction_data.get("sort_code"),
-        transaction_data.get("account_number"),
-        transaction_data.get("transaction_type"),
-        transaction_data.get("amount"),
-        transaction_data.get("description"),
-        transaction_data.get("pay_date"),
-        tenant_id,
-    )
+    error_context = {
+        "sort_code": transaction_data.get("sort_code"),
+        "account_number": transaction_data.get("account_number"),
+        "transaction_type": transaction_data.get("transaction_type"),
+        "amount": transaction_data.get("amount"),
+        "description": transaction_data.get("description"),
+        "pay_date": transaction_data.get("pay_date"),
+        "tenant_id": tenant_id,
+    }
 
-    logger.error(str(error))
-    logger.error(f"The data which caused the failure is: {error_context}")
+    # Use standardized database error logging
+    log_database_error(logger, "importing Bank of Scotland transaction", error, error_context)
     logger.error("No Bank Of Scotland transactions have been added to the database.")
-
-    if isinstance(error, sqlite3.Error):
-        logger.exception(error)
-    else:
-        logger.exception(error)
 
     csr.execute("rollback")
 

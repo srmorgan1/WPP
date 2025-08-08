@@ -266,8 +266,7 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
         qube_date, bos_date = get_run_date_args(args, config)
         runReports(db_conn, qube_date, bos_date)
     except Exception as ex:
-        logger.error(f"running reports: {ex}")
-        logger.exception(ex)
+        logger.exception(f"running reports: {ex}")
 
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
