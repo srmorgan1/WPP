@@ -1,2 +1,29 @@
+# WPP Configuration File
+# Contains file paths, directory structures, and system configuration
+
+[DIRECTORIES]
+# Root directories for different operating systems
+WPP_ROOT_DIR_POSIX = "/Users/steve/Work/WPP"
+WPP_ROOT_DIR_WINDOWS = "\\\\SBS\\public\\qube\\iSite\\AutoBOSShelleyAngeAndSandra"
+
 [INPUTS]
+# Input file patterns and names
 IRREGULAR_TRANSACTION_REFS_FILE = "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx"
+PROPERTIES_FILE_PATTERN = "Properties*.xlsx"
+TENANTS_FILE_PATTERN = "Tenants*.xlsx" 
+ESTATES_FILE_PATTERN = "Estates*.xlsx"
+QUBE_EOD_BALANCES_PATTERN = "Qube*EOD*.xlsx"
+BANK_ACCOUNTS_PATTERN = "Accounts*.xlsx"
+BOS_TRANSACTIONS_PATTERN = "PreviousDayTransactionExtract_*.zip"
+BOS_BALANCES_PATTERN = "EndOfDayBalanceExtract_*.zip"
+
+[REPORTS]
+# Report file naming patterns
+DATA_IMPORT_ISSUES_TEMPLATE = "Data_Import_Issues_{date}.xlsx"
+WPP_REPORT_TEMPLATE = "WPP_Report_{date}.xlsx"
+
+[LOGS]
+# Log file names
+REF_MATCHER_LOG = "ref_matcher.csv"
+UPDATE_DATABASE_LOG = "update_database_{timestamp}.txt"
+RUN_REPORTS_LOG = "run_reports_{timestamp}.txt"

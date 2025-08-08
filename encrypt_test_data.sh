@@ -23,9 +23,18 @@ encrypt_files() {
   done
 }
 
-# Encrypt xlsx and zip files in Data/Inputs and Data/ReferenceReports
-encrypt_files "tests/Data/Inputs" "xlsx" "zip"
-encrypt_files "tests/Data/ReferenceReports" "xlsx" "zip"
-
-# Encrypt csv files in Data/ReferenceLogs
-encrypt_files "tests/Data/ReferenceLogs" "csv"
+# Encrypt files in all test scenarios
+for scenario_dir in tests/Data/TestScenarios/*/; do
+  if [ -d "$scenario_dir" ]; then
+    echo "Encrypting files in scenario: $scenario_dir"
+    
+    # Encrypt xlsx and zip files in scenario inputs
+    encrypt_files "${scenario_dir}Inputs" "xlsx" "zip"
+    
+    # Encrypt xlsx files in scenario reference reports
+    encrypt_files "${scenario_dir}ReferenceReports" "xlsx"
+    
+    # Encrypt csv files in scenario reference logs
+    encrypt_files "${scenario_dir}ReferenceLogs" "csv"
+  fi
+done

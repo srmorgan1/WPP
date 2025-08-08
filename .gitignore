@@ -260,16 +260,16 @@ Thumbs.db
 .aider*
 
 # Tests data
-tests/Data/*/backup/
+tests/Data/*/*/*/backup/
 tests/*.db
 
 *.db
 
 # Decrypted files
 tests/Data/Inputs/*
-!tests/Data/Inputs/*.gpg
-tests/Data/ReferenceReports/*
-!tests/Data/ReferenceReports/*.gpg
+!tests/Data/*/*/Inputs/*.gpg
+tests/Data/*/*/ReferenceReports/*
+!tests/Data/*/*/ReferenceReports/*.gpg
 
 # AI tooling
 .qodo

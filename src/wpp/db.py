@@ -240,7 +240,6 @@ def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger
         csr.execute("end")
         db_conn.commit()
     except db_conn.Error as err:
-        logger.error(err)
         logger.exception(err)
         csr.execute("rollback")
         sys.exit(1)
@@ -329,14 +328,12 @@ def run_sql_query(
         df = pd.read_sql_query(sql, db_conn, params=args_tuple)
         return df
     except db_conn.Error as err:
-        logger.error(str(err))
         # traceback.print_tb(ex.__traceback__)
         logger.exception(err)
         logger.error("The SQL that caused the failure is:")
         logger.error(sql)
         raise
     except Exception as ex:
-        logger.error(str(ex))
         # traceback.print_tb(ex.__traceback__)
         logger.exception(ex)
         raise

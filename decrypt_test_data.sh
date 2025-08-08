@@ -22,9 +22,18 @@ decrypt_files() {
   done
 }
 
-# Decrypt xlsx and zip files in Data/Inputs and Data/ReferenceReports
-decrypt_files "tests/Data/Inputs" "xlsx" "zip"
-decrypt_files "tests/Data/ReferenceReports" "xlsx" "zip"
-
-# Decrypt csv files in Data/ReferenceLogs
-decrypt_files "tests/Data/ReferenceLogs" "csv"
+# Decrypt files in all test scenarios
+for scenario_dir in tests/Data/TestScenarios/*/; do
+  if [ -d "$scenario_dir" ]; then
+    echo "Decrypting files in scenario: $scenario_dir"
+    
+    # Decrypt xlsx and zip files in scenario inputs
+    decrypt_files "${scenario_dir}Inputs" "xlsx" "zip"
+    
+    # Decrypt xlsx files in scenario reference reports
+    decrypt_files "${scenario_dir}ReferenceReports" "xlsx"
+    
+    # Decrypt csv files in scenario reference logs
+    decrypt_files "${scenario_dir}ReferenceLogs" "csv"
+  fi
+done

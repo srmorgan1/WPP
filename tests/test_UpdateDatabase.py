@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -32,10 +33,11 @@ from wpp.UpdateDatabase import (
 from wpp.utils import getLatestMatchingFileName
 
 # Define paths relative to this test file's parent (tests/) for reference data
-# WPP_ROOT_DIR for application data (like DB, Logs, Reports output) is set by conftest.py:setup_wpp_root_dir to tests/Data
-# REFERENCE_LOG_DIR is for pre-existing reference files.
+# Use the new scenario structure for consistency with regression tests
 SCRIPT_DIR = Path(__file__).resolve().parent
-REFERENCE_LOG_DIR = SCRIPT_DIR / "Data" / "ReferenceLogs"
+TEST_SCENARIOS_DIR = SCRIPT_DIR / "Data" / "TestScenarios"
+DEFAULT_SCENARIO_DIR = TEST_SCENARIOS_DIR / "scenario_default"
+REFERENCE_LOG_DIR = DEFAULT_SCENARIO_DIR / "ReferenceLogs"
 
 
 # Copied from test_regression.py - consider moving to a shared test utility module if used by more tests
@@ -106,12 +108,9 @@ def test_get_id_from_key_table(db_conn):
     assert _id is not None
 
 
-def test_importBankOfScotlandTransactionsXMLFile(db_conn):  # db_conn from conftest
-    # get_wpp_input_dir() will correctly point to tests/Data/Inputs/
-    # due to setup_wpp_root_dir in conftest.py
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importBankOfScotlandTransactionsXMLFile(mock_data_dir, db_conn):  # db_conn from conftest
     transactions_file_pattern = Path(get_wpp_input_dir()) / "PreviousDayTransactionExtract_*.zip"
-    # Need to use Path.glob to find the file, or adapt getLatestMatchingFileName
-    # For simplicity, assuming getLatestMatchingFileName works with Path object or string
     transactions_xml_file = getLatestMatchingFileName(str(transactions_file_pattern))
     assert transactions_xml_file, f"No transaction file found matching {transactions_file_pattern}"
     errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file)
@@ -119,7 +118,8 @@ def test_importBankOfScotlandTransactionsXMLFile(db_conn):  # db_conn from conft
     assert len(duplicates) == 0
 
 
-def test_importBankOfScotlandBalancesXMLFile(db_conn):
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importBankOfScotlandBalancesXMLFile(mock_data_dir, db_conn):
     # This test depends on bank accounts being imported first
     bank_accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx"
     bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
@@ -136,7 +136,8 @@ def test_importBankOfScotlandBalancesXMLFile(db_conn):
     assert len(balances) > 0  # Check that some balances were imported
 
 
-def test_importPropertiesFile(db_conn):
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importPropertiesFile(mock_data_dir, db_conn):
     tenants_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
     properties_xls_filename_str = getLatestMatchingFileName(str(tenants_file_pattern))
     assert properties_xls_filename_str, f"No tenants/properties file found matching {tenants_file_pattern}"
@@ -147,7 +148,8 @@ def test_importPropertiesFile(db_conn):
     assert len(properties) == 136  # Data-specific assertion
 
 
-def test_importEstatesFile(db_conn):
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importEstatesFile(mock_data_dir, db_conn):
     # First, ensure properties are in the DB
     properties_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
     properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
@@ -201,13 +203,12 @@ def test_addTenantToDB(db_conn):
 # Removed test_importBlockBankAccountNumbers - function is broken and uses non-existent table column
 
 
-def test_importBankAccounts(db_conn):
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importBankAccounts(mock_data_dir, db_conn):
     # Used "sample_bank_accounts.xlsx", let's assume "Accounts.xlsx"
     bank_accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx"  # Adjusted
     bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
-    if not bank_accounts_xls_filename_str:
-        pytest.skip(f"Required input file Accounts.xlsx not found in {get_wpp_static_input_dir()}")
-        return
+    assert bank_accounts_xls_filename_str, f"Required input file Accounts.xlsx not found in {get_wpp_static_input_dir()}"
 
     importBankAccounts(db_conn, bank_accounts_xls_filename_str)
     cursor = db_conn.cursor()
@@ -216,16 +217,14 @@ def test_importBankAccounts(db_conn):
     assert len(accounts) > 0  # Check that some accounts were imported
 
 
-def test_importIrregularTransactionReferences(db_conn):
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importIrregularTransactionReferences(mock_data_dir, db_conn):
     # Used "sample_irregular_refs.xlsx".
     # Let's assume "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx" might contain such refs or similar data.
     # This is a guess; the test might need a specific file or adjustment.
     irregular_refs_file_pattern = Path(get_wpp_static_input_dir()) / "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx"  # Adjusted guess
     irregular_refs_filename_str = getLatestMatchingFileName(str(irregular_refs_file_pattern))
-
-    if not irregular_refs_filename_str:
-        pytest.skip(f"Required input file for irregular refs not found in {get_wpp_static_input_dir()}")
-        return
+    assert irregular_refs_filename_str, f"Required input file for irregular refs not found in {get_wpp_static_input_dir()}"
 
     importIrregularTransactionReferences(db_conn, irregular_refs_filename_str)
     cursor = db_conn.cursor()
@@ -244,7 +243,8 @@ def test_calculateSCFund():
     assert result == 300
 
 
-def test_importQubeEndOfDayBalancesFile(db_conn):
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_importQubeEndOfDayBalancesFile(mock_data_dir, db_conn):
     # Ensure properties and blocks are imported first
     properties_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
     properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
@@ -268,7 +268,8 @@ def test_importQubeEndOfDayBalancesFile(db_conn):
 
 
 # New test for UpdateDatabase.main() log output
-def test_update_database_main_log_output(db_conn, clean_output_dirs):  # db_conn ensures setup_wpp_root_dir and run_decrypt_script
+@patch('wpp.config.get_wpp_data_dir', return_value=DEFAULT_SCENARIO_DIR)
+def test_update_database_main_log_output(mock_data_dir, db_conn, clean_output_dirs):  # db_conn ensures setup_wpp_root_dir and run_decrypt_script
     """
     Tests the main UpdateDatabase script and compares its log output
     with a reference log file.

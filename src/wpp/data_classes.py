@@ -2,16 +2,16 @@
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 
 
 @dataclass
 class TransactionReferences:
     """Groups property/block/tenant reference data."""
-    property_ref: Optional[str] = None
-    block_ref: Optional[str] = None
-    tenant_ref: Optional[str] = None
-    
+
+    property_ref: str | None = None
+    block_ref: str | None = None
+    tenant_ref: str | None = None
+
     def all_present(self) -> bool:
         """Check if all references are present."""
         return all((self.property_ref, self.block_ref, self.tenant_ref))
@@ -20,15 +20,17 @@ class TransactionReferences:
 @dataclass
 class RunConfiguration:
     """Configuration for report runs."""
-    qube_date: Optional[date] = None
-    bos_date: Optional[date] = None
+
+    qube_date: date | None = None
+    bos_date: date | None = None
     verbose: bool = False
-    
+
     def get_dates(self) -> tuple[date, date]:
         """Get both dates, with fallbacks."""
         from datetime import date as dt_date
+
         from wpp.calendars import BUSINESS_DAY
-        
+
         qube = self.qube_date or (dt_date.today() - BUSINESS_DAY)
         bos = self.bos_date or qube
         return qube, bos
@@ -37,6 +39,7 @@ class RunConfiguration:
 @dataclass
 class ChargeData:
     """Data for adding charges to database."""
+
     fund_id: int
     category_id: int
     type_id: int
@@ -48,8 +51,9 @@ class ChargeData:
 @dataclass
 class MatchLogData:
     """Data for logging matches."""
+
     description: str
-    property_ref: Optional[str]
-    block_ref: Optional[str] 
-    tenant_ref: Optional[str]
+    property_ref: str | None
+    block_ref: str | None
+    tenant_ref: str | None
     strategy_name: str

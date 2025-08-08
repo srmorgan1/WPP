@@ -12,9 +12,10 @@ from wpp.db import get_or_create_db
 CONFTEST_SCRIPT_DIR = Path(__file__).resolve().parent  # tests/
 WPP_TEST_DATA_ROOT = CONFTEST_SCRIPT_DIR / "Data"  # tests/Data/
 WPP_TEST_REPORTS_DIR = WPP_TEST_DATA_ROOT / "Reports"
-REFERENCE_REPORT_DIR = WPP_TEST_DATA_ROOT / "ReferenceReports"  # tests/Data/ReferenceReports
-INPUT_DATA_DIR = WPP_TEST_DATA_ROOT / "Inputs"
-STATIC_INPUT_DATA_DIR = WPP_TEST_DATA_ROOT / "Inputs"  # Assuming static inputs are also in Inputs for this example
+# New scenario structure
+TEST_SCENARIOS_DIR = WPP_TEST_DATA_ROOT / "TestScenarios"
+DEFAULT_SCENARIO_DIR = TEST_SCENARIOS_DIR / "scenario_default"
+STATIC_INPUT_DATA_DIR = DEFAULT_SCENARIO_DIR / "Inputs"  # Default scenario inputs
 WPP_TEST_LOGS_DIR = WPP_TEST_DATA_ROOT / "Logs"
 WPP_TEST_DB_DIR = WPP_TEST_DATA_ROOT / "Database"
 
@@ -34,20 +35,30 @@ def _clean_up_output_dirs():
 
 def _remove_decrypted_data():
     """Removes decrypted data files if they exist."""
-    reference_reports = sorted([report for report in REFERENCE_REPORT_DIR.iterdir() if report.suffix == ".xlsx"])
-    for report in reference_reports:
-        report.unlink(missing_ok=True)
-
-    reference_reports = sorted([report for report in INPUT_DATA_DIR.iterdir() if report.suffix == ".xlsx" or report.suffix == ".zip"])
-    for report in reference_reports:
-        report.unlink(missing_ok=True)
-
-    # Clean up decrypted CSV files in ReferenceLogs
-    reference_logs_dir = WPP_TEST_DATA_ROOT / "ReferenceLogs"
-    if reference_logs_dir.exists():
-        reference_logs = sorted([log for log in reference_logs_dir.iterdir() if log.suffix == ".csv"])
-        for log in reference_logs:
-            log.unlink(missing_ok=True)
+    # Clean up decrypted files in all test scenarios
+    if TEST_SCENARIOS_DIR.exists():
+        for scenario_dir in TEST_SCENARIOS_DIR.iterdir():
+            if scenario_dir.is_dir():
+                # Clean up inputs
+                inputs_dir = scenario_dir / "Inputs"
+                if inputs_dir.exists():
+                    for file in inputs_dir.iterdir():
+                        if file.suffix in [".xlsx", ".zip", ".csv"]:
+                            file.unlink(missing_ok=True)
+                
+                # Clean up reference reports
+                ref_reports_dir = scenario_dir / "ReferenceReports"
+                if ref_reports_dir.exists():
+                    for file in ref_reports_dir.iterdir():
+                        if file.suffix == ".xlsx":
+                            file.unlink(missing_ok=True)
+                
+                # Clean up reference logs 
+                ref_logs_dir = scenario_dir / "ReferenceLogs"
+                if ref_logs_dir.exists():
+                    for file in ref_logs_dir.iterdir():
+                        if file.suffix == ".csv":
+                            file.unlink(missing_ok=True)
 
 
 @pytest.fixture(scope="session", autouse=True)
