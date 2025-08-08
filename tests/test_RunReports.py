@@ -25,7 +25,6 @@ from wpp.RunReports import (
     runReports,
     union_sql_queries,
 )
-from wpp.UpdateDatabase import main as update_database_main  # Added
 
 # Define paths relative to this test file's parent (tests/) for reference data
 SCRIPT_DIR = Path(__file__).resolve().parent

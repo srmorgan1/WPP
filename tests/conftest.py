@@ -45,15 +45,15 @@ def _remove_decrypted_data():
                     for file in inputs_dir.iterdir():
                         if file.suffix in [".xlsx", ".zip", ".csv"]:
                             file.unlink(missing_ok=True)
-                
+
                 # Clean up reference reports
                 ref_reports_dir = scenario_dir / "ReferenceReports"
                 if ref_reports_dir.exists():
                     for file in ref_reports_dir.iterdir():
                         if file.suffix == ".xlsx":
                             file.unlink(missing_ok=True)
-                
-                # Clean up reference logs 
+
+                # Clean up reference logs
                 ref_logs_dir = scenario_dir / "ReferenceLogs"
                 if ref_logs_dir.exists():
                     for file in ref_logs_dir.iterdir():

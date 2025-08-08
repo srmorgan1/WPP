@@ -6,10 +6,10 @@ patterns throughout the codebase, reducing code duplication and improving mainta
 
 import logging
 import sqlite3
-import traceback
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Callable, Generator, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -20,7 +20,7 @@ def database_transaction(
     logger: logging.Logger | None = None,
     error_context: str = "",
     rethrow: bool = True,
-) -> Generator[sqlite3.Cursor, None, None]:
+) -> Generator[sqlite3.Cursor]:
     """Context manager for database transactions with automatic rollback on error.
 
     Args:
@@ -96,7 +96,7 @@ def log_exceptions(
 
 
 @contextmanager
-def safe_pandas_operation(default_value: Any = None) -> Generator[None, None, None]:
+def safe_pandas_operation(default_value: Any = None) -> Generator[None]:
     """Context manager for pandas operations that may fail silently.
 
     Used for operations where we want to continue processing even if

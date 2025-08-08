@@ -13,13 +13,13 @@ from wpp.ref_matcher import (
     MatchValidationException,
     NoHyphenRegexStrategy,
     PBRegexStrategy,
-    PBTRegex4Strategy,
     PBTRegex3Strategy,
+    PBTRegex4Strategy,
     PRegexStrategy,
     PropertyBlockTenantRefMatcher,
     PTRegexStrategy,
-    RegexStrategy,
     RegexDoubleCheckStrategy,
+    RegexStrategy,
     SpecialCaseStrategy,
     checkForIrregularTenantRefInDatabase,
     checkTenantExists,
@@ -109,47 +109,47 @@ def test_removeDCReferencePostfix():
 def test_correctKnownCommonErrors():
     """Test correctKnownCommonErrors function."""
     # Test specific error correction for property 094
-    prop_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", "094-01-O23")
+    _, _, tenant_ref = correctKnownCommonErrors("094", "094-01", "094-01-O23")
     assert tenant_ref == "094-01-023"
 
     # Test with None tenant_ref
-    prop_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", None)
+    _, _, tenant_ref = correctKnownCommonErrors("094", "094-01", None)
     assert tenant_ref is None
 
     # Test with different property (no correction)
-    prop_ref, block_ref, tenant_ref = correctKnownCommonErrors("095", "095-01", "095-01-O23")
+    _, _, tenant_ref = correctKnownCommonErrors("095", "095-01", "095-01-O23")
     assert tenant_ref == "095-01-O23"
 
 
 def test_recodeSpecialPropertyReferenceCases():
     """Test recodeSpecialPropertyReferenceCases function."""
     # Test 020-03 recoding
-    prop_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("020", "020-03", "020-03-001")
+    prop_ref, _, _ = recodeSpecialPropertyReferenceCases("020", "020-03", "020-03-001")
     assert prop_ref == "020A"
 
     # Test 064-01 recoding
-    prop_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("064", "064-01", "064-01-001")
+    prop_ref, _, _ = recodeSpecialPropertyReferenceCases("064", "064-01", "064-01-001")
     assert prop_ref == "064A"
 
     # Test no recoding needed
-    prop_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("021", "021-01", "021-01-001")
+    prop_ref, _, _ = recodeSpecialPropertyReferenceCases("021", "021-01", "021-01-001")
     assert prop_ref == "021"
 
 
 def test_recodeSpecialBlockReferenceCases():
     """Test recodeSpecialBlockReferenceCases function."""
     # Test 101-02 recoding
-    prop_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", "101-02-001")
+    _, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", "101-02-001")
     assert block_ref == "101-01"
     assert tenant_ref == "101-01-001"
 
     # Test with None tenant_ref
-    prop_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", None)
+    _, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", None)
     assert block_ref == "101-01"
     assert tenant_ref is None
 
     # Test no recoding needed
-    prop_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("102", "102-01", "102-01-001")
+    _, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("102", "102-01", "102-01-001")
     assert block_ref == "102-01"
 
 
@@ -198,7 +198,7 @@ def test_special_case_strategy_edge_cases():
     # Test without database cursor (should use hardcoded validation)
     result = strategy.match("093-01-ABC", None)
     assert result.property_ref == "093"  # 093 is in the allowed list
-    assert result.matched == True
+    assert result.matched is True
 
     # Test with property not in special cases
     with pytest.raises(MatchValidationException):
@@ -296,11 +296,11 @@ def test_no_hyphen_regex_strategy():
     assert result.property_ref == "123"
     assert result.block_ref == "123-45"
     assert result.tenant_ref == "123-45-678"
-    assert result.matched == True
+    assert result.matched is True
 
     # Test no match
     result = strategy.match("no numbers here", None)
-    assert result.matched == False
+    assert result.matched is False
 
 
 def test_checkForIrregularTenantRefInDatabase():
@@ -318,7 +318,7 @@ def test_checkForIrregularTenantRefInDatabase():
     # This will depend on the getPropertyBlockAndTenantRefs implementation
     # For now, just test that it doesn't crash and returns MatchResult
     assert isinstance(result, MatchResult)
-    assert result.matched == True
+    assert result.matched is True
     assert result.property_ref == "123"
     assert result.block_ref == "123-45"
     assert result.tenant_ref == "123-45-678"
@@ -326,7 +326,7 @@ def test_checkForIrregularTenantRefInDatabase():
     # Test with None cursor
     result = checkForIrregularTenantRefInDatabase("anything", None)
     assert isinstance(result, MatchResult)
-    assert result.matched == False
+    assert result.matched is False
 
     conn.close()
 
@@ -340,11 +340,11 @@ def test_pt_regex_strategy():
     assert result.property_ref == "123"
     assert result.block_ref == "01"  # Note: block_ref defaults to "01"
     assert result.tenant_ref == "456"
-    assert result.matched == True
+    assert result.matched is True
 
     # Test no match
     result = strategy.match("nomatch", None)
-    assert result.matched == False
+    assert result.matched is False
 
 
 def test_pb_regex_strategy():
@@ -356,11 +356,11 @@ def test_pb_regex_strategy():
     assert result.property_ref == "123"
     assert result.block_ref == "123-45"
     assert result.tenant_ref is None  # tenant_ref is None for PB pattern
-    assert result.matched == True
+    assert result.matched is True
 
     # Test no match
     result = strategy.match("nomatch", None)
-    assert result.matched == False
+    assert result.matched is False
 
 
 def test_p_regex_strategy():
@@ -372,11 +372,11 @@ def test_p_regex_strategy():
     assert result.property_ref == "123"
     assert result.block_ref is None
     assert result.tenant_ref is None  # Only property_ref is set
-    assert result.matched == True
+    assert result.matched is True
 
     # Test no match
     result = strategy.match("nomatch", None)
-    assert result.matched == False
+    assert result.matched is False
 
 
 def test_double_check_tenant_ref():
@@ -461,12 +461,12 @@ def test_special_case_strategy_without_database():
     # Test valid property in special cases list
     result = strategy.match("093-01-001A", None)
     assert result.property_ref == "093"
-    assert result.matched == True
+    assert result.matched is True
 
     # Test valid property with non-Z suffix (Z suffix should fail)
     result = strategy.match("020-01-001A", None)
     assert result.property_ref == "020"
-    assert result.matched == True
+    assert result.matched is True
 
     # Test property with Z suffix should fail validation
     with pytest.raises(MatchValidationException, match="property is not in the special cases lists"):
@@ -500,7 +500,7 @@ def test_irregular_tenant_ref_strategy_coverage():
 
     # Test with None cursor (should return no match)
     result = strategy.match("any reference", None)
-    assert result.matched == False
+    assert not result.matched
 
     # Test name method
     assert strategy.name() == "IrregularTenantRefStrategy"

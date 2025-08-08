@@ -1,14 +1,13 @@
-import pytest
 import re
 from pathlib import Path
 from unittest.mock import patch
-from typing import Generator
 
 import pandas as pd
+import pytest
 from dateutil import parser
 from pandas import ExcelFile
 
-from wpp.config import get_wpp_log_dir, get_wpp_report_dir, get_wpp_input_dir, get_wpp_static_input_dir, get_config
+from wpp.config import get_wpp_log_dir, get_wpp_report_dir
 from wpp.RunReports import main as run_reports_main
 from wpp.UpdateDatabase import main as update_database_main
 
@@ -28,13 +27,7 @@ TEST_SCENARIOS = [
 def get_scenario_paths(scenario_name: str) -> tuple[Path, Path, Path]:
     """Get input, reference logs, and reference reports paths for a test scenario."""
     scenario_dir = TEST_SCENARIOS_DIR / scenario_name
-    return (
-        scenario_dir / "Inputs",
-        scenario_dir / "ReferenceLogs", 
-        scenario_dir / "ReferenceReports"
-    )
-
-
+    return (scenario_dir / "Inputs", scenario_dir / "ReferenceLogs", scenario_dir / "ReferenceReports")
 
 
 def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
@@ -169,7 +162,7 @@ def compare_log_files(generated_file: Path, reference_file: Path) -> None:
 
 def remove_date_suffix(filename: str) -> str:
     # Removes a suffix like _YYYY-MM-DD.xlsx or _YYYY_MM_DD.xlsx from the filename
-    return re.sub(r"_[0-9]{4}[-_][0-9]{2}[-_][0-9]{2}\.xlsx$", "", filename)
+    return re.sub(r"_\d{4}[-_]\d{2}[-_]\d{2}\.xlsx$", "", filename)
 
 
 def remove_log_date_suffix(filename: str) -> str:
@@ -178,7 +171,7 @@ def remove_log_date_suffix(filename: str) -> str:
 
 
 @pytest.mark.parametrize("scenario", TEST_SCENARIOS)
-@patch('wpp.config.get_wpp_data_dir')
+@patch("wpp.config.get_wpp_data_dir")
 def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir, run_decrypt_script) -> None:
     """Test regression for different scenarios."""
     # Import here to avoid circular imports
@@ -190,12 +183,12 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir, run_decryp
 
     # Get paths for this test scenario
     inputs_dir, reference_logs_dir, reference_reports_dir = get_scenario_paths(scenario)
-    
+
     # Verify the test scenario exists
     assert inputs_dir.exists(), f"Test scenario input directory not found: {inputs_dir}"
     assert reference_logs_dir.exists(), f"Test scenario reference logs directory not found: {reference_logs_dir}"
     assert reference_reports_dir.exists(), f"Test scenario reference reports directory not found: {reference_reports_dir}"
-    
+
     # Clean up any existing log files to avoid interference from other tests
     log_dir = get_wpp_log_dir()
     if log_dir.exists():

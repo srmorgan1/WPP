@@ -1,5 +1,3 @@
-import typing
-
 from pandas.tseries.holiday import MO, AbstractHolidayCalendar, EasterMonday, GoodFriday, Holiday, next_monday, next_monday_or_tuesday  # type: ignore[attr-defined]
 from pandas.tseries.offsets import CDay, DateOffset
 

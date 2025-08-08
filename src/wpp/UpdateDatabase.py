@@ -13,20 +13,11 @@ from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
-from .constants import MINIMUM_TENANT_NAME_MATCH_LENGTH, DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_VALID_PROPERTY_REF
-from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
-from .exceptions import database_transaction, log_database_error, create_validation_error
-from .data_classes import TransactionReferences, ChargeData
-from .database_commands import (
-    DatabaseCommandExecutor,
-    InsertTenantCommand,
-    UpdateTenantNameCommand,
-    InsertPropertyCommand,
-    InsertBlockCommand,
-    UpdateBlockNameCommand,
-    InsertChargeCommand,
-    InsertTransactionCommand,
-)
+from .constants import DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_TENANT_NAME_MATCH_LENGTH, MINIMUM_VALID_PROPERTY_REF
+from .data_classes import ChargeData, TransactionReferences
+from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
+from .db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
+from .exceptions import database_transaction, log_database_error
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -801,7 +792,7 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
 
                 tenants_added = _process_tenant(csr, tenant_ref, tenant_name, blk_id)
                 num_tenants_added_to_db += tenants_added
-            except Exception as ex:
+            except Exception:
                 logger.error(f"Failed to process record: {current_data}")
                 raise
 

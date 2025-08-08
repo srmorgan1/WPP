@@ -8,20 +8,20 @@ from dataclasses import dataclass
 
 from wpp.config import get_wpp_ref_matcher_log_file
 from wpp.constants import (
-    MINIMUM_TENANT_NAME_MATCH_LENGTH,
-    DEBIT_CARD_SUFFIX,
-    PROPERTY_094_ERROR_CHAR,
-    PROPERTY_094_CORRECTION_POSITION,
-    MIN_TENANT_REF_LENGTH_FOR_ERROR_CORRECTION,
-    SPECIAL_CASE_PROPERTIES,
     CONDITIONAL_SPECIAL_CASE_PROPERTIES,
-    SPECIAL_PROPERTY_RECODING,
-    SPECIAL_BLOCK_RECODING,
+    DEBIT_CARD_SUFFIX,
     EXCLUDED_TENANT_REF_CHARACTERS,
+    MIN_TENANT_REF_LENGTH_FOR_ERROR_CORRECTION,
+    MINIMUM_TENANT_NAME_MATCH_LENGTH,
     MINIMUM_VALID_PROPERTY_REF,
+    PROPERTY_094_CORRECTION_POSITION,
+    PROPERTY_094_ERROR_CHAR,
+    SPECIAL_BLOCK_RECODING,
+    SPECIAL_CASE_PROPERTIES,
+    SPECIAL_PROPERTY_RECODING,
 )
-from wpp.db import get_single_value, checkTenantExists, getTenantName
 from wpp.data_classes import MatchLogData
+from wpp.db import checkTenantExists, get_single_value, getTenantName
 from wpp.utils import getLongestCommonSubstring
 
 

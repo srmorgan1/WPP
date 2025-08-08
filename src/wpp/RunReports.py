@@ -12,25 +12,25 @@ from dateutil import parser
 
 from wpp.calendars import BUSINESS_DAY
 from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
-from wpp.db import get_single_value, join_sql_queries, run_sql_query, union_sql_queries
-from wpp.logger import get_log_file
-from wpp.utils import is_running_via_pytest
-from wpp.exceptions import safe_pandas_operation, log_exceptions
 from wpp.data_classes import RunConfiguration
+from wpp.db import get_single_value, join_sql_queries, run_sql_query, union_sql_queries
+from wpp.exceptions import safe_pandas_operation
+from wpp.logger import get_log_file
 from wpp.sql_queries import (
-    SELECT_TOTAL_PAID_SC_BY_TENANT_SQL,
-    SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL,
-    SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL,
-    SELECT_NON_PAY_TYPE_TRANSACTIONS,
-    SELECT_PAY_TYPE_TRANSACTIONS,
-    QUBE_BOS_REPORT_BY_BLOCK_SQL,
-    QUBE_BOS_REPORT_BY_PROPERTY_SQL,
+    BLOCKS_NOT_IN_COMREC_REPORT,
     BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL,
     BOS_ACCOUNT_BALANCES_BY_PROPERTY_SQL,
+    QUBE_BOS_REPORT_BY_BLOCK_SQL,
+    QUBE_BOS_REPORT_BY_PROPERTY_SQL,
     QUBE_BOS_SHEET_BY_BLOCK_SQL,
     QUBE_BOS_SHEET_BY_PROPERTY_SQL,
-    BLOCKS_NOT_IN_COMREC_REPORT,
+    SELECT_NON_PAY_TYPE_TRANSACTIONS,
+    SELECT_PAY_TYPE_TRANSACTIONS,
+    SELECT_TOTAL_PAID_SC_BY_BLOCK_SQL,
+    SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL,
+    SELECT_TOTAL_PAID_SC_BY_TENANT_SQL,
 )
+from wpp.utils import is_running_via_pytest
 
 # Set up logger
 logger = logging.getLogger(__name__)
