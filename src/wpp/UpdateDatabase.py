@@ -17,7 +17,16 @@ from .constants import MINIMUM_TENANT_NAME_MATCH_LENGTH, DEBIT_CARD_SUFFIX, EXCL
 from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
 from .exceptions import database_transaction, log_database_error, create_validation_error
 from .data_classes import TransactionReferences, ChargeData
-from .database_commands import DatabaseCommandExecutor, InsertTenantCommand, UpdateTenantNameCommand, InsertPropertyCommand, InsertBlockCommand, UpdateBlockNameCommand, InsertChargeCommand, InsertTransactionCommand
+from .database_commands import (
+    DatabaseCommandExecutor,
+    InsertTenantCommand,
+    UpdateTenantNameCommand,
+    InsertPropertyCommand,
+    InsertBlockCommand,
+    UpdateBlockNameCommand,
+    InsertChargeCommand,
+    InsertTransactionCommand,
+)
 from .logger import get_log_file
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
@@ -189,7 +198,9 @@ def doubleCheckTenantRef(db_cursor: sqlite3.Cursor, tenant_ref: str, reference: 
 def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> tuple[str | None, str | None, str | None]:
     # Ignore some property and tenant references, and recode special cases
     # e.g. Block 020-03 belongs to a different property than the other 020-xx blocks.
-    if (tenant_ref is not None and any(char in tenant_ref for char in EXCLUDED_TENANT_REF_CHARACTERS)) or (property_ref is not None and property_ref.isnumeric() and int(property_ref) >= MINIMUM_VALID_PROPERTY_REF):
+    if (tenant_ref is not None and any(char in tenant_ref for char in EXCLUDED_TENANT_REF_CHARACTERS)) or (
+        property_ref is not None and property_ref.isnumeric() and int(property_ref) >= MINIMUM_VALID_PROPERTY_REF
+    ):
         return None, None, None
     # Only apply special recoding if we have non-None property_ref and block_ref
     if property_ref is not None and block_ref is not None:
@@ -436,7 +447,7 @@ def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, refs
         transaction_data["sort_code"],
         transaction_data["account_number"],
         refs.tenant_ref,
-        INSERT_TRANSACTION_SQL
+        INSERT_TRANSACTION_SQL,
     )
     executor.execute(command)
     return True, False
@@ -774,11 +785,7 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
                 logger.warning(f"\tUnable to parse tenant reference {reference}, will not add to the database.")
                 continue
 
-            current_data.update({
-                "property_ref": property_ref,
-                "block_ref": block_ref,
-                "tenant_ref": tenant_ref
-            })
+            current_data.update({"property_ref": property_ref, "block_ref": block_ref, "tenant_ref": tenant_ref})
 
             # Type assertions for mypy since we know they're not None after the all() check
             assert property_ref is not None

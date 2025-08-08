@@ -88,4 +88,5 @@ def _get_wpp_root_dir_from_config() -> Path:
     else:
         return Path(config["DIRECTORIES"]["WPP_ROOT_DIR_WINDOWS"])
 
+
 WPP_ROOT_DIR = _get_wpp_root_dir_from_config()

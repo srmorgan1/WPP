@@ -29,7 +29,7 @@ from wpp.sql_queries import (
     BOS_ACCOUNT_BALANCES_BY_PROPERTY_SQL,
     QUBE_BOS_SHEET_BY_BLOCK_SQL,
     QUBE_BOS_SHEET_BY_PROPERTY_SQL,
-    BLOCKS_NOT_IN_COMREC_REPORT
+    BLOCKS_NOT_IN_COMREC_REPORT,
 )
 
 # Set up logger
@@ -120,7 +120,7 @@ def _generate_comrec_report(db_conn: sqlite3.Connection, bos_date: dt.date, exce
         index=False,
         float_format="%.2f",
     )
-    
+
     # Check for blocks missing from COMREC report
     df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger)
     blocks = df["Block"].tolist()
@@ -153,19 +153,19 @@ def _generate_transactions_reports(db_conn: sqlite3.Connection, bos_date: dt.dat
 def _generate_qube_bos_report(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
     """Generate Qube BOS reconciliation report."""
     logger.info(f"Running Qube BOS report for {qube_date}")
-    
+
     qube_by_block_sql = join_sql_queries(
         QUBE_BOS_SHEET_BY_BLOCK_SQL,
         QUBE_BOS_REPORT_BY_BLOCK_SQL,
         BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL,
     )
-    
+
     qube_by_property_sql = join_sql_queries(
         QUBE_BOS_SHEET_BY_PROPERTY_SQL,
         QUBE_BOS_REPORT_BY_PROPERTY_SQL,
         BOS_ACCOUNT_BALANCES_BY_PROPERTY_SQL,
     )
-    
+
     sql = union_sql_queries(qube_by_property_sql, qube_by_block_sql)
     logger.debug(sql)
     df = run_sql_query(
