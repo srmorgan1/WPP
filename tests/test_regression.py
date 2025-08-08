@@ -1,25 +1,40 @@
+import pytest
 import re
 from pathlib import Path
+from unittest.mock import patch
+from typing import Generator
 
 import pandas as pd
 from dateutil import parser
 from pandas import ExcelFile
 
-# set_wpp_root_dir is called by conftest.py's setup_wpp_root_dir
-from wpp.config import get_wpp_log_dir, get_wpp_report_dir  # Import getters for dynamic paths
+from wpp.config import get_wpp_log_dir, get_wpp_report_dir, get_wpp_input_dir, get_wpp_static_input_dir, get_config
 from wpp.RunReports import main as run_reports_main
 from wpp.UpdateDatabase import main as update_database_main
 
-# Define paths for REFERENCE files locally, as they are specific to this test's known data structure
+# Define paths for test scenarios
 SCRIPT_DIR = Path(__file__).resolve().parent
-# WPP_ROOT_DIR for application data (like DB, Logs, Reports output) is set by conftest.py:setup_wpp_root_dir to tests/Data
-REFERENCE_DATA_ROOT = SCRIPT_DIR / "Data"  # This is tests/Data
-REFERENCE_REPORT_DIR = REFERENCE_DATA_ROOT / "ReferenceReports"  # tests/Data/ReferenceReports
-REFERENCE_LOG_DIR = REFERENCE_DATA_ROOT / "ReferenceLogs"  # tests/Data/ReferenceLogs
+TEST_SCENARIOS_DIR = SCRIPT_DIR / "Data" / "TestScenarios"
 
-# _clean_up_output_dirs and local setup_wpp_root_dir fixture are removed.
-# The setup_wpp_root_dir from conftest.py will be used automatically.
-# The run_decrypt_script fixture from conftest.py is session-scoped and autouse=True.
+# Test scenario configurations
+TEST_SCENARIOS = [
+    "scenario_default",
+    # Add more scenarios here as needed
+    # "scenario_alternative",
+    # "scenario_edge_cases",  # ← Uncomment and modify as needed
+]
+
+
+def get_scenario_paths(scenario_name: str) -> tuple[Path, Path, Path]:
+    """Get input, reference logs, and reference reports paths for a test scenario."""
+    scenario_dir = TEST_SCENARIOS_DIR / scenario_name
+    return (
+        scenario_dir / "Inputs",
+        scenario_dir / "ReferenceLogs", 
+        scenario_dir / "ReferenceReports"
+    )
+
+
 
 
 def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
@@ -162,11 +177,25 @@ def remove_log_date_suffix(filename: str) -> str:
     return re.sub(r"_\d{4}-\d{2}-\d{2}\s?.+?\.txt$", "", filename)
 
 
-# setup_wpp_root_dir and run_decrypt_script fixtures are injected from conftest.py
-def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
+@pytest.mark.parametrize("scenario", TEST_SCENARIOS)
+@patch('wpp.config.get_wpp_data_dir')
+def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir, run_decrypt_script) -> None:
+    """Test regression for different scenarios."""
     # Import here to avoid circular imports
     from wpp.config import get_wpp_db_file
 
+    # Set up mock to point to the scenario directory
+    scenario_dir = TEST_SCENARIOS_DIR / scenario
+    mock_data_dir.return_value = scenario_dir
+
+    # Get paths for this test scenario
+    inputs_dir, reference_logs_dir, reference_reports_dir = get_scenario_paths(scenario)
+    
+    # Verify the test scenario exists
+    assert inputs_dir.exists(), f"Test scenario input directory not found: {inputs_dir}"
+    assert reference_logs_dir.exists(), f"Test scenario reference logs directory not found: {reference_logs_dir}"
+    assert reference_reports_dir.exists(), f"Test scenario reference reports directory not found: {reference_reports_dir}"
+    
     # Clean up any existing log files to avoid interference from other tests
     log_dir = get_wpp_log_dir()
     if log_dir.exists():
@@ -188,7 +217,7 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
 
     # List files in log dir for debugging
     log_dir_path = get_wpp_log_dir()
-    print(f"Listing files in {log_dir_path}:")
+    print(f"Listing files in {log_dir_path} for scenario {scenario}:")
     for f in log_dir_path.iterdir():
         print(f)
 
@@ -201,10 +230,10 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
     # Compare generated reports with reference reports
     # Use get_wpp_report_dir() which respects the WPP_ROOT_DIR set by conftest
     generated_reports = sorted([report for report in get_wpp_report_dir().iterdir() if report.suffix == ".xlsx"])
-    reference_reports = sorted([report for report in REFERENCE_REPORT_DIR.iterdir() if report.suffix == ".xlsx"])
+    reference_reports = sorted([report for report in reference_reports_dir.iterdir() if report.suffix == ".xlsx"])
 
-    assert len(generated_reports) > 0, "No reports were generated."
-    assert len(reference_reports) > 0, "No reference reports found."
+    assert len(generated_reports) > 0, f"No reports were generated for scenario {scenario}."
+    assert len(reference_reports) > 0, f"No reference reports found for scenario {scenario}."
 
     # Group reference reports by type (prefix before date)
     reference_by_type = {
@@ -215,16 +244,16 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
     for generated_report in generated_reports:
         ref_file = remove_date_suffix(generated_report.name)
         ref_file_to_compare = reference_by_type.get(ref_file)
-        assert ref_file_to_compare is not None, f"No matching reference report found for generated report: {generated_report.name}."
+        assert ref_file_to_compare is not None, f"No matching reference report found for generated report: {generated_report.name} in scenario {scenario}."
         compare_excel_files(generated_report, ref_file_to_compare)
 
     # Compare generated logs with reference logs
     generated_log_dir = Path(get_wpp_log_dir())
     generated_logs = sorted([log for log in generated_log_dir.iterdir() if log.suffix == ".txt"])
-    reference_logs = sorted([log for log in REFERENCE_LOG_DIR.iterdir() if log.suffix == ".txt"])
+    reference_logs = sorted([log for log in reference_logs_dir.iterdir() if log.suffix == ".txt"])
 
-    assert len(generated_logs) > 0, "No logs were generated."
-    assert len(reference_logs) > 0, "No reference logs found."
+    assert len(generated_logs) > 0, f"No logs were generated for scenario {scenario}."
+    assert len(reference_logs) > 0, f"No reference logs found for scenario {scenario}."
 
     # Group reference logs by type (prefix before date)
     reference_log_by_type = {
@@ -235,10 +264,10 @@ def test_regression(setup_wpp_root_dir, run_decrypt_script) -> None:
     for generated_log in generated_logs:
         log_type = remove_log_date_suffix(generated_log.name)
         ref_log_to_compare = reference_log_by_type.get(log_type)
-        assert ref_log_to_compare is not None, f"No matching reference log found for generated log: {generated_log.name}."
+        assert ref_log_to_compare is not None, f"No matching reference log found for generated log: {generated_log.name} in scenario {scenario}."
         compare_log_files(generated_log, ref_log_to_compare)
 
     # Compare ref_matcher.csv
     generated_ref_matcher_log = get_wpp_log_dir() / "ref_matcher.csv"
-    reference_ref_matcher_log = REFERENCE_LOG_DIR / "ref_matcher.csv"
+    reference_ref_matcher_log = reference_logs_dir / "ref_matcher.csv"
     compare_csv_files(generated_ref_matcher_log, reference_ref_matcher_log)

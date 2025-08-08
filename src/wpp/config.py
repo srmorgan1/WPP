@@ -17,12 +17,17 @@ def get_wpp_root_dir() -> Path:
     return WPP_ROOT_DIR
 
 
+def get_wpp_data_dir() -> Path:
+    """Get the data directory - can be overridden for tests."""
+    return WPP_ROOT_DIR
+
+
 def get_wpp_input_dir() -> Path:
-    return WPP_ROOT_DIR / "Inputs"
+    return get_wpp_data_dir() / "Inputs"
 
 
 def get_wpp_static_input_dir() -> Path:
-    return WPP_ROOT_DIR / "Inputs"  # Assuming static inputs are also in Inputs for now
+    return get_wpp_data_dir() / "Inputs"  # Assuming static inputs are also in Inputs for now
 
 
 def get_wpp_report_dir() -> Path:
@@ -65,10 +70,36 @@ def get_wpp_ref_matcher_log_file() -> Path:
 def get_config(file_path: str | None = None) -> dict:
     """
     Load configuration values from a TOML file.
+    
+    Searches for config.toml in the following order:
+    1. Provided file_path (if given)
+    2. Current working directory
+    3. Same directory as this module (default location)
 
     :return: A dictionary containing the configuration values.
     """
-    config_file_path = file_path or Path(__file__).resolve().parent / "config.toml"
+    if file_path:
+        config_file_path = Path(file_path)
+    else:
+        # Search locations in order of priority
+        search_locations = [
+            Path.cwd() / "config.toml",  # Current working directory
+            Path(__file__).resolve().parent / "config.toml",  # Module directory (original location)
+        ]
+        
+        config_file_path = None
+        for location in search_locations:
+            if location.exists():
+                config_file_path = location
+                break
+        
+        if config_file_path is None:
+            # If no config file found, provide helpful error message
+            searched_locations = "\n  ".join(str(loc) for loc in search_locations)
+            raise FileNotFoundError(
+                f"Configuration file 'config.toml' not found in any of the following locations:\n"
+                f"  {searched_locations}"
+            )
 
     try:
         with open(config_file_path) as config_file:
