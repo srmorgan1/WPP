@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 
 from .calendars import BUSINESS_DAY
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
+from .constants import MINIMUM_TENANT_NAME_MATCH_LENGTH, DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_VALID_PROPERTY_REF
 from .db import get_last_insert_id, get_or_create_db, get_single_value, checkTenantExists, getTenantName
 from .exceptions import database_transaction, log_database_error, create_validation_error
 from .data_classes import TransactionReferences, ChargeData
@@ -129,15 +130,15 @@ def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
     if tenant_name:
         lcss = getLongestCommonSubstring(tnm, trf)
         # Assume that if the transaction reference has a substring matching
-        # one in the tenant name of >= 4 chars, then this is a match.
-        return len(lcss) >= 4
+        # one in the tenant name of >= minimum length chars, then this is a match.
+        return len(lcss) >= MINIMUM_TENANT_NAME_MATCH_LENGTH
     else:
         return False
 
 
 def removeDCReferencePostfix(tenant_ref: str | None) -> str | None:
     # Remove 'DC' from parsed tenant references paid by debit card
-    if tenant_ref is not None and tenant_ref.endswith("DC"):
+    if tenant_ref is not None and tenant_ref.endswith(DEBIT_CARD_SUFFIX):
         tenant_ref = tenant_ref[:-2].strip()
     return tenant_ref
 
@@ -188,7 +189,7 @@ def doubleCheckTenantRef(db_cursor: sqlite3.Cursor, tenant_ref: str, reference: 
 def postProcessPropertyBlockTenantRefs(property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> tuple[str | None, str | None, str | None]:
     # Ignore some property and tenant references, and recode special cases
     # e.g. Block 020-03 belongs to a different property than the other 020-xx blocks.
-    if (tenant_ref is not None and ("Z" in tenant_ref or "Y" in tenant_ref)) or (property_ref is not None and property_ref.isnumeric() and int(property_ref) >= 900):
+    if (tenant_ref is not None and any(char in tenant_ref for char in EXCLUDED_TENANT_REF_CHARACTERS)) or (property_ref is not None and property_ref.isnumeric() and int(property_ref) >= MINIMUM_VALID_PROPERTY_REF):
         return None, None, None
     # Only apply special recoding if we have non-None property_ref and block_ref
     if property_ref is not None and block_ref is not None:
@@ -1391,8 +1392,9 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find irregular transaction references file matching {irregular_transaction_refs_file_pattern}")
     logger.info("")
 
-    properties_file_pattern = os.path.join(get_wpp_static_input_dir(), "Properties*.xlsx")
-    tenants_file_pattern = os.path.join(get_wpp_static_input_dir(), "Tenants*.xlsx")
+    config = get_config()
+    properties_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["PROPERTIES_FILE_PATTERN"])
+    tenants_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["TENANTS_FILE_PATTERN"])
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
         logger.info(f"Importing Properties from file {properties_xls_file}")
@@ -1401,7 +1403,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logger.info("")
 
-    estates_file_pattern = os.path.join(get_wpp_static_input_dir(), "Estates*.xlsx")
+    estates_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["ESTATES_FILE_PATTERN"])
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logger.info(f"Importing Estates from file {estates_xls_file}")
@@ -1410,7 +1412,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Estates file matching {estates_file_pattern}")
     logger.info("")
 
-    qube_eod_balances_file_pattern = os.path.join(get_wpp_input_dir(), "Qube*EOD*.xlsx")
+    qube_eod_balances_file_pattern = os.path.join(get_wpp_input_dir(), config["INPUTS"]["QUBE_EOD_BALANCES_PATTERN"])
     qube_eod_balances_files = getMatchingFileNames(qube_eod_balances_file_pattern)
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
@@ -1420,7 +1422,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Qube EOD Balances file matching {qube_eod_balances_file_pattern}")
     logger.info("")
 
-    accounts_file_pattern = os.path.join(get_wpp_static_input_dir(), "Accounts.xlsx")
+    accounts_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["BANK_ACCOUNTS_PATTERN"])
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logger.info(f"Importing bank accounts from file {accounts_file}")

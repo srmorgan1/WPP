@@ -5,13 +5,7 @@ from pathlib import Path
 
 import toml
 
-# NB: These must be set to the correct locations on your system
-if os.name == "posix":
-    WPP_ROOT_DIR = Path("/Users/steve/Work/WPP")
-else:
-    WPP_ROOT_DIR = Path(r"\\SBS\public\qube\iSite\AutoBOSShelleyAngeAndSandra")
-    # WPP_ROOT_DIR = Path(r'Z:/qube/iSite/AutoBOSShelleyAngeAndSandra')
-    # WPP_ROOT_DIR = Path(os.path.normpath(os.path.join(sys.path[0], os.pardir)))
+# WPP_ROOT_DIR will be initialized after get_config function is defined
 
 
 def set_wpp_root_dir(root_dir: str) -> None:
@@ -83,3 +77,15 @@ def get_config(file_path: str | None = None) -> dict:
         raise FileNotFoundError(f"Configuration file '{config_file_path}' not found.")
     except toml.TomlDecodeError as e:
         raise ValueError(f"Error parsing TOML file '{config_file_path}': {e}")
+
+
+# Initialize WPP_ROOT_DIR from configuration file
+def _get_wpp_root_dir_from_config() -> Path:
+    """Get WPP root directory from configuration file."""
+    config = get_config()
+    if os.name == "posix":
+        return Path(config["DIRECTORIES"]["WPP_ROOT_DIR_POSIX"])
+    else:
+        return Path(config["DIRECTORIES"]["WPP_ROOT_DIR_WINDOWS"])
+
+WPP_ROOT_DIR = _get_wpp_root_dir_from_config()
