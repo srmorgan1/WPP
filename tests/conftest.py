@@ -118,6 +118,8 @@ def _decrypt_scenario_files(scenario_name: str):
                     result = subprocess.run(
                         ["gpg", "--decrypt", "--batch", "--yes", "--passphrase", gpg_passphrase, "--output", str(output_file), str(file)], check=True, capture_output=True, text=True
                     )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"Failed to decrypt {file}: {result.stderr}")
                     print(f"Decrypted {file} to {output_file}")
                 except subprocess.CalledProcessError as e:
                     raise RuntimeError(f"Failed to decrypt {file}: {e.stderr}")
@@ -167,11 +169,13 @@ def _encrypt_scenario_files(scenario_name: str):
                     result = subprocess.run(
                         ["gpg", "--symmetric", "--batch", "--yes", "--passphrase", gpg_passphrase, "--output", str(encrypted_file), str(file)], check=True, capture_output=True, text=True
                     )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"Failed to encrypt {file}: {result.stderr}")
                     print(f"Encrypted {file} to {encrypted_file}")
                     # Remove the unencrypted file after successful encryption
                     file.unlink()
                 except subprocess.CalledProcessError as e:
-                    print(f"Failed to encrypt {file}: {e.stderr}")
+                    raise RuntimeError(f"Failed to encrypt {file}: {e.stderr}")
 
     # Encrypt files in scenario inputs
     encrypt_files_in_dir(scenario_dir / "Inputs", ["xlsx", "zip"])
@@ -215,18 +219,20 @@ def _encrypt_reference_data_after_generation(scenario_name: str):
                     result = subprocess.run(
                         ["gpg", "--symmetric", "--batch", "--yes", "--passphrase", gpg_passphrase, "--output", str(encrypted_file), str(file)], check=True, capture_output=True, text=True
                     )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"Failed to encrypt {file}: {result.stderr}")
                     print(f"Encrypted {file} to {encrypted_file}")
                     # Remove the unencrypted file after successful encryption
                     file.unlink()
                     print(f"Removed unencrypted file: {file}")
                 except subprocess.CalledProcessError as e:
-                    print(f"Failed to encrypt {file}: {e.stderr}")
+                    raise RuntimeError(f"Failed to encrypt {file}: {e.stderr}")
 
     # Encrypt files in all relevant directories
     encrypt_files_in_dir(scenario_dir / "Inputs", ["xlsx", "csv"])
     encrypt_files_in_dir(scenario_dir / "ReferenceReports", ["xlsx"])
     encrypt_files_in_dir(scenario_dir / "ReferenceLogs", ["csv"])
-    
+
     # Clean up any remaining unencrypted reference files
     _cleanup_unencrypted_reference_files(scenario_name)
 
@@ -237,14 +243,11 @@ def _cleanup_unencrypted_reference_files(scenario_name: str):
     This handles files that were decrypted at the start of tests but should remain encrypted.
     """
     scenario_dir = get_test_scenarios_dir() / scenario_name
-    
+
     print(f"Cleaning up unencrypted reference files for scenario: {scenario_name}")
-    
+
     # Clean up unencrypted reference files that have encrypted versions
-    for ref_dir, suffixes in [
-        (scenario_dir / "ReferenceReports", ["xlsx"]),
-        (scenario_dir / "ReferenceLogs", ["csv"])
-    ]:
+    for ref_dir, suffixes in [(scenario_dir / "ReferenceReports", ["xlsx"]), (scenario_dir / "ReferenceLogs", ["csv"])]:
         if ref_dir.exists():
             for suffix in suffixes:
                 for unencrypted_file in ref_dir.glob(f"*.{suffix}"):

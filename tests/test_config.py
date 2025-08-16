@@ -81,15 +81,16 @@ def test_date_based_file_paths():
         assert str(report_file_datetime) == expected
 
         update_log = get_wpp_update_database_log_file(test_datetime)
-        expected = "/tmp/test/Logs/Log_UpdateDatabase_2023-12-25 14.30.45.txt"
+        expected = "/tmp/test/Logs/Log_UpdateDatabase_2023-12-25_14-30-45.txt"
         assert str(update_log) == expected
 
         run_reports_log = get_wpp_run_reports_log_file(test_datetime)
-        expected = "/tmp/test/Logs/Log_RunReports_2023-12-25 14.30.45.txt"
+        expected = "/tmp/test/Logs/Log_RunReports_2023-12-25_14-30-45.txt"
         assert str(run_reports_log) == expected
 
-        ref_matcher_log = get_wpp_ref_matcher_log_file()
-        assert ref_matcher_log == Path("/tmp/test/Logs/ref_matcher.csv")
+        ref_matcher_log = get_wpp_ref_matcher_log_file(test_datetime)
+        expected = "/tmp/test/Logs/ref_matcher_2023-12-25_14-30-45.csv"
+        assert str(ref_matcher_log) == expected
 
     finally:
         set_wpp_root_dir(str(original_root))

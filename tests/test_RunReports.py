@@ -1,4 +1,3 @@
-import datetime as dt
 import logging
 from datetime import datetime
 from pathlib import Path  # Added
@@ -6,13 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
+# FILE: tests/test_RunReports.py
 from dateutil import parser  # Added
 from pandas import ExcelFile  # Added
 
-# FILE: tests/test_RunReports.py
 from wpp.calendars import EnglandAndWalesHolidayCalendar
-
-# from wpp.db import get_db_connection # Removed, conftest db_conn is used
 from wpp.logger import InfoFilter
 from wpp.RunReports import (
     add_column_totals,
@@ -34,9 +32,6 @@ REFERENCE_REPORT_DIR = REFERENCE_DATA_ROOT / "ReferenceReports"
 REFERENCE_LOG_DIR = REFERENCE_DATA_ROOT / "ReferenceLogs"
 
 # Local db_conn fixture removed, using the one from conftest.py
-
-
-# get_unique_date_from_charges moved to conftest.py for shared use
 
 
 # Helper functions (copied from test_regression.py / test_UpdateDatabase.py)
@@ -148,11 +143,9 @@ def test_add_extra_rows():
 @patch("wpp.RunReports.get_single_value")  # Ensure patch target is correct
 def test_checkDataIsPresent(mock_get_single_value, db_conn):  # Added db_conn from conftest
     mock_get_single_value.return_value = 1
-    # conn = MagicMock() # Use real connection
-    # Get the actual date from the charges table
-    from conftest import get_unique_date_from_charges
-    unique_date = get_unique_date_from_charges(db_conn)
-    result = checkDataIsPresent(db_conn, unique_date, unique_date)
+    # Use a fixed date for unit testing instead of trying to get it from an empty database
+    test_date = parser.parse("2023-01-01").date()
+    result = checkDataIsPresent(db_conn, test_date, test_date)
     assert result is True  # Explicitly check for True
 
 
@@ -179,10 +172,9 @@ def test_runReports(mock_get_wpp_report_file, mock_excel_writer, mock_run_sql_qu
         pd.DataFrame([{"Property / Block": "050-01", "Name": "Test Block", "Qube Total": 100, "BOS": 90, "Discrepancy": 10, "GR": 5, "BOS GR": 4, "Discrepancy GR": 1}]),  # For Qube BOS report
         pd.DataFrame([{"test": "data"}]),  # For SELECT_TOTAL_PAID_SC_BY_TENANT_SQL
     ]
-    # Get the actual date from the charges table
-    from conftest import get_unique_date_from_charges
-    unique_date = get_unique_date_from_charges(db_conn)
-    runReports(db_conn, unique_date, unique_date)
+    # Use a fixed date for unit testing instead of trying to get it from an empty database
+    test_date = parser.parse("2023-01-01").date()
+    runReports(db_conn, test_date, test_date)
     assert mock_excel_writer.called
 
 

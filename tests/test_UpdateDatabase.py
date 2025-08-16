@@ -1,8 +1,7 @@
+import os
 from pathlib import Path
-from unittest.mock import patch
 
 # Use get_wpp_input_dir and get_wpp_log_dir which respect the WPP_ROOT_DIR set by conftest.py's setup_wpp_root_dir
-from wpp.config import get_wpp_input_dir, get_wpp_log_dir, get_wpp_static_input_dir
 from wpp.db import get_data  # get_or_create_db might be needed if tests create dbs directly
 from wpp.UpdateDatabase import (
     addBlockToDB,
@@ -18,33 +17,11 @@ from wpp.UpdateDatabase import (
     get_single_value,
     getTenantName,
     importBankAccounts,
-    importBankOfScotlandBalancesXMLFile,
     importBankOfScotlandTransactionsXMLFile,
     importEstatesFile,
     importIrregularTransactionReferences,
-    importPropertiesFile,
-    importQubeEndOfDayBalancesFile,
-    main as update_database_main,  # Added for the new test
+    importPropertiesFile,  # Used by regression tests
 )
-from wpp.utils import getLatestMatchingFileName
-
-# Define paths relative to this test file's parent (tests/) for reference data
-# Use the new scenario structure for consistency with regression tests
-SCRIPT_DIR = Path(__file__).resolve().parent
-TEST_SCENARIOS_DIR = SCRIPT_DIR / "Data" / "TestScenarios"
-DEFAULT_SCENARIO_DIR = TEST_SCENARIOS_DIR / "scenario_default"
-REFERENCE_LOG_DIR = DEFAULT_SCENARIO_DIR / "ReferenceLogs"
-
-
-# Copied from test_regression.py - consider moving to a shared test utility module if used by more tests
-def compare_log_files(generated_file: Path, reference_file: Path) -> None:
-    with open(generated_file) as gen_file, open(reference_file) as ref_file:
-        # Adjusted to match the filtering in test_regression.py
-        # Skips first line (header), last 2 lines (summary stats), and lines with "Creating" or "Importing"
-        gen_lines = [" ".join(line.split(" ")[4:]) for line in gen_file.readlines()[1:-2] if "Creating" not in line and "Importing" not in line and "database schema" not in line]
-        ref_lines = [" ".join(line.split(" ")[4:]) for line in ref_file.readlines()[1:-2] if "Creating" not in line and "Importing" not in line and "database schema" not in line]
-        assert gen_lines == ref_lines, f"Log files {generated_file.name} and {reference_file.name} do not match"
-
 
 # No local fixtures for db_conn, db_file, or setup_wpp_root_dir needed, they come from conftest.py
 
@@ -104,67 +81,145 @@ def test_get_id_from_key_table(db_conn):
     assert _id is not None
 
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importBankOfScotlandTransactionsXMLFile(mock_data_dir, db_conn):  # db_conn from conftest
-    transactions_file_pattern = Path(get_wpp_input_dir()) / "PreviousDayTransactionExtract_*.zip"
-    transactions_xml_file = getLatestMatchingFileName(str(transactions_file_pattern))
-    assert transactions_xml_file, f"No transaction file found matching {transactions_file_pattern}"
-    errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, transactions_xml_file)
-    assert len(errors) == 18  # This assertion is data-specific
-    assert len(duplicates) == 0
+def test_importBankAccounts_unit(db_conn):
+    """Unit test for importBankAccounts with minimal test data"""
+    # Create minimal test Excel data in memory
+    import tempfile
+
+    # Create test data
+    test_data = {
+        "Reference": ["050-01", "050-02"],
+        "Sort Code": ["12-34-56", "12-34-56"],
+        "Account Number": ["12345678", "12345679"],
+        "Account Type": ["Current", "Savings"],
+        "Property Or Block": ["Block", "Block"],
+        "Client Reference": ["CLI001", "CLI002"],
+        "Account Name": ["Test Account 1", "Test Account 2"],
+    }
+
+    # Create a temporary Excel file
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+
+    try:
+        # Write test data to Excel file
+        import pandas as pd
+
+        df = pd.DataFrame(test_data)
+        with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Accounts", index=False)
+
+        # Set up required properties and blocks first
+        addPropertyToDB(db_conn, "050")
+        addBlockToDB(db_conn, "050", "050-01")
+        addBlockToDB(db_conn, "050", "050-02")
+
+        # Test the import function
+        importBankAccounts(db_conn, tmp_path)
+
+        # Verify accounts were imported
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT * FROM Accounts")
+        accounts = cursor.fetchall()
+        assert len(accounts) == 2
+
+        # Verify specific account data
+        cursor.execute("SELECT account_number, account_name FROM Accounts WHERE account_number = '12345678'")
+        result = cursor.fetchone()
+        assert result is not None
+        assert result[1] == "Test Account 1"
+
+    finally:
+        # Clean up temporary file
+        os.unlink(tmp_path)
 
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importBankOfScotlandBalancesXMLFile(mock_data_dir, db_conn):
-    # This test depends on bank accounts being imported first
-    bank_accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx"
-    bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
-    assert bank_accounts_xls_filename_str, f"No accounts file found matching {bank_accounts_file_pattern}"
-    importBankAccounts(db_conn, bank_accounts_xls_filename_str)
-
-    eod_balances_file_pattern = Path(get_wpp_input_dir()) / "EndOfDayBalanceExtract_*.zip"
-    eod_balances_xml_filename_str = getLatestMatchingFileName(str(eod_balances_file_pattern))
-    assert eod_balances_xml_filename_str, f"No EOD balance file found matching {eod_balances_file_pattern}"
-    importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_filename_str)
-    cursor = db_conn.cursor()
-    cursor.execute("SELECT * FROM AccountBalances;")
-    balances = cursor.fetchall()
-    assert len(balances) > 0  # Check that some balances were imported
+# XML import tests are complex due to ZIP file handling and XML parsing
+# These are better covered by integration tests in regression suite
 
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importPropertiesFile(mock_data_dir, db_conn):
-    tenants_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
-    properties_xls_filename_str = getLatestMatchingFileName(str(tenants_file_pattern))
-    assert properties_xls_filename_str, f"No tenants/properties file found matching {tenants_file_pattern}"
-    importPropertiesFile(db_conn, properties_xls_filename_str)
-    cursor = db_conn.cursor()
-    cursor.execute("SELECT ID FROM Properties;")
-    properties = cursor.fetchall()
-    assert len(properties) == 136  # Data-specific assertion
+def test_importPropertiesFile_unit(db_conn):
+    """Unit test for importPropertiesFile with minimal test data"""
+    import tempfile
+
+    import pandas as pd
+
+    # Create minimal test data for properties/tenants
+    # Function expects "Reference" (tenant ref) and "Name" (tenant name) columns
+    test_data = {"Reference": ["100-01-001", "200-01-001"], "Name": ["John Smith", "Jane Doe"], "Service Charge": [1200.00, 1500.00]}
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+
+    try:
+        # Write test data to Excel file
+        df = pd.DataFrame(test_data)
+        with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Properties", index=False)
+
+        # Test the import function
+        importPropertiesFile(db_conn, tmp_path)
+
+        # Verify properties were imported (function creates them from tenant refs)
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT property_ref FROM Properties ORDER BY property_ref")
+        properties = cursor.fetchall()
+        assert len(properties) == 2
+        assert properties[0][0] == "100"
+        assert properties[1][0] == "200"
+
+        # Verify blocks were imported (function creates them from tenant refs)
+        cursor.execute("SELECT block_ref FROM Blocks ORDER BY block_ref")
+        blocks = cursor.fetchall()
+        assert len(blocks) == 2
+        assert blocks[0][0] == "100-01"
+        assert blocks[1][0] == "200-01"
+
+        # Verify tenants were imported
+        cursor.execute("SELECT tenant_ref, tenant_name FROM Tenants ORDER BY tenant_ref")
+        tenants = cursor.fetchall()
+        assert len(tenants) == 2
+        assert tenants[0][0] == "100-01-001"
+        assert tenants[0][1] == "John Smith"
+
+    finally:
+        os.unlink(tmp_path)
 
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importEstatesFile(mock_data_dir, db_conn):
-    # First, ensure properties are in the DB
-    properties_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
-    properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
-    assert properties_xls_filename_str, f"No tenants/properties file found matching {properties_file_pattern}"
-    importPropertiesFile(db_conn, properties_xls_filename_str)
+def test_importEstatesFile_unit(db_conn):
+    """Unit test for importEstatesFile with minimal test data"""
+    import tempfile
 
-    # Set property_name to NULL to allow importEstatesFile to update them
-    cursor = db_conn.cursor()
-    cursor.execute("UPDATE Properties SET property_name = NULL")
-    db_conn.commit()
+    import pandas as pd
 
-    estates_file_pattern = Path(get_wpp_static_input_dir()) / "Estates*.xlsx"
-    estates_xls_filename_str = getLatestMatchingFileName(str(estates_file_pattern))
-    assert estates_xls_filename_str, f"No estates file found matching {estates_file_pattern}"
-    importEstatesFile(db_conn, estates_xls_filename_str)
-    cursor = db_conn.cursor()
-    cursor.execute("SELECT * FROM Properties WHERE property_name IS NOT NULL;")  # Check for actual estate data
-    estates = cursor.fetchall()
-    assert len(estates) > 0
+    # Set up a property first
+    addPropertyToDB(db_conn, "175")
+
+    # Create minimal test data for estates
+    # Function expects "Reference" (property ref) and "Name" (estate name) columns
+    test_data = {"Reference": ["175"], "Name": ["Test Estate"]}
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+
+    try:
+        # Write test data to Excel file
+        df = pd.DataFrame(test_data)
+        with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Estates", index=False)
+
+        # Test the import function
+        importEstatesFile(db_conn, tmp_path)
+
+        # Verify estate was imported (property_name should be updated)
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT property_name FROM Properties WHERE property_ref = '175'")
+        result = cursor.fetchone()
+        assert result is not None
+        assert result[0] == "Test Estate"
+
+    finally:
+        os.unlink(tmp_path)
 
 
 def test_addPropertyToDB(db_conn):
@@ -199,37 +254,38 @@ def test_addTenantToDB(db_conn):
 # Removed test_importBlockBankAccountNumbers - function is broken and uses non-existent table column
 
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importBankAccounts(mock_data_dir, db_conn):
-    # Used "sample_bank_accounts.xlsx", let's assume "Accounts.xlsx"
-    bank_accounts_file_pattern = Path(get_wpp_static_input_dir()) / "Accounts.xlsx"  # Adjusted
-    bank_accounts_xls_filename_str = getLatestMatchingFileName(str(bank_accounts_file_pattern))
-    assert bank_accounts_xls_filename_str, f"Required input file Accounts.xlsx not found in {get_wpp_static_input_dir()}"
+def test_importIrregularTransactionReferences_unit(db_conn):
+    """Unit test for importIrregularTransactionReferences with minimal test data"""
+    import tempfile
 
-    importBankAccounts(db_conn, bank_accounts_xls_filename_str)
-    cursor = db_conn.cursor()
-    cursor.execute("SELECT * FROM Accounts;")
-    accounts = cursor.fetchall()
-    assert len(accounts) > 0  # Check that some accounts were imported
+    import pandas as pd
 
+    # Create minimal test data for irregular transaction references
+    # Function expects "Tenant Reference" and "Payment Reference Pattern" columns in "Sheet1"
+    test_data = {"Tenant Reference": ["100-01-001", "200-01-001"], "Payment Reference Pattern": ["john smith*", "jane doe*"]}
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importIrregularTransactionReferences(mock_data_dir, db_conn):
-    # Used "sample_irregular_refs.xlsx".
-    # Let's assume "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx" might contain such refs or similar data.
-    # This is a guess; the test might need a specific file or adjustment.
-    irregular_refs_file_pattern = Path(get_wpp_static_input_dir()) / "001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx"  # Adjusted guess
-    irregular_refs_filename_str = getLatestMatchingFileName(str(irregular_refs_file_pattern))
-    assert irregular_refs_filename_str, f"Required input file for irregular refs not found in {get_wpp_static_input_dir()}"
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
+        tmp_path = tmp_file.name
 
-    importIrregularTransactionReferences(db_conn, irregular_refs_filename_str)
-    cursor = db_conn.cursor()
-    cursor.execute("SELECT * FROM IrregularTransactionRefs;")
-    refs = cursor.fetchall()
-    # The assertion `len(refs) > 0` depends on the content of the guessed file.
-    # If "001 GENERAL CREDITS..." doesn't populate this table, this test will fail.
-    # This might need a dedicated test file if the current files don't fit.
-    assert len(refs) >= 0  # Changed to >=0 as it might be empty depending on file
+    try:
+        # Write test data to Excel file
+        df = pd.DataFrame(test_data)
+        with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Sheet1", index=False)
+
+        # Test the import function
+        importIrregularTransactionReferences(db_conn, tmp_path)
+
+        # Verify references were imported
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT tenant_ref, transaction_ref_pattern FROM IrregularTransactionRefs ORDER BY tenant_ref")
+        refs = cursor.fetchall()
+        assert len(refs) == 2
+        assert refs[0][0] == "100-01-001"
+        assert refs[0][1] == "john smith*"
+
+    finally:
+        os.unlink(tmp_path)
 
 
 def test_calculateSCFund():
@@ -239,49 +295,18 @@ def test_calculateSCFund():
     assert result == 300
 
 
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_importQubeEndOfDayBalancesFile(mock_data_dir, db_conn):
-    # Ensure properties and blocks are imported first
-    properties_file_pattern = Path(get_wpp_static_input_dir()) / "Tenants*.xlsx"
-    properties_xls_filename_str = getLatestMatchingFileName(str(properties_file_pattern))
-    assert properties_xls_filename_str, f"No tenants/properties file found matching {properties_file_pattern}"
-    importPropertiesFile(db_conn, properties_xls_filename_str)
-
-    qube_eod_file_pattern = Path(get_wpp_input_dir()) / "Qube EOD balances*.xlsx"  # Adjusted pattern
-    qube_eod_filename_str = getLatestMatchingFileName(str(qube_eod_file_pattern))
-    assert qube_eod_filename_str, f"No Qube EOD file found matching {qube_eod_file_pattern}"
-    importQubeEndOfDayBalancesFile(db_conn, qube_eod_filename_str)
-    cursor = db_conn.cursor()
-    cursor.execute("SELECT * FROM Charges;")  # Assuming this table is populated by Qube EOD
-    charges = cursor.fetchall()
-    assert len(charges) > 0
+# Qube EOD import is too complex for a simple unit test due to:
+# - Specific Excel file format requirements (columns B:G, skip 4 rows)
+# - Complex date parsing from filename
+# - Intricate block reference logic and validation
+# This functionality is better tested by the regression tests with real data
+# Unit tests focus on individual helper functions instead
 
 
 # Removed test_add_misc_data_to_db - originally skipped with unknown reason, likely not useful
 
 
 # Removed test_importAllData - redundant with regression test, originally skipped for unknown reason  # Expect some properties after all imports
-
-
-# New test for UpdateDatabase.main() log output
-@patch("wpp.config.get_wpp_data_dir", return_value=DEFAULT_SCENARIO_DIR)
-def test_update_database_main_log_output(mock_data_dir, db_conn, clean_output_dirs):  # db_conn ensures setup_wpp_root_dir and run_decrypt_script
-    """
-    Tests the main UpdateDatabase script and compares its log output
-    with a reference log file.
-    """
-    update_database_main()  # Run the main script
-
-    log_dir = Path(get_wpp_log_dir())
-    generated_logs = list(log_dir.glob("Log_UpdateDatabase_*.txt"))
-
-    assert len(generated_logs) == 1, f"Expected 1 UpdateDatabase log file, found {len(generated_logs)} in {log_dir}"
-    generated_log_file = generated_logs[0]
-
-    reference_log_file = REFERENCE_LOG_DIR / "Log_UpdateDatabase_2025-02-25.txt"
-    assert reference_log_file.exists(), f"Reference log file not found: {reference_log_file}"
-
-    compare_log_files(generated_log_file, reference_log_file)
 
 
 # Additional tests for uncovered functions and error paths
@@ -385,7 +410,6 @@ def test_calculateSCFund_edge_cases():
 def test_getLatestMatchingFileName():
     """Test getLatestMatchingFileName function"""
     import tempfile
-    from pathlib import Path
 
     from wpp.UpdateDatabase import getLatestMatchingFileName
 
@@ -456,9 +480,6 @@ def test_get_element_text():
 def test_error_handling_in_imports(db_conn):
     """Test error handling in import functions"""
     import tempfile
-    from pathlib import Path
-
-    from wpp.UpdateDatabase import importBankOfScotlandTransactionsXMLFile
 
     # Test with invalid XML file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as temp_file:

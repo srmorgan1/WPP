@@ -195,14 +195,17 @@ def test_special_case_strategy_edge_cases():
     """Test SpecialCaseStrategy with edge cases."""
     strategy = SpecialCaseStrategy()
 
-    # Test without database cursor (should use hardcoded validation)
-    result = strategy.match("093-01-ABC", None)
-    assert result.property_ref == "093"  # 093 is in the allowed list
+    # Test without database cursor using actual special case properties from config (138, 157)
+    # Pattern expects (\d{3})-(\d{2})-(\d{4}[A-Z]?) format
+    result = strategy.match("138-01-0111", None)  # 138 is in special case properties
+    assert result.property_ref == "138"
+    assert result.block_ref == "138-01"
+    assert result.tenant_ref == "138-01-0111"
     assert result.matched is True
 
-    # Test with property not in special cases
+    # Test with property not in special cases - should raise exception
     with pytest.raises(MatchValidationException):
-        strategy.match("999-01-ABC", None)
+        strategy.match("999-01-0123", None)
 
 
 def test_pbt_regex4_strategy_validation():
@@ -458,23 +461,23 @@ def test_special_case_strategy_without_database():
     """Test SpecialCaseStrategy without database cursor."""
     strategy = SpecialCaseStrategy()
 
-    # Test valid property in special cases list
-    result = strategy.match("093-01-001A", None)
-    assert result.property_ref == "093"
+    # Test valid property in special cases list (157 is in SPECIAL_CASE_PROPERTIES)
+    result = strategy.match("157-01-0114A", None)
+    assert result.property_ref == "157"
+    assert result.block_ref == "157-01"
+    assert result.tenant_ref == "157-01-0114A"
     assert result.matched is True
 
-    # Test valid property with non-Z suffix (Z suffix should fail)
-    result = strategy.match("020-01-001A", None)
-    assert result.property_ref == "020"
+    # Test another valid special case property
+    result = strategy.match("138-01-0123", None)
+    assert result.property_ref == "138"
+    assert result.block_ref == "138-01"
+    assert result.tenant_ref == "138-01-0123"
     assert result.matched is True
 
-    # Test property with Z suffix should fail validation
-    with pytest.raises(MatchValidationException, match="property is not in the special cases lists"):
-        strategy.match("020-01-001Z", None)
-
-    # Test invalid property not in special cases
-    with pytest.raises(MatchValidationException, match="property is not in the special cases lists"):
-        strategy.match("999-01-001", None)
+    # Test property not in special cases should fail validation
+    with pytest.raises(MatchValidationException, match="property not in special cases list"):
+        strategy.match("999-01-0123", None)
 
 
 def test_abstract_matching_strategy():

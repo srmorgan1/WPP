@@ -571,11 +571,20 @@ class CatchRemainderStrategy(RegexStrategy):
 class PropertyBlockTenantRefMatcher:
     def __init__(self):
         self.strategies: list[MatchingStrategy] = []
-        self.log_file = get_wpp_ref_matcher_log_file(datetime.now())
-        self._setup_log_file()
+        self.log_file = None
+        self._is_test_environment = self._detect_test_environment()
+        if self._is_test_environment:
+            self.log_file = get_wpp_ref_matcher_log_file(datetime.now())
+            self._setup_log_file()
+
+    def _detect_test_environment(self):
+        """Detect if we're running in a test environment."""
+        import sys
+        # Check if pytest is running
+        return 'pytest' in sys.modules or 'unittest' in sys.modules
 
     def _setup_log_file(self):
-        if not self.log_file.exists():
+        if self.log_file and not self.log_file.exists():
             # Ensure the parent directory exists
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.log_file, "w", newline="") as f:
@@ -609,9 +618,11 @@ class PropertyBlockTenantRefMatcher:
         return MatchResult.no_match()
 
     def _log_match(self, match_data: MatchLogData):
-        with open(self.log_file, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([match_data.description, match_data.property_ref, match_data.block_ref, match_data.tenant_ref, match_data.strategy_name])
+        # Only log if we're in a test environment and have a log file
+        if self.log_file is not None:
+            with open(self.log_file, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([match_data.description, match_data.property_ref, match_data.block_ref, match_data.tenant_ref, match_data.strategy_name])
 
 
 def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
@@ -661,6 +672,12 @@ def _get_matcher() -> PropertyBlockTenantRefMatcher:
         # New strategies for 2025-08-04 scenario tenant reference formats - added at end
         _matcher_instance.add_strategy(RegexStrategy(PBT_REGEX_ALPHA_SUFFIX))  # For 059-01-001A patterns
     return _matcher_instance
+
+
+def _reset_matcher():
+    """Reset the singleton matcher instance. Used for test isolation."""
+    global _matcher_instance
+    _matcher_instance = None
 
 
 def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | None = None) -> MatchResult:

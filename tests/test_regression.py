@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from dateutil import parser
 from pandas import ExcelFile
 
 from wpp.config import get_wpp_log_dir, get_wpp_report_dir
@@ -19,7 +18,6 @@ TEST_SCENARIOS = [
     "scenario_default",
     # Add more scenarios here as needed
     "2025-08-01",
-    # "scenario_alternative",
     # "scenario_edge_cases",  # ← Uncomment and modify as needed
 ]
 
@@ -213,6 +211,11 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
     # Set up mock to point to the scenario directory
     from conftest import _clean_up_scenario_files, _decrypt_scenario_files, _encrypt_scenario_files, get_test_scenarios_dir
 
+    from wpp.ref_matcher import _reset_matcher
+
+    # Reset singleton state for test isolation
+    _reset_matcher()
+
     scenario_dir = get_test_scenarios_dir() / scenario
     mock_data_dir.return_value = scenario_dir
 
@@ -248,9 +251,10 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
     # Run RunReports
     # Get the date from the database that was loaded by UpdateDatabase
     from conftest import get_unique_date_from_charges
+
     from wpp.config import get_wpp_db_file
     from wpp.db import get_or_create_db
-    
+
     # Connect to the database that UpdateDatabase just populated
     db_path = get_wpp_db_file()  # This is the database UpdateDatabase writes to
     temp_db_conn = get_or_create_db(db_path)
@@ -274,18 +278,19 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
         _copy_generated_to_references(scenario, get_wpp_report_dir(), get_wpp_log_dir(), reference_reports_dir, reference_logs_dir)
         # If we're generating references, skip the comparison tests
         print(f"Reference generation complete for scenario: {scenario}")
-        
+
         # Encrypt all reference data after generation
         from conftest import _encrypt_reference_data_after_generation
+
         _encrypt_reference_data_after_generation(scenario)
-        
+
         # Cleanup after reference generation
         if REGRESSION_TEST_CONFIG["run_encrypt"]:
             _encrypt_scenario_files(scenario)
-        
+
         if REGRESSION_TEST_CONFIG["run_delete"]:
             _clean_up_scenario_files(scenario)
-        
+
         return
 
     # Compare generated reports with reference reports
@@ -333,11 +338,11 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
     generated_ref_matcher_logs = list(generated_log_dir.glob("ref_matcher*.csv"))
     assert len(generated_ref_matcher_logs) == 1, f"Expected 1 ref_matcher csv file, but found {len(generated_ref_matcher_logs)} in {generated_log_dir} for scenario {scenario}"
     generated_ref_matcher_log = generated_ref_matcher_logs[0]
-    
+
     reference_ref_matcher_logs = list(reference_logs_dir.glob("ref_matcher*.csv"))
     assert len(reference_ref_matcher_logs) == 1, f"Expected 1 reference ref_matcher csv file, but found {len(reference_ref_matcher_logs)} in {reference_logs_dir} for scenario {scenario}"
     reference_ref_matcher_log = reference_ref_matcher_logs[0]
-    
+
     compare_csv_files(generated_ref_matcher_log, reference_ref_matcher_log)
 
     # Per-scenario cleanup and encrypt after test completes
@@ -346,7 +351,8 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
 
     if REGRESSION_TEST_CONFIG["run_delete"]:
         _clean_up_scenario_files(scenario)
-        
+
         # Also clean up unencrypted reference files that were decrypted for comparison
         from conftest import _cleanup_unencrypted_reference_files
+
         _cleanup_unencrypted_reference_files(scenario)

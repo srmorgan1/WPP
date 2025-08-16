@@ -1,4 +1,4 @@
-INFO: - Beginning Import of data into the database, at 2025-08-15 23:28:26
+INFO: - Beginning Import of data into the database, at 2025-08-16 13:20:12
 INFO: - Importing irregular transaction references from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx
 INFO: - 366 irregular transaction reference patterns added to the database.
 INFO: - 
@@ -12,9 +12,9 @@ INFO: - 21 estates added to the database.
 INFO: - 21 estate blocks added to the database.
 INFO: - 
 INFO: - Importing Qube balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Qube EOD Balances 2025.08.01.xlsx
-WARNING: - Cannot determine the block for the Qube balances from block reference 175-01
-WARNING: - Cannot determine the block for the Qube balances from block reference 175-01
-WARNING: - Cannot determine the block for the Qube balances from block reference 175-01
+WARNING: - Cannot process Qube balances for block '175-01'. Property '175' does not exist in the Properties table. Check if property '175' is included in the Tenants.xlsx file or add it to the Estates.xlsx file if it's an estate. Skipping 175-01 charges.
+WARNING: - Cannot process Qube balances for block '175-01'. Property '175' does not exist in the Properties table. Check if property '175' is included in the Tenants.xlsx file or add it to the Estates.xlsx file if it's an estate. Skipping 175-01 charges.
+WARNING: - Cannot process Qube balances for block '175-01'. Property '175' does not exist in the Properties table. Check if property '175' is included in the Tenants.xlsx file or add it to the Estates.xlsx file if it's an estate. Skipping 175-01 charges.
 INFO: - 1052 charges added to the database.
 INFO: - 
 INFO: - Importing bank accounts from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Accounts.xlsx
@@ -27,5 +27,5 @@ INFO: -
 INFO: - Importing Bank Account balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/EndOfDayBalanceExtract_175_03082025_030628.zip
 INFO: - 162 Bank Of Scotland account balances added to the database.
 INFO: - 
-INFO: - Finished at 2025-08-15 23:28:30
+INFO: - Finished at 2025-08-16 13:20:16
 INFO: - ----------------------------------------------------------------------------------------
