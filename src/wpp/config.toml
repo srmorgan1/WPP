@@ -27,3 +27,23 @@ WPP_REPORT_TEMPLATE = "WPP_Report_{date}.xlsx"
 REF_MATCHER_LOG = "ref_matcher.csv"
 UPDATE_DATABASE_LOG = "update_database_{timestamp}.txt"
 RUN_REPORTS_LOG = "run_reports_{timestamp}.txt"
+
+[TENANT_REFERENCE_PARSING]
+# Properties that require special handling for tenant references (4-digit patterns)
+SPECIAL_CASE_PROPERTIES = ["138", "157"]
+# Properties that exclude Z suffix tenant references
+EXCLUDE_Z_SUFFIX_PROPERTIES = ["020", "022", "039"]
+# Properties that use commercial (COM) block references
+COMMERCIAL_PROPERTIES = ["099", "144", "156"]
+# Properties that use industrial estate single-letter tenant references
+INDUSTRIAL_ESTATE_PROPERTIES = ["177"]
+# Properties that use digit-letter suffix tenant references (XXX-XX-DDDA format)
+DIGIT_LETTER_SUFFIX_PROPERTIES = ["053", "059", "064", "133", "138", "142", "147", "148", "153", "157"]
+# Properties that use digit-letter-digit tenant references (XXX-XX-0AD format)
+LETTER_DIGIT_LETTER_PROPERTIES = ["094"]
+# Properties that use 00X tenant references (XXX-XX-00A format)
+DOUBLE_ZERO_LETTER_PROPERTIES = ["134", "154"]
+# Properties that use three-letter code tenant references (XXX-XX-ABC format)
+THREE_LETTER_CODE_PROPERTIES = ["094", "166"]
+# Properties that use two-letter code tenant references (XXX-XX-AB format)
+TWO_LETTER_CODE_PROPERTIES = ["161"]

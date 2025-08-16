@@ -18,7 +18,7 @@ from .data_classes import ChargeData, TransactionReferences
 from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
 from .db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
 from .exceptions import database_transaction, log_database_error
-from .logger import get_log_file
+from .logger import setup_logger
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
 
@@ -1515,7 +1515,7 @@ def main() -> None:
 
     global logger
     log_file = get_wpp_update_database_log_file(dt.datetime.today())
-    logger = get_log_file(__name__, log_file)
+    logger = setup_logger(__name__, log_file)
 
     start_time = time.time()
 
@@ -1528,7 +1528,7 @@ def main() -> None:
     os.makedirs(get_wpp_static_input_dir(), exist_ok=True)
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
-    logger.info("Beginning Import of data into the database, at {}".format(dt.datetime.today().strftime("%Y-%m-%d %H:%M:%S")))
+    logger.info(f"Beginning Import of data into the database, at {dt.datetime.today().strftime('%Y-%m-%d %H:%M:%S')}")
 
     db_conn = get_or_create_db(get_wpp_db_file(), logger)
     importAllData(db_conn)
@@ -1536,7 +1536,7 @@ def main() -> None:
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    logger.info(f"Done in {round(elapsed_time, 1)} seconds.")
+    logger.info(f"Finished at {dt.datetime.today().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("----------------------------------------------------------------------------------------")
     # input("Press enter to end.")
 

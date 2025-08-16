@@ -5,10 +5,21 @@ import re
 import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 
-from wpp.config import get_wpp_ref_matcher_log_file
+from wpp.config import (
+    get_commercial_properties,
+    get_digit_letter_suffix_properties,
+    get_double_zero_letter_properties,
+    get_exclude_z_suffix_properties,
+    get_industrial_estate_properties,
+    get_letter_digit_letter_properties,
+    get_special_case_properties,
+    get_three_letter_code_properties,
+    get_two_letter_code_properties,
+    get_wpp_ref_matcher_log_file,
+)
 from wpp.constants import (
-    CONDITIONAL_SPECIAL_CASE_PROPERTIES,
     DEBIT_CARD_SUFFIX,
     EXCLUDED_TENANT_REF_CHARACTERS,
     MIN_TENANT_REF_LENGTH_FOR_ERROR_CORRECTION,
@@ -17,7 +28,6 @@ from wpp.constants import (
     PROPERTY_094_CORRECTION_POSITION,
     PROPERTY_094_ERROR_CHAR,
     SPECIAL_BLOCK_RECODING,
-    SPECIAL_CASE_PROPERTIES,
     SPECIAL_PROPERTY_RECODING,
 )
 from wpp.data_classes import MatchLogData
@@ -36,6 +46,7 @@ class MatchResult:
     block_ref: str | None = None
     tenant_ref: str | None = None
     matched: bool = False
+    excluded: bool = False
 
     @classmethod
     def no_match(cls) -> MatchResult:
@@ -46,6 +57,15 @@ class MatchResult:
     def match(cls, property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> MatchResult:
         """Create a MatchResult representing a successful match."""
         return cls(property_ref=property_ref, block_ref=block_ref, tenant_ref=tenant_ref, matched=True)
+
+    @classmethod
+    def excluded_match(cls, property_ref: str | None, block_ref: str | None, tenant_ref: str | None) -> MatchResult:
+        """Create a MatchResult representing an excluded match (e.g., Z suffix exclusion)."""
+        return cls(property_ref=property_ref, block_ref=block_ref, tenant_ref=tenant_ref, matched=True, excluded=True)
+
+    def is_excluded(self) -> bool:
+        """Check if this result represents an excluded match."""
+        return self.excluded
 
     def to_tuple(self) -> tuple[str | None, str | None, str | None]:
         """Convert to the legacy tuple format for backward compatibility."""
@@ -60,22 +80,40 @@ SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL = "select tenant_ref from IrregularT
 #
 # Regular expressions
 #
-PBT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX2 = re.compile(r"(?:^|\s+|,)(\d\d\d)\s-\s(\d\d)\s-\s(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX3 = re.compile(r"(?:^|\s+|,)(\d\d\d)-0?(\d\d)-(\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX4 = re.compile(r"(?:^|\s+|,)(\d\d)-0?(\d\d)-(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s*|,|/)")
-PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r"(?:^|\s*|,)(\d\d\d)-(\d\d)-(\d\d\d)(?:$|\s+|,|/)")
+PBT_REGEX = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX2 = re.compile(r"(?:^|\s+|,)(\d{3})\s-\s(\d{2})\s-\s(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX3 = re.compile(r"(?:^|\s+|,)(\d{3})-0?(\d{2})-(\d{2})\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX4 = re.compile(r"(?:^|\s+|,)(\d{2})-0?(\d{2})-(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{3})(?:$|\s*|,|/)")
+PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r"(?:^|\s*|,)(\d{3})-(\d{2})-(\d{3})(?:$|\s+|,|/)")
 PBT_REGEX_SPECIAL_CASES = re.compile(
-    r"(?:^|\s+|,|\.)(\d\d\d)-{1,2}0?(\d\d)-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)",
+    r"(?:^|\s+|,|\.)(\d{3})-{1,2}0?(\d{2})-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)",
     re.ASCII,
 )
-PBT_REGEX_NO_HYPHENS = re.compile(r"(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\d\d\d)(?:$|\s+|,|/)")
-PBT_REGEX_NO_HYPHENS_SPECIAL_CASES = re.compile(r"(?:^|\s+|,)(\d\d\d)\s{0,2}0?(\d\d)\s{0,2}(\w{3})(?:$|\s+|,|/)", re.ASCII)
-PBT_REGEX_FWD_SLASHES = re.compile(r"(?:^|\s+|,)(\d\d\d)/0?(\d\d)/(\d\d\d)\s?(?:DC)?(?:$|\s+|,|/)")
-PT_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d\d)(?:$|\s+|,|/)")
-PB_REGEX = re.compile(r"(?:^|\s+|,)(\d\d\d)-(\d\d)(?:$|\s+|,|/)")
-P_REGEX = re.compile(r"(?:^|\s+)(\d\d\d)(?:$|\s+)")
+PBT_REGEX_NO_HYPHENS = re.compile(r"(?:^|\s+|,)(\d{3})\s{0,2}0?(\d{2})\s{0,2}(\d{3})(?:$|\s+|,|/)")
+PBT_REGEX_NO_HYPHENS_SPECIAL_CASES = re.compile(r"(?:^|\s+|,)(\d{3})\s{0,2}0?(\d{2})\s{0,2}(\w{3})(?:$|\s+|,|/)", re.ASCII)
+PBT_REGEX_FWD_SLASHES = re.compile(r"(?:^|\s+|,)(\d{3})/0?(\d{2})/(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
+PT_REGEX = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{3})(?:$|\s+|,|/)")
+PB_REGEX = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})(?:$|\s+|,|/)")
+P_REGEX = re.compile(r"(?:^|\s+)(\d{3})(?:$|\s+)")
+
+# New regex patterns for 2025-08-04 scenario tenant reference formats
+PBT_REGEX_ALPHA_SUFFIX = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{3}[A-Z])\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_COM_BLOCK = re.compile(r"(?:^|\s+|,)(\d{3})-(COM)-(\d{3}[A-Z]?)\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_COM_TENANT = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(COM)\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_INDUSTRIAL_ESTATE = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-([A-Z]\d?)\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_DIGIT_LETTER_SUFFIX = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{3}[A-Z])\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_LETTER_DIGIT_LETTER = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(0[A-Z]\d)\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_DOUBLE_ZERO_LETTER = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(00[A-Z])\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_THREE_LETTER_CODE = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-([A-Z]{3})\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_TWO_LETTER_CODE = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-([A-Z]{2})\s?(?:DC)?(?:$|\s+|,|/)")
+# Regex for catching remaining edge cases and corrupted patterns
+PBT_REGEX_CATCH_REMAINDER = re.compile(
+    r"(?:^|\s+|,|\.)(\d{3})-{1,2}0?(\d{2})-{1,2}(\w{2,5})\s?(?:DC)?(?:$|\s+|,|/)",
+    re.ASCII,
+)
+# Narrow regex for true special cases (corrupted patterns with name prefixes)
+PBT_REGEX_SPECIAL_NARROW = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{4}[A-Z]?)\s?(?:DC)?(?:$|\s+|,|/)")
 
 
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
@@ -253,15 +291,43 @@ class PBTRegex4Strategy(RegexStrategy):
         return result
 
 
-class SpecialCaseStrategy(RegexStrategy):
-    # Try to match property, block and tenant special cases
+class ExcludeZSuffixStrategy(RegexStrategy):
+    """Match properties that exclude Z suffix tenant references"""
+
     def __init__(self):
-        super().__init__(PBT_REGEX_SPECIAL_CASES)
+        super().__init__(PBT_REGEX)  # Use standard regex for these properties
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)
+        block_ref = f"{property_ref}-{match.group(2)}"
+        tenant_ref = f"{block_ref}-{match.group(3)}"
+
+        # Only process properties that are in exclude Z suffix list
+        if property_ref not in get_exclude_z_suffix_properties():
+            return MatchResult.no_match()
+
+        # Check if tenant reference ends with Z and return excluded match if it does
+        if match.group(3).endswith("Z"):
+            return MatchResult.excluded_match(property_ref, block_ref, tenant_ref)
+
+        # If no Z suffix, allow processing to continue to other strategies (like RegexStrategy)
+        return MatchResult.no_match()
+
+
+class SpecialCaseStrategy(RegexStrategy):
+    # Try to match property, block and tenant special cases - only 4-digit patterns
+    def __init__(self):
+        super().__init__(PBT_REGEX_SPECIAL_NARROW)
 
     def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
         property_ref: str | None = match.group(1)
         block_ref: str | None = f"{match.group(1)}-{match.group(2)}"
         tenant_ref: str | None = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+
+        # Only allow properties that are in special case list (4-digit patterns)
+        if property_ref not in get_special_case_properties():
+            raise MatchValidationException("Failed to validate special case property: property not in special cases list")
+
         if db_cursor:
             tenant_ref = removeDCReferencePostfix(tenant_ref) or tenant_ref  # Keep original if None
             if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
@@ -269,8 +335,7 @@ class SpecialCaseStrategy(RegexStrategy):
                     property_ref, block_ref, tenant_ref = correctKnownCommonErrors(property_ref, block_ref, tenant_ref)
                 if tenant_ref and not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                     raise MatchValidationException("Failed to validate tenant reference")
-        elif not ((property_ref in SPECIAL_CASE_PROPERTIES) or (property_ref in CONDITIONAL_SPECIAL_CASE_PROPERTIES and match.group(3)[-1] != "Z")):
-            raise MatchValidationException("Failed to validate tenant reference: the property is not in the special cases lists")
+
         return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
@@ -339,14 +404,180 @@ class NoHyphenRegexStrategy(MatchingStrategy):
 #         return postProcessPropertyBlockTenantRefs(property_ref, block_ref, tenant_ref)
 
 
+# AlphaSuffixTenantStrategy can use RegexStrategy directly since it's just basic regex matching
+
+
+class PropertyBlockWithCommercialPropertyStrategy(RegexStrategy):
+    """Match property with COM references like 156-COM-001 and 144-01-COM"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_COM_BLOCK)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 156
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 156-COM
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 156-COM-001
+
+        # Only allow properties that are configured as commercial properties
+        if property_ref not in get_commercial_properties():
+            raise MatchValidationException("Failed to validate commercial property: property not in commercial properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class PropertyBlockWithCommercialTenantStrategy(RegexStrategy):
+    """Match property with COM tenant references like 144-01-COM"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_COM_TENANT)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 144
+        # Swap groups 2 and 3: COM becomes the block, the number becomes the tenant
+        block_ref = f"{property_ref}-{match.group(3)}"  # e.g. 144-COM
+        tenant_ref = f"{block_ref}-{match.group(2)}"  # e.g. 144-COM-01
+
+        # Only allow properties that are configured as commercial properties
+        if property_ref not in get_commercial_properties():
+            raise MatchValidationException("Failed to validate commercial property: property not in commercial properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class IndustrialEstateStrategy(RegexStrategy):
+    """Match industrial estate properties with single-letter tenant references like 177-01-B"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_INDUSTRIAL_ESTATE)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 177
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 177-01
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 177-01-B
+
+        # Only allow properties that are configured as industrial estate properties
+        if property_ref not in get_industrial_estate_properties():
+            raise MatchValidationException("Failed to validate industrial estate property: property not in industrial estate properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class DigitLetterSuffixStrategy(RegexStrategy):
+    """Match properties with digit-letter suffix tenant references like 148-05-028E"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_DIGIT_LETTER_SUFFIX)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 148
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 148-05
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 148-05-028E
+
+        # Only allow properties that are configured for digit-letter suffix patterns
+        if property_ref not in get_digit_letter_suffix_properties():
+            raise MatchValidationException("Failed to validate digit-letter suffix property: property not in digit-letter suffix properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class LetterDigitLetterStrategy(RegexStrategy):
+    """Match properties with digit-letter-digit tenant references like 094-01-0A1"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_LETTER_DIGIT_LETTER)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 094
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 094-01
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 094-01-0A1
+
+        # Only allow properties that are configured for letter-digit-letter patterns
+        if property_ref not in get_letter_digit_letter_properties():
+            raise MatchValidationException("Failed to validate letter-digit-letter property: property not in letter-digit-letter properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class DoubleZeroLetterStrategy(RegexStrategy):
+    """Match properties with 00X tenant references like 134-01-00A"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_DOUBLE_ZERO_LETTER)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 134
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 134-01
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 134-01-00A
+
+        # Only allow properties that are configured for double-zero-letter patterns
+        if property_ref not in get_double_zero_letter_properties():
+            raise MatchValidationException("Failed to validate double-zero-letter property: property not in double-zero-letter properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class ThreeLetterCodeStrategy(RegexStrategy):
+    """Match properties with three-letter code tenant references like 166-01-FFF"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_THREE_LETTER_CODE)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 166
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 166-01
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 166-01-FFF
+
+        # Only allow properties that are configured for three-letter code patterns
+        if property_ref not in get_three_letter_code_properties():
+            raise MatchValidationException("Failed to validate three-letter code property: property not in three-letter code properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class TwoLetterCodeStrategy(RegexStrategy):
+    """Match properties with two-letter code tenant references like 161-01-GH"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_TWO_LETTER_CODE)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. 161
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. 161-01
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. 161-01-GH
+
+        # Only allow properties that are configured for two-letter code patterns
+        if property_ref not in get_two_letter_code_properties():
+            raise MatchValidationException("Failed to validate two-letter code property: property not in two-letter code properties list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class CatchRemainderStrategy(RegexStrategy):
+    """Catch any remaining patterns that specific strategies missed - uses broad regex as safety net"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_CATCH_REMAINDER)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)
+        block_ref = f"{property_ref}-{match.group(2)}"
+        tenant_ref = f"{block_ref}-{match.group(3)}"
+
+        # This strategy accepts any property - it's a true catch-all fallback
+        # No property validation to ensure it catches anything the specific strategies missed
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
 class PropertyBlockTenantRefMatcher:
     def __init__(self):
         self.strategies: list[MatchingStrategy] = []
-        self.log_file = get_wpp_ref_matcher_log_file()
+        self.log_file = get_wpp_ref_matcher_log_file(datetime.now())
         self._setup_log_file()
 
     def _setup_log_file(self):
         if not self.log_file.exists():
+            # Ensure the parent directory exists
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.log_file, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["description", "property_ref", "block_ref", "tenant_ref", "strategy"])
@@ -396,6 +627,42 @@ def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Curs
     return MatchResult.no_match()
 
 
+# Module-level matcher instance to avoid creating multiple log files
+_matcher_instance = None
+
+
+def _get_matcher() -> PropertyBlockTenantRefMatcher:
+    """Get the singleton matcher instance."""
+    global _matcher_instance
+    if _matcher_instance is None:
+        _matcher_instance = PropertyBlockTenantRefMatcher()
+        _matcher_instance.add_strategy(IrregularTenantRefStrategy())
+        _matcher_instance.add_strategy(ExcludeZSuffixStrategy())  # For properties 020, 022, 039 with Z-suffix exclusion - check before general RegexStrategy
+        _matcher_instance.add_strategy(RegexStrategy(PBT_REGEX))
+        _matcher_instance.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX_FWD_SLASHES))
+        _matcher_instance.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX2))  # Match tenant with spaces between hyphens
+        _matcher_instance.add_strategy(PBTRegex3Strategy())
+        _matcher_instance.add_strategy(PBTRegex4Strategy())
+        # Add specific strategies before SpecialCaseStrategy to get priority
+        _matcher_instance.add_strategy(PropertyBlockWithCommercialPropertyStrategy())  # For commercial property patterns e.g. 156-COM-001
+        _matcher_instance.add_strategy(PropertyBlockWithCommercialTenantStrategy())  # For commercial tenant patterns e.g. 144-01-COM
+        _matcher_instance.add_strategy(IndustrialEstateStrategy())  # For industrial estate patterns e.g. 177-01-B
+        _matcher_instance.add_strategy(DigitLetterSuffixStrategy())  # For digit-letter suffix patterns e.g. 148-05-028E
+        _matcher_instance.add_strategy(LetterDigitLetterStrategy())  # For letter-digit-letter patterns e.g. 094-01-0A1
+        _matcher_instance.add_strategy(DoubleZeroLetterStrategy())  # For double-zero-letter patterns e.g. 134-01-00A
+        _matcher_instance.add_strategy(ThreeLetterCodeStrategy())  # For three-letter code patterns e.g. 166-01-FFF
+        _matcher_instance.add_strategy(TwoLetterCodeStrategy())  # For two-letter code patterns e.g. 161-01-GH
+        _matcher_instance.add_strategy(SpecialCaseStrategy())
+        _matcher_instance.add_strategy(CatchRemainderStrategy())  # Safety net for any patterns missed by specific strategies
+        _matcher_instance.add_strategy(PBRegexStrategy())
+        # _matcher_instance.add_strategy(PTRegexStrategy())
+        _matcher_instance.add_strategy(NoHyphenRegexStrategy())
+        # _matcher_instance.add_strategy(PRegexStrategy())
+        # New strategies for 2025-08-04 scenario tenant reference formats - added at end
+        _matcher_instance.add_strategy(RegexStrategy(PBT_REGEX_ALPHA_SUFFIX))  # For 059-01-001A patterns
+    return _matcher_instance
+
+
 def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | None = None) -> MatchResult:
     """Parse property, block and tenant references from a transaction description."""
     if not isinstance(reference, str):
@@ -405,22 +672,15 @@ def getPropertyBlockAndTenantRefs(reference: str, db_cursor: sqlite3.Cursor | No
     # if "MEDHURST K M 10501001 RP4652285818999300" in description:
     #     pass
 
-    matcher = PropertyBlockTenantRefMatcher()
-    matcher.add_strategy(IrregularTenantRefStrategy())
-    matcher.add_strategy(RegexStrategy(PBT_REGEX))
-    matcher.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX_FWD_SLASHES))
-    matcher.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX2))  # Match tenant with spaces between hyphens
-    matcher.add_strategy(PBTRegex3Strategy())
-    matcher.add_strategy(PBTRegex4Strategy())
-    matcher.add_strategy(SpecialCaseStrategy())
-    matcher.add_strategy(PBRegexStrategy())
-    # matcher.add_strategy(PTRegexStrategy())
-    matcher.add_strategy(NoHyphenRegexStrategy())
-    # matcher.add_strategy(PRegexStrategy())
-
+    matcher = _get_matcher()
     result = matcher.match_result(description, db_cursor)
     if result.matched:
-        property_ref, block_ref, tenant_ref = postProcessPropertyBlockTenantRefs(result.property_ref, result.block_ref, result.tenant_ref)
-        return MatchResult.match(property_ref, block_ref, tenant_ref)
+        if result.is_excluded():
+            # Excluded matches should be treated as no_match for calling code
+            return MatchResult.no_match()
+        else:
+            # Normal matches get post-processed
+            property_ref, block_ref, tenant_ref = postProcessPropertyBlockTenantRefs(result.property_ref, result.block_ref, result.tenant_ref)
+            return MatchResult.match(property_ref, block_ref, tenant_ref)
     else:
         return MatchResult.no_match()

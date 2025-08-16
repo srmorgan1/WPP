@@ -1,0 +1,29 @@
+INFO: - Beginning Import of data into the database, at 2025-08-15 21:23:49
+INFO: - Importing irregular transaction references from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx
+INFO: - 352 irregular transaction reference patterns added to the database.
+INFO: - 
+INFO: - Importing Properties from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/Tenants.xlsx
+WARNING: - 	Unable to parse tenant reference 020-01-001A, will not add to the database.
+INFO: - 136 properties added to the database.
+INFO: - 208 blocks added to the database.
+INFO: - 3863 tenants added to the database.
+INFO: - 
+INFO: - Importing Estates from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/Estates.xlsx
+INFO: - 9 estates added to the database.
+INFO: - 9 estate blocks added to the database.
+INFO: - 
+INFO: - Importing Qube balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/Qube EOD balances 2022.10.11.xlsx
+INFO: - 911 charges added to the database.
+INFO: - 
+INFO: - Importing bank accounts from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/Accounts.xlsx
+INFO: - 164 bank accounts added to the database.
+INFO: - 
+INFO: - Importing Bank Account Transactions from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/PreviousDayTransactionExtract_175_11102022_031250.zip
+INFO: - Unable to import 2 transactions into the database. See the Data_Import_Issues Excel file for details. Add tenant references to 001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again.
+INFO: - 16 Bank Of Scotland transactions added to the database.
+INFO: - 
+INFO: - Importing Bank Account balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/EndOfDayBalanceExtract_175_11102022_031250.zip
+INFO: - 140 Bank Of Scotland account balances added to the database.
+INFO: - 
+INFO: - Finished at 2025-08-15 21:23:52
+INFO: - ----------------------------------------------------------------------------------------

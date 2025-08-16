@@ -124,11 +124,6 @@ class TableNames:
 # Special Case Mappings
 # ============================================================================
 
-# Properties that require special handling for tenant references
-SPECIAL_CASE_PROPERTIES = ["093", "094", "095", "096", "099", "124", "132", "133", "134"]
-
-# Properties with conditional special cases (exclude Z suffix)
-CONDITIONAL_SPECIAL_CASE_PROPERTIES = ["020", "022", "039", "053", "064"]
 
 # Property recoding rules: (original_property, original_block) -> new_property
 SPECIAL_PROPERTY_RECODING = {

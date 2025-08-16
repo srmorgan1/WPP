@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from pathlib import Path
 
 from wpp.config import get_wpp_log_dir
@@ -8,34 +9,56 @@ from wpp.config import get_wpp_log_dir
 #
 # Set up Logging
 #
-class StdOutFilter(logging.Filter):
+class InfoFilter(logging.Filter):
+    """Filters log records to allow only INFO level and below."""
+
     def filter(self, record):
-        return record.levelno >= logging.INFO  # | record.levelno == logging.DEBUG
+        # Allow levels from DEBUG up to INFO
+        return record.levelno <= logging.INFO
 
 
-class StdErrFilter(logging.Filter):
-    def filter(self, record):
-        return not record.levelno == logging.INFO | record.levelno == logging.DEBUG
+def setup_logger(module_name: str, log_file_path: Path, include_timestamp: bool = False) -> logging.Logger:
+    """
+    Configures and returns a logger for a given module.
 
+    The logger will have three handlers:
+    1. A file handler that logs all messages (INFO and above).
+    2. A stream handler for stdout that logs INFO messages.
+    3. A stream handler for stderr that logs WARNING and ERROR messages.
 
-def get_log_file(module_name: str, log_file_path: Path) -> logging.Logger:
+    This function is idempotent; it will not add duplicate handlers if called
+    multiple times for the same logger.
+
+    Args:
+        module_name: Name of the module for the logger
+        log_file_path: Path where log file will be written
+        include_timestamp: Whether to include timestamp in log messages (default: False)
+    """
     os.makedirs(get_wpp_log_dir(), exist_ok=True)
 
-    # log_formatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%Y-%m-%d %H:%M:%S")
-    log_formatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", "%H:%M:%S")
+    if include_timestamp:
+        log_formatter = logging.Formatter("%(asctime)s - %(levelname)s: - %(message)s", datefmt="%H:%M:%S")
+    else:
+        log_formatter = logging.Formatter("%(levelname)s: - %(message)s")
 
-    # logging.basicConfig(filename=log_file, level=logging.WARNING)
     logger = logging.getLogger(module_name)
-    # handler = logging.RotatingFileHandler(log_file), maxBytes=2000, backupCount=7)
+    logger.setLevel(logging.INFO)
+
+    # File handler (logs everything at INFO level and above)
     file_handler = logging.FileHandler(log_file_path)
     file_handler.setFormatter(log_formatter)
     logger.addHandler(file_handler)
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(log_formatter)
-    stream_handler.addFilter(StdOutFilter())
-    logger.addHandler(stream_handler)
+    # Stdout handler for INFO messages
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(log_formatter)
+    stdout_handler.addFilter(InfoFilter())
+    logger.addHandler(stdout_handler)
 
-    logger.setLevel(logging.INFO)
+    # Stderr handler for WARNING and ERROR messages
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(log_formatter)
+    stderr_handler.setLevel(logging.WARNING)
+    logger.addHandler(stderr_handler)
 
     return logger

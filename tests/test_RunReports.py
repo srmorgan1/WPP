@@ -1,3 +1,4 @@
+import datetime as dt
 import logging
 from datetime import datetime
 from pathlib import Path  # Added
@@ -12,7 +13,7 @@ from pandas import ExcelFile  # Added
 from wpp.calendars import EnglandAndWalesHolidayCalendar
 
 # from wpp.db import get_db_connection # Removed, conftest db_conn is used
-from wpp.logger import StdErrFilter, StdOutFilter
+from wpp.logger import InfoFilter
 from wpp.RunReports import (
     add_column_totals,
     add_extra_rows,
@@ -33,6 +34,9 @@ REFERENCE_REPORT_DIR = REFERENCE_DATA_ROOT / "ReferenceReports"
 REFERENCE_LOG_DIR = REFERENCE_DATA_ROOT / "ReferenceLogs"
 
 # Local db_conn fixture removed, using the one from conftest.py
+
+
+# get_unique_date_from_charges moved to conftest.py for shared use
 
 
 # Helper functions (copied from test_regression.py / test_UpdateDatabase.py)
@@ -69,15 +73,9 @@ def test_EnglandAndWalesHolidayCalendar():
     assert len(holidays) > 0
 
 
-def test_STDOutFilter():
-    filter_ = StdOutFilter()
+def test_InfoFilter():
+    filter_ = InfoFilter()
     record = MagicMock(levelno=logging.INFO)
-    assert filter_.filter(record)
-
-
-def test_STDErrFilter():
-    filter_ = StdErrFilter()
-    record = MagicMock(levelno=logging.ERROR)
     assert filter_.filter(record)
 
 
@@ -151,10 +149,10 @@ def test_add_extra_rows():
 def test_checkDataIsPresent(mock_get_single_value, db_conn):  # Added db_conn from conftest
     mock_get_single_value.return_value = 1
     # conn = MagicMock() # Use real connection
-    # The dates might need to be datetime objects depending on checkDataIsPresent
-    qube_date_obj = parser.parse("2023-01-01").date()
-    bos_date_obj = parser.parse("2023-01-01").date()
-    result = checkDataIsPresent(db_conn, qube_date_obj, bos_date_obj)
+    # Get the actual date from the charges table
+    from conftest import get_unique_date_from_charges
+    unique_date = get_unique_date_from_charges(db_conn)
+    result = checkDataIsPresent(db_conn, unique_date, unique_date)
     assert result is True  # Explicitly check for True
 
 
@@ -181,9 +179,10 @@ def test_runReports(mock_get_wpp_report_file, mock_excel_writer, mock_run_sql_qu
         pd.DataFrame([{"Property / Block": "050-01", "Name": "Test Block", "Qube Total": 100, "BOS": 90, "Discrepancy": 10, "GR": 5, "BOS GR": 4, "Discrepancy GR": 1}]),  # For Qube BOS report
         pd.DataFrame([{"test": "data"}]),  # For SELECT_TOTAL_PAID_SC_BY_TENANT_SQL
     ]
-    qube_date = parser.parse("2023-01-01").date()
-    bos_date = parser.parse("2023-01-01").date()
-    runReports(db_conn, qube_date, bos_date)
+    # Get the actual date from the charges table
+    from conftest import get_unique_date_from_charges
+    unique_date = get_unique_date_from_charges(db_conn)
+    runReports(db_conn, unique_date, unique_date)
     assert mock_excel_writer.called
 
 
@@ -234,18 +233,18 @@ def test_add_extra_rows_exception_handling():
 def test_checkDataIsPresent_with_missing_data(db_conn):
     """Test checkDataIsPresent when data is missing"""
     # Test with a date that has no data
-    result = checkDataIsPresent(db_conn, "1999-01-01", "1999-01-01")
+    missing_date = parser.parse("1999-01-01").date()
+    result = checkDataIsPresent(db_conn, missing_date, missing_date)
     assert result is False
 
 
 @patch("wpp.RunReports.checkDataIsPresent", return_value=False)
 def test_runReports_raises_exception_when_no_data(mock_checkDataIsPresent, db_conn):
     """Test that runReports raises exception when data is not present (line 368)"""
-    qube_date = parser.parse("1999-01-01").date()
-    bos_date = parser.parse("1999-01-01").date()
+    missing_date = parser.parse("1999-01-01").date()
 
     with pytest.raises(Exception) as exc_info:
-        runReports(db_conn, qube_date, bos_date)
+        runReports(db_conn, missing_date, missing_date)
 
     assert "The required data is not in the database" in str(exc_info.value)
 
@@ -271,16 +270,16 @@ def test_get_args_error_handling(mock_parse_args):
             mock_exit.assert_called_with(1)
 
 
-@patch("wpp.RunReports.get_log_file")
+@patch("wpp.RunReports.setup_logger")
 @patch("wpp.RunReports.get_args")
 @patch("wpp.RunReports.get_run_date_args")
 @patch("wpp.RunReports.runReports")
 @patch("sqlite3.connect")
-def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_date_args, mock_get_args, mock_get_log_file):
+def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_date_args, mock_get_args, mock_setup_logger):
     """Test main function exception handling using log_exceptions decorator"""
     # Mock the logger
     mock_logger = MagicMock()
-    mock_get_log_file.return_value = mock_logger
+    mock_setup_logger.return_value = mock_logger
 
     # Mock the args
     mock_args = MagicMock()
@@ -291,7 +290,7 @@ def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_dat
     mock_db_conn = MagicMock()
     mock_connect.return_value = mock_db_conn
 
-    # Mock date args
+    # Mock date args - using a fixed date for this unit test
     mock_get_run_date_args.return_value = (parser.parse("2023-01-01").date(), parser.parse("2023-01-01").date())
 
     # Make runReports raise an exception

@@ -15,7 +15,7 @@ from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file,
 from wpp.data_classes import RunConfiguration
 from wpp.db import get_single_value, join_sql_queries, run_sql_query, union_sql_queries
 from wpp.exceptions import safe_pandas_operation
-from wpp.logger import get_log_file
+from wpp.logger import setup_logger
 from wpp.sql_queries import (
     BLOCKS_NOT_IN_COMREC_REPORT,
     BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL,
@@ -252,7 +252,7 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
 
     global logger
     log_file = get_wpp_run_reports_log_file(dt.datetime.today())
-    logger = get_log_file(__name__, log_file)
+    logger = setup_logger(__name__, log_file)
 
     # Get command line arguments
     args = get_args() if not is_running_via_pytest() else argparse.Namespace()
