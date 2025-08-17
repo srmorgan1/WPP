@@ -1008,11 +1008,77 @@ def addTenantToDB(
 #         # charges = {}
 
 
-def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> None:
+def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, excel_writer: pd.ExcelWriter) -> None:
+    """
+    Validate that there are no duplicate CL (Client) accounts per block reference.
+    Ignores accounts with blank/empty references.
+    Writes violations to the existing Excel writer and raises ValueError if violations are found.
+    """
+    # Find duplicate CL accounts per block reference, excluding blank references
+    cl_accounts = bank_accounts_df[
+        (bank_accounts_df['Account Type'] == 'CL') & 
+        (bank_accounts_df['Reference'].notna()) &
+        (bank_accounts_df['Reference'].str.strip() != '')
+    ].copy()
+    
+    if cl_accounts.empty:
+        return  # No CL accounts to validate
+    
+    # Group by Reference and count CL accounts
+    cl_counts = cl_accounts.groupby('Reference').size()
+    duplicate_blocks = cl_counts[cl_counts > 1]
+    
+    if duplicate_blocks.empty:
+        return  # No duplicates found
+    
+    # Collect all violation details for reporting
+    violations = []
+    for block_ref in duplicate_blocks.index:
+        block_accounts = cl_accounts[cl_accounts['Reference'] == block_ref]
+        for _, row in block_accounts.iterrows():
+            violations.append({
+                'Block Reference': block_ref,
+                'Account Number': row['Account Number'],
+                'Sort Code': row['Sort Code'],
+                'Account Name': row['Account Name'],
+                'Client Reference': row['Client Reference'],
+                'Row Number': row.name + 2,  # +2 because pandas is 0-indexed and Excel has header row
+                'Issue': f'Multiple CL accounts found for block {block_ref}'
+            })
+    
+    # Log all violations at ERROR level
+    logger.error(f"Found {len(violations)} duplicate CL account violations in {bank_accounts_file}")
+    for violation in violations:
+        logger.error(f"Row {violation['Row Number']}: Block {violation['Block Reference']} has multiple CL accounts - Account {violation['Sort Code']}-{violation['Account Number']}")
+    
+    # Write violations to the existing Excel writer
+    violations_df = pd.DataFrame(violations)
+    violations_df.to_excel(
+        excel_writer,
+        sheet_name="Account Validation Issues",
+        index=False,
+        float_format="%.2f"
+    )
+    
+    # Raise exception to stop the import process
+    # The Excel file will be saved by the finally block in importAllData()
+    block_list = ', '.join(duplicate_blocks.index)
+    raise ValueError(
+        f"Data validation failed: Found multiple CL (Client) accounts for the following blocks: {block_list}. "
+        f"Each block can have only one CL account. Please check the 'Account Validation Issues' sheet in the "
+        f"Data Import Issues Excel file for details and correct the Accounts.xlsx file before running the import again."
+    )
+
+
+def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, excel_writer: pd.ExcelWriter | None = None) -> None:
     # Read Excel spreadsheet into dataframe
     bank_accounts_df = pd.read_excel(bank_accounts_file, "Accounts", dtype=str)
     bank_accounts_df.replace("nan", "", inplace=True)
     bank_accounts_df.fillna("", inplace=True)
+
+    # Validate for duplicate CL accounts per block before inserting any data
+    if excel_writer is not None:
+        _validate_account_uniqueness(bank_accounts_df, bank_accounts_file, excel_writer)
 
     num_bank_accounts_added_to_db = 0
 
@@ -1027,6 +1093,11 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
             property_or_block = row["Property Or Block"]
             client_ref = row["Client Reference"]
             account_name = row["Account Name"]
+            
+            # Skip accounts with blank/empty references
+            if pd.isna(reference) or str(reference).strip() == "":
+                logger.debug(f"Skipping bank account ({sort_code}, {account_number}) with blank reference")
+                continue
 
             property_block = None
             if property_or_block.upper() == "PROPERTY" or property_or_block.upper() == "P":
@@ -1458,12 +1529,19 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
 
     accounts_file_pattern = os.path.join(get_wpp_static_input_dir(), inputs_config["BANK_ACCOUNTS_PATTERN"])
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
-    if accounts_file:
-        logger.info(f"Importing bank accounts from file {accounts_file}")
-        importBankAccounts(db_conn, accounts_file)
-    else:
-        logger.error(f"ERROR: Cannot find account numbers file matching {accounts_file_pattern}")
-    logger.info("")
+    try:
+        if accounts_file:
+            logger.info(f"Importing bank accounts from file {accounts_file}")
+            importBankAccounts(db_conn, accounts_file, excel_writer)
+        else:
+            logger.error(f"ERROR: Cannot find account numbers file matching {accounts_file_pattern}")
+        logger.info("")
+    except ValueError as validation_error:
+        # Account validation failed - ensure Excel file is saved with validation issues
+        logger.error(f"Account validation failed: {validation_error}")
+        excel_writer.close()
+        logger.info(f"Data Import Issues Excel file saved with validation errors: {excel_log_file}")
+        raise  # Re-raise to stop the import process
 
     bos_statement_file_pattern = [
         os.path.join(get_wpp_input_dir(), f)
