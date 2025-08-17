@@ -248,7 +248,8 @@ def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger
 def get_or_create_db(db_file: Path, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
     init_db = not db_file.exists()
     get_wpp_db_dir().mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_file)
+    # Disable deprecated date adapters to prevent Python 3.12+ warnings
+    conn = sqlite3.connect(db_file, detect_types=0)
     if init_db:
         _create_and_index_tables(conn, logger)
     return conn
@@ -291,7 +292,8 @@ def get_data(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> lis
 
 
 def get_db_connection(db_file: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_file)
+    # Disable deprecated date adapters to prevent Python 3.12+ warnings
+    conn = sqlite3.connect(db_file, detect_types=0)
     return conn
 
 

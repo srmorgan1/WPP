@@ -18,7 +18,7 @@ from .data_classes import ChargeData, TransactionReferences
 from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
 from .db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
 from .exceptions import database_transaction, log_database_error
-from .logger import get_log_file
+from .logger import setup_logger
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
 
@@ -1041,9 +1041,25 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
             _, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
 
             if property_block == "P" and block_ref is not None and not block_ref.endswith("00"):
-                raise ValueError(f"Block reference ({reference}) for an estate must end in 00, for bank account ({sort_code}, {account_number})")
+                property_ref, _, _ = getPropertyBlockAndTenantRefs(reference)
+                suggested_ref = f"{property_ref}-00" if property_ref else f"{reference.split('-')[0]}-00"
+                raise ValueError(
+                    f"Invalid block reference '{reference}' for estate account. "
+                    f"Estate accounts (Property Or Block = 'Property') must use estate block references ending in '-00'. "
+                    f"Either change the reference to '{suggested_ref}' or set 'Property Or Block' to 'Block'. "
+                    f"Bank account: {sort_code}-{account_number}"
+                )
 
             block_id = get_id_from_ref(csr, "Blocks", "block", reference)
+            # if block_id is None:
+            #     property_ref, _, _ = getPropertyBlockAndTenantRefs(reference)
+            #     logger.warning(
+            #         f"Block reference '{reference}' does not exist in database for bank account {sort_code}-{account_number}. "
+            #         f"Ensure property '{property_ref}' exists in the Properties table and block {reference} exists in the blocks table. "
+            #         f"Skipping this bank account as it is not required."
+            #     )
+            #     continue  # Skip this account rather than failing
+
             _id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (sort_code, account_number))
             if sort_code and account_number and not _id:
                 csr.execute(
@@ -1185,6 +1201,21 @@ def _prepare_qube_dataframe(qube_eod_balances_xls_file: str) -> pd.DataFrame:
     return qube_eod_balances_df
 
 
+def _diagnose_missing_property(csr, property_ref: str, block_ref: str) -> str:
+    """Provide diagnostic information for missing property."""
+    # Check if property exists at all
+    property_count = get_id(csr, "SELECT COUNT(*) FROM Properties WHERE property_ref = ?", (property_ref,))
+
+    if property_count == 0:
+        return (
+            f"Property '{property_ref}' does not exist in the Properties table. "
+            f"Check if property '{property_ref}' is included in the Tenants.xlsx file "
+            f"or add it to the Estates.xlsx file if it's an estate."
+        )
+    else:
+        return f"Property '{property_ref}' exists but block '{block_ref}' was not found. This may indicate a block creation issue."
+
+
 def _ensure_block_exists(csr, property_ref: str, block_ref: str) -> int | None:
     """Ensure the block exists in the database and return its ID."""
     property_id = get_id_from_ref(csr, "Properties", "property", property_ref)
@@ -1228,7 +1259,8 @@ def _process_fund_category_data(
     # Ensure block exists
     block_id = _ensure_block_exists(csr, property_ref, block_ref)
     if not block_id:
-        logger.warning(f"Cannot determine the block for the Qube balances from block reference {block_ref}")
+        diagnostic_info = _diagnose_missing_property(csr, property_ref, block_ref)
+        logger.warning(f"Cannot process Qube balances for block '{block_ref}'. {diagnostic_info} Skipping {block_ref} charges.")
         return 0
 
     # Update block name if needed
@@ -1381,7 +1413,11 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.debug(f"Creating Excel spreadsheet report file {excel_log_file}")
     excel_writer = pd.ExcelWriter(excel_log_file, engine="openpyxl")
 
-    irregular_transaction_refs_file_pattern = os.path.join(get_wpp_static_input_dir(), f"{get_config()['INPUTS']['IRREGULAR_TRANSACTION_REFS_FILE']}")
+    config = get_config()
+    inputs_config = config["INPUTS"]
+
+    # Import iregular transaction references
+    irregular_transaction_refs_file_pattern = os.path.join(get_wpp_static_input_dir(), f"{inputs_config['IRREGULAR_TRANSACTION_REFS_FILE']}")
     irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
         logger.info(f"Importing irregular transaction references from file {irregular_transaction_refs_file}")
@@ -1390,9 +1426,9 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find irregular transaction references file matching {irregular_transaction_refs_file_pattern}")
     logger.info("")
 
-    config = get_config()
-    properties_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["PROPERTIES_FILE_PATTERN"])
-    tenants_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["TENANTS_FILE_PATTERN"])
+    # Import tenants
+    properties_file_pattern = os.path.join(get_wpp_static_input_dir(), inputs_config["PROPERTIES_FILE_PATTERN"])
+    tenants_file_pattern = os.path.join(get_wpp_static_input_dir(), inputs_config["TENANTS_FILE_PATTERN"])
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
         logger.info(f"Importing Properties from file {properties_xls_file}")
@@ -1401,7 +1437,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logger.info("")
 
-    estates_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["ESTATES_FILE_PATTERN"])
+    estates_file_pattern = os.path.join(get_wpp_static_input_dir(), inputs_config["ESTATES_FILE_PATTERN"])
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logger.info(f"Importing Estates from file {estates_xls_file}")
@@ -1410,7 +1446,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Estates file matching {estates_file_pattern}")
     logger.info("")
 
-    qube_eod_balances_file_pattern = os.path.join(get_wpp_input_dir(), config["INPUTS"]["QUBE_EOD_BALANCES_PATTERN"])
+    qube_eod_balances_file_pattern = os.path.join(get_wpp_input_dir(), inputs_config["QUBE_EOD_BALANCES_PATTERN"])
     qube_eod_balances_files = getMatchingFileNames(qube_eod_balances_file_pattern)
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
@@ -1420,7 +1456,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         logger.error(f"Cannot find Qube EOD Balances file matching {qube_eod_balances_file_pattern}")
     logger.info("")
 
-    accounts_file_pattern = os.path.join(get_wpp_static_input_dir(), config["INPUTS"]["BANK_ACCOUNTS_PATTERN"])
+    accounts_file_pattern = os.path.join(get_wpp_static_input_dir(), inputs_config["BANK_ACCOUNTS_PATTERN"])
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logger.info(f"Importing bank accounts from file {accounts_file}")
@@ -1515,7 +1551,7 @@ def main() -> None:
 
     global logger
     log_file = get_wpp_update_database_log_file(dt.datetime.today())
-    logger = get_log_file(__name__, log_file)
+    logger = setup_logger(__name__, log_file)
 
     start_time = time.time()
 
@@ -1528,7 +1564,7 @@ def main() -> None:
     os.makedirs(get_wpp_static_input_dir(), exist_ok=True)
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
-    logger.info("Beginning Import of data into the database, at {}".format(dt.datetime.today().strftime("%Y-%m-%d %H:%M:%S")))
+    logger.info(f"Beginning Import of data into the database, at {dt.datetime.today().strftime('%Y-%m-%d %H:%M:%S')}")
 
     db_conn = get_or_create_db(get_wpp_db_file(), logger)
     importAllData(db_conn)
@@ -1536,7 +1572,7 @@ def main() -> None:
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    logger.info(f"Done in {round(elapsed_time, 1)} seconds.")
+    logger.info(f"Finished at {dt.datetime.today().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("----------------------------------------------------------------------------------------")
     # input("Press enter to end.")
 

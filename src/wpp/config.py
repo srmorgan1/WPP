@@ -31,15 +31,15 @@ def get_wpp_static_input_dir() -> Path:
 
 
 def get_wpp_report_dir() -> Path:
-    return WPP_ROOT_DIR / "Reports"
+    return get_wpp_data_dir() / "Reports"
 
 
 def get_wpp_log_dir() -> Path:
-    return WPP_ROOT_DIR / "Logs"
+    return get_wpp_data_dir() / "Logs"
 
 
 def get_wpp_db_dir() -> Path:
-    return WPP_ROOT_DIR / "Database"
+    return get_wpp_data_dir() / "Database"
 
 
 def get_wpp_db_file() -> Path:
@@ -55,15 +55,81 @@ def get_wpp_report_file(date: dt.date | dt.datetime) -> Path:
 
 
 def get_wpp_update_database_log_file(date: dt.date | dt.datetime) -> Path:
-    return get_wpp_log_dir() / f"Log_UpdateDatabase_{str(date).replace(':', '.')}.txt"
+    if isinstance(date, dt.datetime):
+        timestamp = date.strftime("%Y-%m-%d_%H-%M-%S")
+    else:
+        timestamp = date.strftime("%Y-%m-%d")
+    return get_wpp_log_dir() / f"Log_UpdateDatabase_{timestamp}.txt"
 
 
 def get_wpp_run_reports_log_file(date: dt.date | dt.datetime) -> Path:
-    return get_wpp_log_dir() / f"Log_RunReports_{str(date).replace(':', '.')}.txt"
+    if isinstance(date, dt.datetime):
+        timestamp = date.strftime("%Y-%m-%d_%H-%M-%S")
+    else:
+        timestamp = date.strftime("%Y-%m-%d")
+    return get_wpp_log_dir() / f"Log_RunReports_{timestamp}.txt"
 
 
-def get_wpp_ref_matcher_log_file() -> Path:
-    return get_wpp_log_dir() / "ref_matcher.csv"
+def get_wpp_ref_matcher_log_file(date: dt.date | dt.datetime) -> Path:
+    if isinstance(date, dt.datetime):
+        timestamp = date.strftime("%Y-%m-%d_%H-%M-%S")
+    else:
+        timestamp = date.strftime("%Y-%m-%d")
+    return get_wpp_log_dir() / f"ref_matcher_{timestamp}.csv"
+
+
+def get_special_case_properties() -> list[str]:
+    """Get the list of properties that require special handling for tenant references."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["SPECIAL_CASE_PROPERTIES"]
+
+
+def get_exclude_z_suffix_properties() -> list[str]:
+    """Get the list of properties that exclude Z suffix tenant references."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["EXCLUDE_Z_SUFFIX_PROPERTIES"]
+
+
+def get_commercial_properties() -> list[str]:
+    """Get the list of properties that use commercial (COM) block references."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["COMMERCIAL_PROPERTIES"]
+
+
+def get_industrial_estate_properties() -> list[str]:
+    """Get the list of properties that use industrial estate single-letter tenant references."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["INDUSTRIAL_ESTATE_PROPERTIES"]
+
+
+def get_digit_letter_suffix_properties() -> list[str]:
+    """Get the list of properties that use digit-letter suffix tenant references (XXX-XX-DDDA format)."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["DIGIT_LETTER_SUFFIX_PROPERTIES"]
+
+
+def get_letter_digit_letter_properties() -> list[str]:
+    """Get the list of properties that use digit-letter-digit tenant references (XXX-XX-0AD format)."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["LETTER_DIGIT_LETTER_PROPERTIES"]
+
+
+def get_double_zero_letter_properties() -> list[str]:
+    """Get the list of properties that use 00X tenant references (XXX-XX-00A format)."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["DOUBLE_ZERO_LETTER_PROPERTIES"]
+
+
+def get_three_letter_code_properties() -> list[str]:
+    """Get the list of properties that use three-letter code tenant references (XXX-XX-ABC format)."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["THREE_LETTER_CODE_PROPERTIES"]
+
+
+def get_two_letter_code_properties() -> list[str]:
+    """Get the list of properties that use two-letter code tenant references (XXX-XX-AB format)."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["TWO_LETTER_CODE_PROPERTIES"]
 
 
 @cache

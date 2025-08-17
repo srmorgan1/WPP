@@ -1,33 +1,46 @@
 import re
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from dateutil import parser
 from pandas import ExcelFile
 
 from wpp.config import get_wpp_log_dir, get_wpp_report_dir
 from wpp.RunReports import main as run_reports_main
 from wpp.UpdateDatabase import main as update_database_main
 
-# Define paths for test scenarios
-SCRIPT_DIR = Path(__file__).resolve().parent
-TEST_SCENARIOS_DIR = SCRIPT_DIR / "Data" / "TestScenarios"
+# Test scenarios will be found using the conftest functions
 
 # Test scenario configurations
 TEST_SCENARIOS = [
     "scenario_default",
     # Add more scenarios here as needed
-    # "scenario_alternative",
+    "2025-08-01",
     # "scenario_edge_cases",  # ← Uncomment and modify as needed
 ]
+
+# Regression test operation configuration
+# Set these to False to skip specific operations during testing
+REGRESSION_TEST_CONFIG = {
+    "run_decrypt": True,  # Whether to run decrypt operations on test data
+    "run_encrypt": True,  # Whether to re-encrypt/remove decrypted data after tests
+    "run_delete": True,  # Whether to run cleanup/delete operations on test files
+    "generate_reference_data": False,  # Whether to copy generated logs/reports to reference directories
+}
 
 
 def get_scenario_paths(scenario_name: str) -> tuple[Path, Path, Path]:
     """Get input, reference logs, and reference reports paths for a test scenario."""
-    scenario_dir = TEST_SCENARIOS_DIR / scenario_name
-    return (scenario_dir / "Inputs", scenario_dir / "ReferenceLogs", scenario_dir / "ReferenceReports")
+    from conftest import get_test_reference_logs_dir, get_test_reference_reports_dir, get_test_scenarios_dir
+
+    scenario_dir = get_test_scenarios_dir() / scenario_name
+    inputs_dir = scenario_dir / "Inputs"
+    reference_logs_dir = get_test_reference_logs_dir(scenario_name)
+    reference_reports_dir = get_test_reference_reports_dir(scenario_name)
+
+    return (inputs_dir, reference_logs_dir, reference_reports_dir)
 
 
 def compare_excel_files(generated_file: Path, reference_file: Path) -> None:
@@ -166,44 +179,65 @@ def remove_date_suffix(filename: str) -> str:
 
 
 def remove_log_date_suffix(filename: str) -> str:
-    # Removes a suffix like _YYYY-MM-DD.txt or _YYYY_MM_DD.txt or _YYYY-MM-DD_HHMMSS.txt from the filename
-    return re.sub(r"_\d{4}-\d{2}-\d{2}\s?.+?\.txt$", "", filename)
+    # Removes a suffix like _YYYY-MM-DD.txt or _YYYY-MM-DD_HH-MM-SS.txt from the filename
+    return re.sub(r"_\d{4}-\d{2}-\d{2}(_\d{2}-\d{2}-\d{2})?\.txt$", "", filename)
+
+
+def _copy_generated_to_references(scenario: str, generated_reports_dir: Path, generated_logs_dir: Path, reference_reports_dir: Path, reference_logs_dir: Path) -> None:
+    """
+    Copy generated Reports and Logs directories to ReferenceReports and ReferenceLogs.
+    Always overwrites existing reference directories when called.
+    """
+    print(f"\nGenerating reference files for scenario: {scenario}")
+
+    # Copy entire Reports directory to ReferenceReports
+    print(f"Copying {generated_reports_dir} to {reference_reports_dir}")
+    if reference_reports_dir.exists():
+        shutil.rmtree(reference_reports_dir)  # Remove existing directory first
+    shutil.copytree(generated_reports_dir, reference_reports_dir)
+
+    # Copy entire Logs directory to ReferenceLogs
+    print(f"Copying {generated_logs_dir} to {reference_logs_dir}")
+    if reference_logs_dir.exists():
+        shutil.rmtree(reference_logs_dir)  # Remove existing directory first
+    shutil.copytree(generated_logs_dir, reference_logs_dir)
 
 
 @pytest.mark.parametrize("scenario", TEST_SCENARIOS)
 @patch("wpp.config.get_wpp_data_dir")
-def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir, run_decrypt_script) -> None:
+def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
     """Test regression for different scenarios."""
     # Import here to avoid circular imports
-    from wpp.config import get_wpp_db_file
-
     # Set up mock to point to the scenario directory
-    scenario_dir = TEST_SCENARIOS_DIR / scenario
+    from conftest import _clean_up_scenario_files, _decrypt_scenario_files, _encrypt_scenario_files, get_test_scenarios_dir
+
+    from wpp.ref_matcher import _reset_matcher
+
+    # Reset singleton state for test isolation
+    _reset_matcher()
+
+    scenario_dir = get_test_scenarios_dir() / scenario
     mock_data_dir.return_value = scenario_dir
+
+    # Decrypt files for this scenario only
+    _decrypt_scenario_files(scenario)
 
     # Get paths for this test scenario
     inputs_dir, reference_logs_dir, reference_reports_dir = get_scenario_paths(scenario)
 
     # Verify the test scenario exists
     assert inputs_dir.exists(), f"Test scenario input directory not found: {inputs_dir}"
-    assert reference_logs_dir.exists(), f"Test scenario reference logs directory not found: {reference_logs_dir}"
-    assert reference_reports_dir.exists(), f"Test scenario reference reports directory not found: {reference_reports_dir}"
 
-    # Clean up any existing log files to avoid interference from other tests
-    log_dir = get_wpp_log_dir()
-    if log_dir.exists():
-        for log_file in log_dir.glob("*.txt"):
-            log_file.unlink()
-        # Also clean up any existing ref_matcher.csv
-        ref_matcher_csv = log_dir / "ref_matcher.csv"
-        if ref_matcher_csv.exists():
-            ref_matcher_csv.unlink()
+    # Skip reference directory validation when generating references
+    if not REGRESSION_TEST_CONFIG["generate_reference_data"]:
+        assert reference_logs_dir.exists(), f"Test scenario reference logs directory not found: {reference_logs_dir}"
+        assert reference_reports_dir.exists(), f"Test scenario reference reports directory not found: {reference_reports_dir}"
 
-    # Clean up the main database file to ensure fresh data import
-    # This is needed because other tests may have populated the database
-    main_db_file = get_wpp_db_file()
-    if main_db_file.exists():
-        main_db_file.unlink()
+    # Clean up any existing generated files for this scenario to ensure clean state (but not decrypted input files)
+    if REGRESSION_TEST_CONFIG["run_delete"]:
+        from conftest import _clean_up_scenario_output_files_only
+
+        _clean_up_scenario_output_files_only(scenario)
 
     # Run UpdateDatabase
     update_database_main()
@@ -215,10 +249,49 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir, run_decryp
         print(f)
 
     # Run RunReports
-    qube_date = parser.parse("2022-10-11").date()
-    bos_date = qube_date
+    # Get the date from the database that was loaded by UpdateDatabase
+    from conftest import get_unique_date_from_charges
 
-    run_reports_main(qube_date=qube_date, bos_date=bos_date)
+    from wpp.config import get_wpp_db_file
+    from wpp.db import get_or_create_db
+
+    # Connect to the database that UpdateDatabase just populated
+    db_path = get_wpp_db_file()  # This is the database UpdateDatabase writes to
+    temp_db_conn = get_or_create_db(db_path)
+    try:
+        qube_date = get_unique_date_from_charges(temp_db_conn)
+        bos_date = qube_date
+    finally:
+        temp_db_conn.close()
+
+    try:
+        run_reports_main(qube_date=qube_date, bos_date=bos_date)
+    except RuntimeError as e:
+        if REGRESSION_TEST_CONFIG["generate_reference_data"]:
+            print(f"RunReports failed: {e}")
+            print("Continuing with reference generation using available files...")
+        else:
+            raise  # Re-raise if not generating references
+
+    # Copy generated results to reference directories if requested and they don't exist yet
+    if REGRESSION_TEST_CONFIG["generate_reference_data"]:
+        _copy_generated_to_references(scenario, get_wpp_report_dir(), get_wpp_log_dir(), reference_reports_dir, reference_logs_dir)
+        # If we're generating references, skip the comparison tests
+        print(f"Reference generation complete for scenario: {scenario}")
+
+        # Encrypt all reference data after generation
+        from conftest import _encrypt_reference_data_after_generation
+
+        _encrypt_reference_data_after_generation(scenario)
+
+        # Cleanup after reference generation
+        if REGRESSION_TEST_CONFIG["run_encrypt"]:
+            _encrypt_scenario_files(scenario)
+
+        if REGRESSION_TEST_CONFIG["run_delete"]:
+            _clean_up_scenario_files(scenario)
+
+        return
 
     # Compare generated reports with reference reports
     # Use get_wpp_report_dir() which respects the WPP_ROOT_DIR set by conftest
@@ -261,6 +334,25 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir, run_decryp
         compare_log_files(generated_log, ref_log_to_compare)
 
     # Compare ref_matcher.csv
-    generated_ref_matcher_log = get_wpp_log_dir() / "ref_matcher.csv"
-    reference_ref_matcher_log = reference_logs_dir / "ref_matcher.csv"
+    generated_log_dir = Path(get_wpp_log_dir())
+    generated_ref_matcher_logs = list(generated_log_dir.glob("ref_matcher*.csv"))
+    assert len(generated_ref_matcher_logs) == 1, f"Expected 1 ref_matcher csv file, but found {len(generated_ref_matcher_logs)} in {generated_log_dir} for scenario {scenario}"
+    generated_ref_matcher_log = generated_ref_matcher_logs[0]
+
+    reference_ref_matcher_logs = list(reference_logs_dir.glob("ref_matcher*.csv"))
+    assert len(reference_ref_matcher_logs) == 1, f"Expected 1 reference ref_matcher csv file, but found {len(reference_ref_matcher_logs)} in {reference_logs_dir} for scenario {scenario}"
+    reference_ref_matcher_log = reference_ref_matcher_logs[0]
+
     compare_csv_files(generated_ref_matcher_log, reference_ref_matcher_log)
+
+    # Per-scenario cleanup and encrypt after test completes
+    if REGRESSION_TEST_CONFIG["run_encrypt"]:
+        _encrypt_scenario_files(scenario)
+
+    if REGRESSION_TEST_CONFIG["run_delete"]:
+        _clean_up_scenario_files(scenario)
+
+        # Also clean up unencrypted reference files that were decrypted for comparison
+        from conftest import _cleanup_unencrypted_reference_files
+
+        _cleanup_unencrypted_reference_files(scenario)
