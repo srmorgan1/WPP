@@ -590,7 +590,7 @@ class PropertyBlockTenantRefMatcher:
             with open(self.log_file, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["description", "property_ref", "block_ref", "tenant_ref", "strategy"])
-
+    
     def add_strategy(self, strategy: MatchingStrategy):
         self.strategies.append(strategy)
 

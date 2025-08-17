@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from wpp.db import get_db_connection
 from wpp.ref_matcher import (
     PBT_REGEX,
     IrregularTenantRefStrategy,
@@ -65,7 +66,7 @@ def test_matching_strategy_name_method():
 def test_checkTenantExists_with_none_result():
     """Test checkTenantExists when tenant doesn't exist."""
     # Create in-memory database
-    conn = sqlite3.connect(":memory:")
+    conn = get_db_connection(":memory:")
     cursor = conn.cursor()
 
     # Create Tenants table without any data
@@ -213,7 +214,7 @@ def test_pbt_regex4_strategy_validation():
     strategy = PBTRegex4Strategy()
 
     # Create in-memory database for testing
-    conn = sqlite3.connect(":memory:")
+    conn = get_db_connection(":memory:")
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE Tenants (tenant_ref TEXT, tenant_name TEXT)")
 
@@ -309,7 +310,7 @@ def test_no_hyphen_regex_strategy():
 def test_checkForIrregularTenantRefInDatabase():
     """Test checkForIrregularTenantRefInDatabase function."""
     # Create in-memory database
-    conn = sqlite3.connect(":memory:")
+    conn = get_db_connection(":memory:")
     cursor = conn.cursor()
 
     # Create table and add test data

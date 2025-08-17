@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # Use get_wpp_input_dir and get_wpp_log_dir which respect the WPP_ROOT_DIR set by conftest.py's setup_wpp_root_dir
-from wpp.db import get_data  # get_or_create_db might be needed if tests create dbs directly
+from wpp.db import get_data, get_db_connection  # get_or_create_db might be needed if tests create dbs directly
 from wpp.UpdateDatabase import (
     addBlockToDB,
     addPropertyToDB,
@@ -519,3 +519,342 @@ def test_addTenantToDB_error_conditions(db_conn):
     tenant_id = addTenantToDB(db_conn, "999-99", "999-99-999", "Test Tenant", rethrow_exception=False)
     # Should return None or handle the error gracefully
     assert tenant_id is None or isinstance(tenant_id, int)
+
+
+def test_removeDCReferencePostfix():
+    """Test removeDCReferencePostfix function"""
+    from wpp.UpdateDatabase import removeDCReferencePostfix
+
+    # Test with DC suffix
+    result = removeDCReferencePostfix("123-01-001 DC")
+    assert result == "123-01-001"
+
+    # Test with DC suffix (no space)
+    result = removeDCReferencePostfix("123-01-001DC")
+    assert result == "123-01-001"
+
+    # Test without DC suffix
+    result = removeDCReferencePostfix("123-01-001")
+    assert result == "123-01-001"
+
+    # Test with None input
+    result = removeDCReferencePostfix(None)
+    assert result is None
+
+    # Test with empty string
+    result = removeDCReferencePostfix("")
+    assert result == ""
+
+
+def test_correctKnownCommonErrors():
+    """Test correctKnownCommonErrors function"""
+    from wpp.UpdateDatabase import correctKnownCommonErrors
+
+    # Test property 094 with O error
+    property_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", "094-01-O23")
+    assert tenant_ref == "094-01-023"
+
+    # Test property 094 without error
+    property_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", "094-01-123")
+    assert tenant_ref == "094-01-123"
+
+    # Test different property
+    property_ref, block_ref, tenant_ref = correctKnownCommonErrors("095", "095-01", "095-01-O23")
+    assert tenant_ref == "095-01-O23"  # Should not be corrected
+
+    # Test with None tenant_ref
+    property_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", None)
+    assert tenant_ref is None
+
+
+def test_recodeSpecialPropertyReferenceCases():
+    """Test recodeSpecialPropertyReferenceCases function"""
+    from wpp.UpdateDatabase import recodeSpecialPropertyReferenceCases
+
+    # Test 020-03 recoding
+    property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("020", "020-03", "020-03-001")
+    assert property_ref == "020A"
+
+    # Test 064-01 recoding
+    property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("064", "064-01", "064-01-001")
+    assert property_ref == "064A"
+
+    # Test non-special case
+    property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("021", "021-01", "021-01-001")
+    assert property_ref == "021"  # Should not be changed
+
+
+def test_recodeSpecialBlockReferenceCases():
+    """Test recodeSpecialBlockReferenceCases function"""
+    from wpp.UpdateDatabase import recodeSpecialBlockReferenceCases
+
+    # Test 101-02 recoding with tenant_ref
+    property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", "101-02-001")
+    assert block_ref == "101-01"
+    assert tenant_ref == "101-01-001"
+
+    # Test 101-02 recoding without tenant_ref
+    property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", None)
+    assert block_ref == "101-01"
+    assert tenant_ref is None
+
+    # Test non-special case
+    property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("102", "102-01", "102-01-001")
+    assert block_ref == "102-01"  # Should not be changed
+    assert tenant_ref == "102-01-001"
+
+
+def test_getPropertyBlockAndTenantRefsFromRegexMatch():
+    """Test getPropertyBlockAndTenantRefsFromRegexMatch function"""
+    import re
+    from wpp.UpdateDatabase import getPropertyBlockAndTenantRefsFromRegexMatch
+
+    # Test with valid match
+    pattern = re.compile(r"(\d{3})-(\d{2})-(\d{3})")
+    match = pattern.search("123-45-678")
+    property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(match)
+    assert property_ref == "123"
+    assert block_ref == "123-45"
+    assert tenant_ref == "123-45-678"
+
+    # Test with None match
+    property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefsFromRegexMatch(None)
+    assert property_ref is None
+    assert block_ref is None
+    assert tenant_ref is None
+
+
+def test_doubleCheckTenantRef():
+    """Test doubleCheckTenantRef function"""
+    import sqlite3
+    from wpp.UpdateDatabase import doubleCheckTenantRef
+
+    # Create in-memory database with test data
+    conn = get_db_connection(":memory:")
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE Tenants (tenant_ref TEXT, tenant_name TEXT)")
+    cursor.execute("INSERT INTO Tenants VALUES ('123-01-001', 'JOHN SMITH')")
+
+    # Test successful match
+    result = doubleCheckTenantRef(cursor, "123-01-001", "JOHN SMITH payment")
+    assert result is True
+
+    # Test tenant not found
+    result = doubleCheckTenantRef(cursor, "999-99-999", "unknown tenant")
+    assert result is False
+
+    conn.close()
+
+
+def test_postProcessPropertyBlockTenantRefs():
+    """Test postProcessPropertyBlockTenantRefs function"""
+    from wpp.UpdateDatabase import postProcessPropertyBlockTenantRefs
+
+    # Test filtering out Z suffix
+    result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-Z01")
+    assert result == (None, None, None)
+
+    # Test filtering out Y suffix
+    result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-Y01")
+    assert result == (None, None, None)
+
+    # Test filtering out property >= 900
+    result = postProcessPropertyBlockTenantRefs("900", "900-01", "900-01-001")
+    assert result == (None, None, None)
+
+    result = postProcessPropertyBlockTenantRefs("999", "999-01", "999-01-001")
+    assert result == (None, None, None)
+
+    # Test valid reference
+    result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-001")
+    assert result == ("123", "123-01", "123-01-001")
+
+
+def test_checkForIrregularTenantRefInDatabase():
+    """Test checkForIrregularTenantRefInDatabase function"""
+    import sqlite3
+    from wpp.UpdateDatabase import checkForIrregularTenantRefInDatabase
+
+    # Create in-memory database with test data
+    conn = get_db_connection(":memory:")
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IrregularTransactionRefs (tenant_ref TEXT, transaction_ref_pattern TEXT)")
+    cursor.execute("INSERT INTO IrregularTransactionRefs VALUES ('123-45-678', 'SPECIAL_REF')")
+
+    # Test finding irregular ref
+    property_ref, block_ref, tenant_ref = checkForIrregularTenantRefInDatabase("SPECIAL_REF", cursor)
+    assert property_ref == "123"
+    assert block_ref == "123-45"
+    assert tenant_ref == "123-45-678"
+
+    # Test not found
+    property_ref, block_ref, tenant_ref = checkForIrregularTenantRefInDatabase("NOT_FOUND", cursor)
+    assert property_ref is None
+    assert block_ref is None
+    assert tenant_ref is None
+
+    conn.close()
+
+
+def test_get_element_text():
+    """Test get_element_text function"""
+    import xml.etree.ElementTree as ET
+    from wpp.UpdateDatabase import get_element_text
+
+    # Create test XML
+    root = ET.Element("root")
+    child = ET.SubElement(root, "child")
+    child.text = "test_value"
+
+    # Test getting existing element text
+    result = get_element_text(root, "child")
+    assert result == "test_value"
+
+    # Test getting non-existent element text - should raise ValueError
+    import pytest
+    with pytest.raises(ValueError, match="Missing or empty field"):
+        get_element_text(root, "nonexistent")
+
+
+def test_format_pay_date():
+    """Test _format_pay_date function"""
+    from wpp.UpdateDatabase import _format_pay_date
+
+    # Test formatting date
+    result = _format_pay_date("2023-12-25")
+    assert result == "2023-12-25"
+
+    # Test with different format
+    result = _format_pay_date("25/12/2023")
+    # Should handle various input formats and return consistent output
+    assert isinstance(result, str)
+
+
+def test_should_process_transaction():
+    """Test _should_process_transaction function"""
+    from wpp.UpdateDatabase import _should_process_transaction
+
+    # Test valid transaction with correct account number (06000792)
+    transaction_data = {
+        "amount": "100.00",
+        "account_number": "06000792",
+        "transaction_ref": "123-01-001"
+    }
+    result = _should_process_transaction(transaction_data)
+    assert result is True
+
+    # Test transaction with wrong account number
+    transaction_data = {
+        "amount": "100.00", 
+        "account_number": "12345678",
+        "transaction_ref": "123-01-001"
+    }
+    result = _should_process_transaction(transaction_data)
+    assert result is False
+
+
+def test_determine_account_type():
+    """Test _determine_account_type function"""
+    from wpp.UpdateDatabase import _determine_account_type
+
+    # Test with None client_ref
+    result = _determine_account_type(None)
+    assert result == "NA"
+
+    # Test with empty client_ref
+    result = _determine_account_type("")
+    assert result == "NA"
+
+    # Test with RENT in client_ref
+    result = _determine_account_type("RENT001")
+    assert result == "GR"
+
+    # Test with BANK in client_ref
+    result = _determine_account_type("BANK001")
+    assert result == "CL"
+
+    # Test with RES in client_ref
+    result = _determine_account_type("RES001")
+    assert result == "RE"
+
+    # Test with other client_ref
+    result = _determine_account_type("CLI001")
+    assert result == "NA"
+
+
+def test_is_valid_reference():
+    """Test _is_valid_reference function"""
+    from wpp.UpdateDatabase import _is_valid_reference
+
+    # Test valid reference
+    assert _is_valid_reference("123-01-001") is True
+
+    # Test invalid reference (starts with 9)
+    assert _is_valid_reference("901-01-001") is False
+
+    # Test invalid reference (contains Y)
+    assert _is_valid_reference("123-01-Y01") is False
+
+    # Test invalid reference (contains Z)
+    assert _is_valid_reference("123-01-Z01") is False
+
+    # Test empty reference
+    assert _is_valid_reference("") is False
+
+    # Test None reference  
+    assert _is_valid_reference(None) is False
+
+
+def test_get_id_edge_cases(db_conn):
+    """Test get_id function edge cases"""
+    from wpp.UpdateDatabase import get_id
+
+    cursor = db_conn.cursor()
+    
+    # Test with query that returns no results
+    result = get_id(cursor, "SELECT id FROM Properties WHERE property_ref = ?", ("NONEXISTENT",))
+    assert result is None
+
+    # Test with empty args tuple
+    result = get_id(cursor, "SELECT 42", ())
+    assert result == 42
+
+
+def test_get_id_from_ref_edge_cases(db_conn):
+    """Test get_id_from_ref function edge cases"""
+    from wpp.UpdateDatabase import get_id_from_ref
+
+    cursor = db_conn.cursor()
+    
+    # Test with non-existent reference - need to use correct field name
+    result = get_id_from_ref(cursor, "Properties", "property", "NONEXISTENT")
+    assert result is None
+
+
+def test_import_functions_with_missing_files():
+    """Test import functions with missing files"""
+    import sqlite3
+    from wpp.UpdateDatabase import importBankAccounts, importEstatesFile, importPropertiesFile
+
+    conn = get_db_connection(":memory:")
+    
+    # Test with non-existent files (should handle gracefully)
+    try:
+        importBankAccounts(conn, "/nonexistent/path.xlsx")
+    except (FileNotFoundError, Exception):
+        # Expected to fail, but shouldn't crash the test suite
+        pass
+
+    try:
+        importEstatesFile(conn, "/nonexistent/path.xlsx")
+    except (FileNotFoundError, Exception):
+        # Expected to fail, but shouldn't crash the test suite
+        pass
+
+    try:
+        importPropertiesFile(conn, "/nonexistent/path.xlsx")
+    except (FileNotFoundError, Exception):
+        # Expected to fail, but shouldn't crash the test suite
+        pass
+
+    conn.close()

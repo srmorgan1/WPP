@@ -224,9 +224,9 @@ def test_add_extra_rows_exception_handling():
 
 def test_checkDataIsPresent_with_missing_data(db_conn):
     """Test checkDataIsPresent when data is missing"""
-    # Test with a date that has no data
-    missing_date = parser.parse("1999-01-01").date()
-    result = checkDataIsPresent(db_conn, missing_date, missing_date)
+    # Test with a date that has no data - use string format as expected by the function
+    missing_date_str = "1999-01-01"
+    result = checkDataIsPresent(db_conn, missing_date_str, missing_date_str)
     assert result is False
 
 

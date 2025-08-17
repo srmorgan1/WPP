@@ -1,6 +1,7 @@
 import datetime as dt
 import os
 import shutil  # Added
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,11 @@ from dateutil import parser
 
 from wpp.config import get_wpp_db_dir, set_wpp_root_dir
 from wpp.db import get_or_create_db
+
+# Override deprecated SQLite date adapters for tests to prevent Python 3.12+ warnings
+# This is needed because tests pass date objects as query parameters, triggering adaptation
+sqlite3.register_adapter(dt.date, str)
+sqlite3.register_adapter(dt.datetime, str)
 
 # Define paths relative to conftest.py (which is in tests/ directory)
 CONFTEST_SCRIPT_DIR = Path(__file__).resolve().parent  # tests/
@@ -346,3 +352,29 @@ def get_unique_date_from_charges(db_conn) -> dt.date:
     else:
         # If it's already a date object
         return date_str
+
+
+@pytest.fixture(autouse=True)
+def cleanup_ref_matcher_csv_files():
+    """Automatically clean up ref_matcher CSV files after each test."""
+    import glob
+    
+    yield  # Let the test run
+    
+    # Clean up any ref_matcher CSV files after the test
+    test_data_dir = Path(__file__).parent / "Data"
+    csv_files = glob.glob(str(test_data_dir / "**" / "ref_matcher*.csv"), recursive=True)
+    for csv_file in csv_files:
+        Path(csv_file).unlink(missing_ok=True)
+    
+    # Also check the root tests directory
+    root_csv_files = glob.glob(str(Path(__file__).parent / "ref_matcher*.csv"))
+    for csv_file in root_csv_files:
+        Path(csv_file).unlink(missing_ok=True)
+    
+    # Reset the singleton matcher to prevent state pollution
+    try:
+        from wpp.ref_matcher import _reset_matcher
+        _reset_matcher()
+    except ImportError:
+        pass  # ref_matcher might not be available in all test contexts
