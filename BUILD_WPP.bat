@@ -15,14 +15,17 @@ echo ===========================================================================
 echo.
 echo This script will:
 echo   1. Check out the WPP project from GitHub
-echo   2. Set up Python environment and dependencies  
-echo   3. Run tests to ensure code quality
-echo   4. Build standalone Windows executables
+echo   2. Auto-install uv package manager (if needed)
+echo   3. Auto-download Python 3.13+ (via uv)
+echo   4. Set up isolated Python environment and dependencies  
+echo   5. Run tests to ensure code quality
+echo   6. Build standalone Windows executables
 echo.
-echo Prerequisites:
-echo   - Git for Windows
-echo   - Python 3.13+
+echo Prerequisites (Fresh Machine):
+echo   - Git for Windows (only dependency!)
 echo   - Internet connection
+echo.
+echo Note: Python and all packages are automatically managed by uv
 echo.
 
 REM Check if PowerShell is available
@@ -111,14 +114,16 @@ echo    Open PowerShell as Administrator and run:
 echo    Set-ExecutionPolicy RemoteSigned -Scope LocalMachine
 echo.
 echo 2. MISSING PREREQUISITES:
-echo    - Install Git for Windows: https://git-scm.com/download/win  
-echo    - Install Python 3.13+: https://www.python.org/downloads/
+echo    - Install Git for Windows: https://git-scm.com/download/win
+echo    - Python is auto-downloaded by uv (no manual install needed)
 echo.
 echo 3. NETWORK ISSUES:
-echo    - Check internet connection
-echo    - Verify GitHub access: https://github.com/srmorgan1/WPP.git
+echo    - Check internet connection (for downloading uv and Python)
 echo.
-echo 4. GPG PASSPHRASE (if tests fail):
+echo 4. AUTHENTICATION (for private repos):
+echo    Set environment variable: set GIT_TOKEN=ghp_your_github_token
+echo.
+echo 5. GPG PASSPHRASE (if tests fail):
 echo    Set environment variable: set GPG_PASSPHRASE=your_passphrase
 echo.
 echo For detailed logging, run this command in PowerShell:

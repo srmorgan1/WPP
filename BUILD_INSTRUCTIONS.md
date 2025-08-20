@@ -35,16 +35,25 @@ This document describes how to use the automated CI/CD build pipeline for the WP
 
 ## Prerequisites
 
-### Required Software
+### Minimum Requirements (Fresh Machine)
 - **Windows PowerShell 5.1+** or **PowerShell Core 7+**
 - **Git for Windows** - [Download here](https://git-scm.com/download/win)
-- **Python 3.13+** - [Download here](https://www.python.org/downloads/)
+- **Internet connection** - For downloading dependencies
 
-### Optional (Auto-installed)
-- **uv package manager** - Will be installed automatically if not present
+### Auto-Managed Dependencies
+- **Python 3.13+** - Automatically downloaded by uv based on `pyproject.toml`
+- **uv package manager** - Auto-installed if not present (standalone binary)
+- **All Python packages** - Managed by uv in isolated environment
 
 ### Environment Variables
-- **GPG_PASSPHRASE** - Required if tests use encrypted test data
+
+#### Authentication (Optional)
+- **GIT_TOKEN** - GitHub Personal Access Token for private repository access
+  - **Without token**: Git opens browser for authentication (interactive)
+  - **With token**: Fully automated, no prompts
+
+#### Testing (Optional)
+- **GPG_PASSPHRASE** - Required only if tests use encrypted test data
 
 ## Script Parameters
 
@@ -58,6 +67,9 @@ This document describes how to use the automated CI/CD build pipeline for the WP
 
 # Skip tests for faster build
 .\build_and_deploy.ps1 -SkipTests
+
+# Automated build with token (no prompts)
+$env:GIT_TOKEN = "ghp_your_token"; .\build_and_deploy.ps1
 
 # Custom working directory
 .\build_and_deploy.ps1 -WorkDir "D:\builds\wpp"
@@ -83,6 +95,9 @@ This document describes how to use the automated CI/CD build pipeline for the WP
 # Fast build without tests, keep repo for debugging
 .\build_and_deploy.ps1 -SkipTests -KeepRepo
 
+# Automated CI/CD build
+$env:GIT_TOKEN = "${{ secrets.GIT_TOKEN }}"; .\build_and_deploy.ps1 -SkipTests -CleanWorkDir
+
 # Build from fork
 .\build_and_deploy.ps1 -RepoUrl "https://github.com/yourusername/WPP.git" -Branch "main"
 ```
@@ -92,15 +107,17 @@ This document describes how to use the automated CI/CD build pipeline for the WP
 The script follows this pipeline:
 
 1. **Prerequisites Check**
-   - Verifies Git, Python 3.13+, and uv are available
-   - Auto-installs uv if missing
+   - Verifies Git is available
+   - Auto-installs uv package manager if missing (standalone binary)
 
 2. **Repository Setup**
+   - Uses GIT_TOKEN if available for automated authentication
    - Clones or updates the repository
    - Switches to specified branch
 
 3. **Environment Setup**
-   - Creates Python virtual environment with uv
+   - uv automatically downloads Python 3.13+ based on `pyproject.toml`
+   - Creates isolated Python environment with uv
    - Installs all dependencies including dev dependencies
 
 4. **Testing** (unless `-SkipTests`)
@@ -144,9 +161,10 @@ The build creates these standalone Windows executables in `dist\wpp\`:
 - Install Git for Windows and ensure it's in PATH
 - Restart PowerShell/Command Prompt after installation
 
-**"Python version too old"**
-- Install Python 3.13 or later
-- Ensure `python` command points to correct version
+**"Authentication required"**
+- For private repositories without GIT_TOKEN: Git will open browser for login
+- For automated builds: Set `$env:GIT_TOKEN = "ghp_your_token"`
+- Create token at: GitHub → Settings → Developer settings → Personal access tokens
 
 **"ExecutionPolicy error" (when using PowerShell directly)**
 ```powershell
@@ -167,6 +185,11 @@ $env:GPG_PASSPHRASE = "your-passphrase"
 **"uv installation failed"**
 - Check internet connectivity
 - Try manual installation: https://docs.astral.sh/uv/getting-started/installation/
+- uv installs as standalone binary (~20MB download)
+
+**"Python not found" (after uv installation)**
+- This is normal - uv will download Python 3.13+ automatically on first use
+- No manual Python installation required
 
 ### Build Locations
 
@@ -184,6 +207,36 @@ Remove-Item -Path "C:\temp\wpp-build" -Recurse -Force
 .\build_and_deploy.ps1 -CleanWorkDir
 ```
 
+## Authentication Setup
+
+### GitHub Personal Access Token
+
+For automated builds or private repositories, create a GitHub Personal Access Token:
+
+1. **GitHub.com** → **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)**
+2. **Generate new token (classic)**
+3. **Select scopes**:
+   - `repo` (for private repositories)
+   - `public_repo` (for public repositories only)
+4. **Copy the token** (starts with `ghp_`)
+5. **Set environment variable**:
+   ```powershell
+   $env:GIT_TOKEN = "ghp_your_copied_token_here"
+   ```
+
+### Usage Examples
+
+```powershell
+# Interactive (browser authentication for private repos)
+.\build_and_deploy.ps1
+
+# Automated (no prompts)
+$env:GIT_TOKEN = "ghp_your_token"; .\build_and_deploy.ps1
+
+# Permanent token (for development machine)
+[Environment]::SetEnvironmentVariable("GIT_TOKEN", "ghp_your_token", "User")
+```
+
 ## CI/CD Integration
 
 This script can be integrated into CI/CD pipelines:
@@ -192,8 +245,9 @@ This script can be integrated into CI/CD pipelines:
 # Example GitHub Actions usage
 - name: Build Windows Executables
   run: |
+    $env:GIT_TOKEN = "${{ secrets.GIT_TOKEN }}"
     $env:GPG_PASSPHRASE = "${{ secrets.GPG_PASSPHRASE }}"
-    .\build_and_deploy.ps1 -SkipTests
+    .\build_and_deploy.ps1 -SkipTests -CleanWorkDir
   shell: pwsh
 ```
 

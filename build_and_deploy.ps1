@@ -1,5 +1,9 @@
 # PowerShell CI/CD Script for WPP Project
 # Checks out project from GitHub, runs tests, and builds Windows executables
+#
+# Authentication:
+#   - Set GIT_TOKEN environment variable for automated access to private repositories
+#   - Without GIT_TOKEN, uses Git's default authentication (may open browser)
 
 param(
     [string]$RepoUrl = "https://github.com/srmorgan1/WPP.git",
@@ -85,28 +89,12 @@ try {
     }
     Write-Success "✓ Git found: $(git --version)"
     
-    # Check Python
-    if (-not (Test-Command "python")) {
-        throw "Python is not installed or not in PATH. Please install Python 3.13+."
-    }
-    $pythonVersion = python --version 2>&1
-    Write-Success "✓ Python found: $pythonVersion"
-    
-    # Check if Python version is 3.13+
-    $versionMatch = $pythonVersion -match "Python (\d+)\.(\d+)"
-    if ($versionMatch) {
-        $majorVersion = [int]$matches[1]
-        $minorVersion = [int]$matches[2]
-        if ($majorVersion -lt 3 -or ($majorVersion -eq 3 -and $minorVersion -lt 13)) {
-            throw "Python 3.13+ is required. Found: $pythonVersion"
-        }
-    }
-    
-    # Check uv package manager
+    # Setup uv package manager (will handle Python automatically)
     if (-not (Test-Command "uv")) {
-        Write-Warning "⚠ uv package manager not found. Installing uv..."
+        Write-Info "uv package manager not found. Installing uv..."
+        Write-Info "Note: uv will automatically download Python 3.13+ as needed for this project"
         try {
-            # Install uv using the official installer
+            # Install uv using the official installer (standalone binary)
             $uvInstaller = Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing
             Invoke-Expression $uvInstaller.Content
             # Refresh PATH
@@ -120,6 +108,7 @@ try {
     }
     $uvVersion = uv --version 2>&1
     Write-Success "✓ uv found: $uvVersion"
+    Write-Info "uv will automatically manage Python 3.13+ based on pyproject.toml requirements"
     
     # Setup working directory
     Write-Section "Setting Up Working Directory"
@@ -140,6 +129,15 @@ try {
     # Clone or update repository
     Write-Section "Checking Out Source Code"
     
+    # Use GIT_TOKEN if available for automated authentication
+    $CloneUrl = $RepoUrl
+    if ($env:GIT_TOKEN) {
+        Write-Info "Using GIT_TOKEN for authentication"
+        $CloneUrl = $RepoUrl -replace "https://github.com/", "https://$($env:GIT_TOKEN)@github.com/"
+    } else {
+        Write-Info "No GIT_TOKEN found - will use Git's default authentication (may prompt for credentials)"
+    }
+    
     $repoDir = Join-Path $WorkDir "WPP"
     
     if (Test-Path $repoDir) {
@@ -156,13 +154,13 @@ try {
             Write-Warning "⚠ Directory exists but is not a git repository. Removing and cloning fresh."
             Set-Location $WorkDir
             Remove-Item -Path $repoDir -Recurse -Force
-            git clone -b $Branch $RepoUrl
+            git clone -b $Branch $CloneUrl
             Set-Location $repoDir
             Write-Success "✓ Repository cloned fresh"
         }
     } else {
         Write-Info "Cloning repository..."
-        git clone -b $Branch $RepoUrl
+        git clone -b $Branch $CloneUrl
         Set-Location $repoDir
         Write-Success "✓ Repository cloned: $RepoUrl (branch: $Branch)"
     }
