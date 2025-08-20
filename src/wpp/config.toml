@@ -47,3 +47,5 @@ DOUBLE_ZERO_LETTER_PROPERTIES = ["134", "154"]
 THREE_LETTER_CODE_PROPERTIES = ["094", "166"]
 # Properties that use two-letter code tenant references (XXX-XX-AB format)
 TWO_LETTER_CODE_PROPERTIES = ["161"]
+# Properties that use alphanumeric property references (059A format)
+ALPHANUMERIC_PROPERTIES = ["059A"]

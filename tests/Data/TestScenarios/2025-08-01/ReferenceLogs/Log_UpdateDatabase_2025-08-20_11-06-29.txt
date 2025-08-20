@@ -1,31 +1,33 @@
-INFO: - Beginning Import of data into the database, at 2025-08-16 13:20:12
+INFO: - Beginning Import of data into the database, at 2025-08-20 11:06:29
 INFO: - Importing irregular transaction references from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx
 INFO: - 366 irregular transaction reference patterns added to the database.
 INFO: - 
 INFO: - Importing Properties from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Tenants.xlsx
+ERROR: - Found 4 reference parsing issues in /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Tenants.xlsx
+ERROR: - Row 2331: Tenant reference '0Z24-01-001' could not be parsed into property-block-tenant format - Name: Ms B Owen-Conway
+ERROR: - Row 2332: Tenant reference '0Z28-01-008' could not be parsed into property-block-tenant format - Name: Mr & Mrs B Tagaro
+ERROR: - Row 2333: Tenant reference '0Z58-01-016' could not be parsed into property-block-tenant format - Name: Mr H Jones
+ERROR: - Row 2334: Tenant reference '0Z60-01-061' could not be parsed into property-block-tenant format - Name: Mr N A Blake
 INFO: - 152 properties added to the database.
 INFO: - 267 blocks added to the database.
 INFO: - 5475 tenants added to the database.
 INFO: - 
 INFO: - Importing Estates from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Estates.xlsx
-INFO: - 21 estates added to the database.
-INFO: - 21 estate blocks added to the database.
+INFO: - 25 estates added to the database.
+INFO: - 25 estate blocks added to the database.
 INFO: - 
 INFO: - Importing Qube balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Qube EOD Balances 2025.08.01.xlsx
-WARNING: - Cannot process Qube balances for block '175-01'. Property '175' does not exist in the Properties table. Check if property '175' is included in the Tenants.xlsx file or add it to the Estates.xlsx file if it's an estate. Skipping 175-01 charges.
-WARNING: - Cannot process Qube balances for block '175-01'. Property '175' does not exist in the Properties table. Check if property '175' is included in the Tenants.xlsx file or add it to the Estates.xlsx file if it's an estate. Skipping 175-01 charges.
-WARNING: - Cannot process Qube balances for block '175-01'. Property '175' does not exist in the Properties table. Check if property '175' is included in the Tenants.xlsx file or add it to the Estates.xlsx file if it's an estate. Skipping 175-01 charges.
-INFO: - 1052 charges added to the database.
+INFO: - 1059 charges added to the database.
 INFO: - 
 INFO: - Importing bank accounts from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/Accounts.xlsx
-INFO: - 188 bank accounts added to the database.
+INFO: - 181 bank accounts added to the database.
 INFO: - 
 INFO: - Importing Bank Account Transactions from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/PreviousDayTransactionExtract_175_03082025_030628.zip
 INFO: - Unable to import 33 transactions into the database. See the Data_Import_Issues Excel file for details. Add tenant references to 001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again.
 INFO: - 367 Bank Of Scotland transactions added to the database.
 INFO: - 
 INFO: - Importing Bank Account balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Inputs/EndOfDayBalanceExtract_175_03082025_030628.zip
-INFO: - 162 Bank Of Scotland account balances added to the database.
+INFO: - 156 Bank Of Scotland account balances added to the database.
 INFO: - 
-INFO: - Finished at 2025-08-16 13:20:16
+INFO: - Finished at 2025-08-20 11:06:33
 INFO: - ----------------------------------------------------------------------------------------

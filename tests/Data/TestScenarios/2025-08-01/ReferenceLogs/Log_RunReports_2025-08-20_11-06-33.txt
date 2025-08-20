@@ -2,8 +2,8 @@ INFO: - Running Reports
 INFO: - Qube Date: 2025-08-01
 INFO: - Bank Of Scotland Transactions and Account Balances Date: 2025-08-01
 INFO: - 367 Bank Of Scotland transactions found for date 2025-08-01
-INFO: - 162 Bank Of Scotland account balance records found for date 2025-08-01
-INFO: - 1052 Qube charge records found for date 2025-08-01
+INFO: - 156 Bank Of Scotland account balance records found for date 2025-08-01
+INFO: - 1059 Qube charge records found for date 2025-08-01
 INFO: - Creating Excel spreadsheet report file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/2025-08-01/Reports/WPP_Report_2025-08-01.xlsx
 INFO: - Running COMREC report for 2025-08-01
 INFO: - Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: 019-01, 060-01
@@ -11,5 +11,5 @@ INFO: - Running Transactions report for 2025-08-01
 INFO: - Running DC & PAY Transactions report for 2025-08-01
 INFO: - Running Qube BOS report for 2025-08-01
 INFO: - Running Total SC Paid By Tenant on 2025-08-01 report
-INFO: - Done in 0.2 seconds.
+INFO: - Done in 0.4 seconds.
 INFO: - ----------------------------------------------------------------------------------------
