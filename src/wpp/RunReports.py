@@ -10,10 +10,11 @@ from typing import cast
 import pandas as pd
 from dateutil import parser
 
-from wpp.calendars import BUSINESS_DAY
+from wpp.calendars import get_business_day_offset
 from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
 from wpp.data_classes import RunConfiguration
 from wpp.db import get_db_connection, get_single_value, join_sql_queries, run_sql_query, union_sql_queries
+from wpp.excel import format_all_excel_sheets_comprehensive
 from wpp.exceptions import safe_pandas_operation
 from wpp.logger import setup_logger
 from wpp.sql_queries import (
@@ -218,6 +219,9 @@ def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.dat
         _generate_transactions_reports(db_conn, bos_date, excel_writer)
         _generate_qube_bos_report(db_conn, qube_date, bos_date, excel_writer)
         _generate_tenant_report(db_conn, bos_date, excel_writer)
+
+        # Apply consistent formatting to all sheets
+        format_all_excel_sheets_comprehensive(excel_writer)
     finally:
         excel_writer.close()
 
@@ -254,6 +258,9 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
     log_file = get_wpp_run_reports_log_file(dt.datetime.today())
     logger = setup_logger(__name__, log_file)
 
+    global BUSINESS_DAY
+    BUSINESS_DAY = get_business_day_offset(logger)
+
     # Get command line arguments
     args = get_args() if not is_running_via_pytest() else argparse.Namespace()
 
@@ -262,7 +269,7 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
     logger.info("Running Reports")
     try:
         db_conn = get_db_connection(get_wpp_db_file())
-        config = RunConfiguration(qube_date, bos_date)
+        config = RunConfiguration(qube_date, bos_date, business_day_offset=BUSINESS_DAY)
         qube_date, bos_date = get_run_date_args(args, config)
         runReports(db_conn, qube_date, bos_date)
     except Exception as ex:

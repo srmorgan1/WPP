@@ -182,6 +182,11 @@ CREATE UNIQUE INDEX Index_Accounts ON Accounts (
 );
 """
 
+CREATE_ACCOUNTS_CL_UNIQUENESS_INDEX = """
+CREATE UNIQUE INDEX Index_Accounts_CL_Per_Block ON Accounts (block_id, account_type) 
+WHERE account_type = 'CL';
+"""
+
 CREATE_ACCOUNT_BALANCES_INDEX = """
 CREATE UNIQUE INDEX Index_AccountBalances ON AccountBalances (
     account_id,
@@ -231,6 +236,7 @@ def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger
         csr.execute(CREATE_TRANSACTIONS_INDEX)
         csr.execute(CREATE_CHARGES_INDEX)
         csr.execute(CREATE_ACCOUNTS_INDEX)
+        csr.execute(CREATE_ACCOUNTS_CL_UNIQUENESS_INDEX)
         csr.execute(CREATE_ACCOUNT_BALANCES_INDEX)
         csr.execute(CREATE_SUGGESTED_TENANTS_INDEX)
         csr.execute(CREATE_IRREGULAR_TRANSACTION_REFS_INDEX)

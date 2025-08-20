@@ -6,8 +6,33 @@ import time
 import pandas as pd
 import streamlit as st
 
-from wpp.calendars import BUSINESS_DAY
+from wpp.calendars import get_business_day_offset
 from wpp.config import get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
+
+# Initialize session state for app logs
+if 'app_logs' not in st.session_state:
+    st.session_state.app_logs = []
+
+class StreamlitUILogger:
+    """Simple logger that collects messages for display in Streamlit UI."""
+    
+    def warning(self, msg: str):
+        st.session_state.app_logs.append(f"⚠️ {msg}")
+    
+    def error(self, msg: str):
+        st.session_state.app_logs.append(f"❌ {msg}")
+    
+    def info(self, msg: str):
+        st.session_state.app_logs.append(f"ℹ️ {msg}")
+
+@st.cache_data
+def get_business_day_offset_cached():
+    """Get business day offset with caching to avoid repeated initialization."""
+    logger = StreamlitUILogger()
+    return get_business_day_offset(logger)
+
+# Get the business day offset
+BUSINESS_DAY = get_business_day_offset_cached()
 
 # Import the main functions from the scripts
 from wpp.RunReports import main as run_reports_main
@@ -61,6 +86,13 @@ if st.sidebar.button("Shut Down The App"):
     time.sleep(1)
     os.kill(os.getpid(), signal.SIGKILL)
     st.stop()
+
+# Display app logs in sidebar
+if st.session_state.app_logs:
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("📋 App Logs"):
+        for log in st.session_state.app_logs[-10:]:  # Show last 10 logs
+            st.text(log)
 
 if page == "Update Database":
     st.header("Update Database")

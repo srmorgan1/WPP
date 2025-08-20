@@ -11,9 +11,9 @@ import pytest
 from wpp.db import get_db_connection
 from wpp.exceptions import (
     ConfigurationError,
-    DataValidationError,
     DatabaseIntegrityError,
     DatabaseOperationError,
+    DataValidationError,
     ErrorMessages,
     FileProcessingError,
     ReportGenerationError,
@@ -195,11 +195,12 @@ class TestLogExceptions:
 
     def test_decorator_no_logger(self):
         """Test decorator without explicit logger."""
+
         @log_exceptions()
         def test_function():
             raise ValueError("Test error")
 
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_logger = Mock(spec=logging.Logger)
             mock_get_logger.return_value = mock_logger
 
@@ -291,7 +292,7 @@ class TestCustomExceptions:
 
     def test_file_processing_error_with_context(self):
         """Test FileProcessingError with additional context."""
-        original = IOError("File not found")
+        original = OSError("File not found")
         context = {"size": 1024}
         error = FileProcessingError("File error", "/path/to/file.txt", context, original)
         assert error.context["file_path"] == "/path/to/file.txt"
@@ -347,9 +348,9 @@ class TestHandleDatabaseError:
         """Test error handler performs rollback and logging."""
         cursor = Mock(spec=sqlite3.Cursor)
         logger = Mock(spec=logging.Logger)
-        
+
         handler = handle_database_error(cursor, logger, "test operation", {"id": 1})
-        
+
         test_error = sqlite3.Error("Test database error")
         with pytest.raises(DatabaseOperationError):
             handler(test_error)
@@ -362,9 +363,9 @@ class TestHandleDatabaseError:
         """Test error handler with rethrow=False."""
         cursor = Mock(spec=sqlite3.Cursor)
         logger = Mock(spec=logging.Logger)
-        
+
         handler = handle_database_error(cursor, logger, "test operation", rethrow=False)
-        
+
         test_error = sqlite3.Error("Test database error")
         # Should not raise
         handler(test_error)
@@ -379,13 +380,13 @@ class TestErrorMessages:
     def test_error_message_templates(self):
         """Test error message template formatting."""
         assert ErrorMessages.DB_CONNECTION_FAILED == "Failed to connect to database"
-        
+
         formatted = ErrorMessages.DB_TRANSACTION_FAILED.format(operation="insert")
         assert "insert" in formatted
-        
+
         formatted = ErrorMessages.FILE_NOT_FOUND.format(file_path="/test/path")
         assert "/test/path" in formatted
-        
+
         formatted = ErrorMessages.DATA_MISSING_FIELD.format(field_name="tenant_ref")
         assert "tenant_ref" in formatted
 
@@ -397,16 +398,16 @@ class TestLogErrorWithContext:
         """Test basic error logging."""
         logger = Mock(spec=logging.Logger)
         log_error_with_context(logger, "Test message")
-        
+
         logger.log.assert_called_with(logging.ERROR, "Test message")
 
     def test_logging_with_context(self):
         """Test logging with context information."""
         logger = Mock(spec=logging.Logger)
         context = {"key1": "value1", "key2": 42}
-        
+
         log_error_with_context(logger, "Test message", context=context)
-        
+
         # Should log main message and context items
         assert logger.log.call_count >= 3  # main message + 2 context items
 
@@ -414,18 +415,18 @@ class TestLogErrorWithContext:
         """Test logging with exception."""
         logger = Mock(spec=logging.Logger)
         error = ValueError("Test error")
-        
+
         log_error_with_context(logger, "Test message", error=error)
-        
+
         logger.log.assert_called_with(logging.ERROR, "Test message")
         logger.exception.assert_called_with(error)
 
     def test_logging_with_custom_level(self):
         """Test logging with custom level."""
         logger = Mock(spec=logging.Logger)
-        
+
         log_error_with_context(logger, "Test message", level=logging.WARNING)
-        
+
         logger.log.assert_called_with(logging.WARNING, "Test message")
 
 
@@ -436,9 +437,9 @@ class TestLogDatabaseError:
         """Test database error logging."""
         logger = Mock(spec=logging.Logger)
         error = sqlite3.Error("Database error")
-        
+
         log_database_error(logger, "insert operation", error)
-        
+
         logger.log.assert_called()
         logger.exception.assert_called_with(error)
 
@@ -447,9 +448,9 @@ class TestLogDatabaseError:
         logger = Mock(spec=logging.Logger)
         error = sqlite3.Error("Database error")
         data = {"id": 1, "name": "test"}
-        
+
         log_database_error(logger, "insert operation", error, data)
-        
+
         # Should log with context including data
         logger.log.assert_called()
         logger.exception.assert_called_with(error)
@@ -459,9 +460,9 @@ class TestLogDatabaseError:
         logger = Mock(spec=logging.Logger)
         error = sqlite3.Error("Database error")
         sql = "INSERT INTO test (id) VALUES (?)"
-        
+
         log_database_error(logger, "insert operation", error, sql=sql)
-        
+
         logger.log.assert_called()
         logger.exception.assert_called_with(error)
 
@@ -473,9 +474,9 @@ class TestLogFileError:
         """Test file error logging."""
         logger = Mock(spec=logging.Logger)
         error = FileNotFoundError("File not found")
-        
+
         log_file_error(logger, "read operation", "/path/to/file.txt", error)
-        
+
         logger.log.assert_called()
         logger.exception.assert_called_with(error)
 
@@ -483,9 +484,9 @@ class TestLogFileError:
         """Test file error logging with expected format."""
         logger = Mock(spec=logging.Logger)
         error = ValueError("Invalid format")
-        
+
         log_file_error(logger, "parse operation", "/path/to/file.xlsx", error, "Excel")
-        
+
         logger.log.assert_called()
         logger.exception.assert_called_with(error)
 
@@ -496,9 +497,9 @@ class TestLogValidationError:
     def test_validation_error_logging(self):
         """Test validation error logging."""
         logger = Mock(spec=logging.Logger)
-        
+
         log_validation_error(logger, "tenant_ref", "invalid-ref", "XXX-XX-XXX format")
-        
+
         logger.log.assert_called()
         # Should use error message template
 
@@ -506,9 +507,9 @@ class TestLogValidationError:
         """Test validation error logging with record context."""
         logger = Mock(spec=logging.Logger)
         context = {"row": 5, "file": "tenants.xlsx"}
-        
+
         log_validation_error(logger, "tenant_ref", "invalid-ref", "XXX-XX-XXX format", context)
-        
+
         logger.log.assert_called()
 
 
@@ -519,9 +520,9 @@ class TestExceptionFactories:
         """Test create_database_error factory."""
         original = sqlite3.Error("SQL error")
         data = {"id": 1}
-        
+
         error = create_database_error("insert", original, data, "test_table")
-        
+
         assert isinstance(error, DatabaseIntegrityError)
         assert error.original_error is original
         assert "data" in error.context
@@ -530,7 +531,7 @@ class TestExceptionFactories:
     def test_create_validation_error(self):
         """Test create_validation_error factory."""
         error = create_validation_error("tenant_ref", "bad-ref", "XXX-XX-XXX", "record123")
-        
+
         assert isinstance(error, DataValidationError)
         assert "field_name" in error.context
         assert "invalid_value" in error.context
@@ -539,10 +540,10 @@ class TestExceptionFactories:
 
     def test_create_file_error(self):
         """Test create_file_error factory."""
-        original = IOError("File not found")
-        
+        original = OSError("File not found")
+
         error = create_file_error("read", "/path/to/file.txt", original, "Excel")
-        
+
         assert isinstance(error, FileProcessingError)
         assert error.file_path == "/path/to/file.txt"
         assert error.original_error is original

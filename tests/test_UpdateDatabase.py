@@ -607,6 +607,7 @@ def test_recodeSpecialBlockReferenceCases():
 def test_getPropertyBlockAndTenantRefsFromRegexMatch():
     """Test getPropertyBlockAndTenantRefsFromRegexMatch function"""
     import re
+
     from wpp.UpdateDatabase import getPropertyBlockAndTenantRefsFromRegexMatch
 
     # Test with valid match
@@ -626,7 +627,6 @@ def test_getPropertyBlockAndTenantRefsFromRegexMatch():
 
 def test_doubleCheckTenantRef():
     """Test doubleCheckTenantRef function"""
-    import sqlite3
     from wpp.UpdateDatabase import doubleCheckTenantRef
 
     # Create in-memory database with test data
@@ -672,7 +672,6 @@ def test_postProcessPropertyBlockTenantRefs():
 
 def test_checkForIrregularTenantRefInDatabase():
     """Test checkForIrregularTenantRefInDatabase function"""
-    import sqlite3
     from wpp.UpdateDatabase import checkForIrregularTenantRefInDatabase
 
     # Create in-memory database with test data
@@ -699,6 +698,7 @@ def test_checkForIrregularTenantRefInDatabase():
 def test_get_element_text():
     """Test get_element_text function"""
     import xml.etree.ElementTree as ET
+
     from wpp.UpdateDatabase import get_element_text
 
     # Create test XML
@@ -712,6 +712,7 @@ def test_get_element_text():
 
     # Test getting non-existent element text - should raise ValueError
     import pytest
+
     with pytest.raises(ValueError, match="Missing or empty field"):
         get_element_text(root, "nonexistent")
 
@@ -735,20 +736,12 @@ def test_should_process_transaction():
     from wpp.UpdateDatabase import _should_process_transaction
 
     # Test valid transaction with correct account number (06000792)
-    transaction_data = {
-        "amount": "100.00",
-        "account_number": "06000792",
-        "transaction_ref": "123-01-001"
-    }
+    transaction_data = {"amount": "100.00", "account_number": "06000792", "transaction_ref": "123-01-001"}
     result = _should_process_transaction(transaction_data)
     assert result is True
 
     # Test transaction with wrong account number
-    transaction_data = {
-        "amount": "100.00", 
-        "account_number": "12345678",
-        "transaction_ref": "123-01-001"
-    }
+    transaction_data = {"amount": "100.00", "account_number": "12345678", "transaction_ref": "123-01-001"}
     result = _should_process_transaction(transaction_data)
     assert result is False
 
@@ -801,7 +794,7 @@ def test_is_valid_reference():
     # Test empty reference
     assert _is_valid_reference("") is False
 
-    # Test None reference  
+    # Test None reference
     assert _is_valid_reference(None) is False
 
 
@@ -810,7 +803,7 @@ def test_get_id_edge_cases(db_conn):
     from wpp.UpdateDatabase import get_id
 
     cursor = db_conn.cursor()
-    
+
     # Test with query that returns no results
     result = get_id(cursor, "SELECT id FROM Properties WHERE property_ref = ?", ("NONEXISTENT",))
     assert result is None
@@ -825,7 +818,7 @@ def test_get_id_from_ref_edge_cases(db_conn):
     from wpp.UpdateDatabase import get_id_from_ref
 
     cursor = db_conn.cursor()
-    
+
     # Test with non-existent reference - need to use correct field name
     result = get_id_from_ref(cursor, "Properties", "property", "NONEXISTENT")
     assert result is None
@@ -833,11 +826,10 @@ def test_get_id_from_ref_edge_cases(db_conn):
 
 def test_import_functions_with_missing_files():
     """Test import functions with missing files"""
-    import sqlite3
     from wpp.UpdateDatabase import importBankAccounts, importEstatesFile, importPropertiesFile
 
     conn = get_db_connection(":memory:")
-    
+
     # Test with non-existent files (should handle gracefully)
     try:
         importBankAccounts(conn, "/nonexistent/path.xlsx")

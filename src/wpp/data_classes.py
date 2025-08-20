@@ -24,14 +24,16 @@ class RunConfiguration:
     qube_date: date | None = None
     bos_date: date | None = None
     verbose: bool = False
+    business_day_offset: object = None  # pandas CDay object
 
     def get_dates(self) -> tuple[date, date]:
         """Get both dates, with fallbacks."""
         from datetime import date as dt_date
 
-        from wpp.calendars import BUSINESS_DAY
-
-        qube = self.qube_date or (dt_date.today() - BUSINESS_DAY)
+        if self.business_day_offset is None:
+            raise ValueError("business_day_offset must be provided to RunConfiguration")
+        
+        qube = self.qube_date or (dt_date.today() - self.business_day_offset)
         bos = self.bos_date or qube
         return qube, bos
 

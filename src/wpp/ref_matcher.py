@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from wpp.config import (
+    get_alphanumeric_properties,
     get_commercial_properties,
     get_digit_letter_suffix_properties,
     get_double_zero_letter_properties,
@@ -82,7 +83,7 @@ SELECT_IRREGULAR_TRANSACTION_TENANT_REF_SQL = "select tenant_ref from IrregularT
 #
 PBT_REGEX = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
 PBT_REGEX2 = re.compile(r"(?:^|\s+|,)(\d{3})\s-\s(\d{2})\s-\s(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
-PBT_REGEX3 = re.compile(r"(?:^|\s+|,)(\d{3})-0?(\d{2})-(\d{2})\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX3 = re.compile(r"(?:^|\s+|,)(\d{3})-0?(\d{2})-(\d{2,3})\s?(?:DC)?(?:$|\s+|,|/)")
 PBT_REGEX4 = re.compile(r"(?:^|\s+|,)(\d{2})-0?(\d{2})-(\d{3})\s?(?:DC)?(?:$|\s+|,|/)")
 PBT_REGEX_NO_TERMINATING_SPACE = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{3})(?:$|\s*|,|/)")
 PBT_REGEX_NO_BEGINNING_SPACE = re.compile(r"(?:^|\s*|,)(\d{3})-(\d{2})-(\d{3})(?:$|\s+|,|/)")
@@ -114,6 +115,13 @@ PBT_REGEX_CATCH_REMAINDER = re.compile(
 )
 # Narrow regex for true special cases (corrupted patterns with name prefixes)
 PBT_REGEX_SPECIAL_NARROW = re.compile(r"(?:^|\s+|,)(\d{3})-(\d{2})-(\d{4}[A-Z]?)\s?(?:DC)?(?:$|\s+|,|/)")
+
+# Alphanumeric property patterns for properties like 059A
+PBT_REGEX_ALPHANUMERIC = re.compile(r"(?:^|\s+|,)(\d{3}[A-Z])-(\d{2})-(\d{3}[A-Z]?)\s?(?:DC)?(?:$|\s+|,|/)")
+PBT_REGEX_ALPHANUMERIC_NO_HYPHENS = re.compile(r"(?:^|\s+|,)(\d{3}[A-Z])\s{0,2}0?(\d{2})\s{0,2}(\d{3}[A-Z]?)(?:$|\s+|,|/)")
+PBT_REGEX_ALPHANUMERIC_FWD_SLASHES = re.compile(r"(?:^|\s+|,)(\d{3}[A-Z])/0?(\d{2})/(\d{3}[A-Z]?)\s?(?:DC)?(?:$|\s+|,|/)")
+PB_REGEX_ALPHANUMERIC = re.compile(r"(?:^|\s+|,)(\d{3}[A-Z])-(\d{2})(?:$|\s+|,|/)")
+P_REGEX_ALPHANUMERIC = re.compile(r"(?:^|\s+)(\d{3}[A-Z])(?:$|\s+)")
 
 
 def matchTransactionRef(tenant_name: str, transaction_reference: str) -> bool:
@@ -270,6 +278,28 @@ class PBTRegex3Strategy(RegexStrategy):
             if not doubleCheckTenantRef(db_cursor, tenant_ref, description):
                 raise MatchValidationException("Failed to validate tenant reference")
             return MatchResult.match(result.property_ref, result.block_ref, tenant_ref)
+        return result
+
+
+class PBTRegex3SingleDigitBlockStrategy(RegexStrategy):
+    # Match tenant with single digit block (e.g., 124-1-034)
+    def __init__(self):
+        super().__init__(re.compile(r"(?:^|\s+|,)(\d{3})-(\d{1})-(\d{2,3})\s?(?:DC)?(?:$|\s+|,|/)"))
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        result = super().process_match(match, description, db_cursor)
+
+        if db_cursor and result.tenant_ref and not doubleCheckTenantRef(db_cursor, result.tenant_ref, description):
+            # If initial validation fails, try padding the block to 2 digits
+            property_ref = match.group(1)
+            block_ref = match.group(2).zfill(2)  # "1" -> "01"
+            tenant_ref = match.group(3).zfill(3) if len(match.group(3)) == 2 else match.group(3)  # Pad if 2 digits
+            
+            padded_tenant_ref = f"{property_ref}-{block_ref}-{tenant_ref}"
+            if not doubleCheckTenantRef(db_cursor, padded_tenant_ref, description):
+                raise MatchValidationException("Failed to validate tenant reference")
+            return MatchResult.match(property_ref, block_ref, padded_tenant_ref)
+        
         return result
 
 
@@ -568,6 +598,96 @@ class CatchRemainderStrategy(RegexStrategy):
         return MatchResult.match(property_ref, block_ref, tenant_ref)
 
 
+class AlphanumericPropertyStrategy(RegexStrategy):
+    """Match alphanumeric property references like 059A-01-001"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_ALPHANUMERIC)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. "059A"
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. "059A-01"
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. "059A-01-001"
+
+        # Only allow known alphanumeric properties from config
+        if property_ref not in get_alphanumeric_properties():
+            raise MatchValidationException(f"Alphanumeric property '{property_ref}' not in allowed list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class AlphanumericPropertyNoHyphensStrategy(RegexStrategy):
+    """Match alphanumeric property references without hyphens like '059A 01 001'"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_ALPHANUMERIC_NO_HYPHENS)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. "059A"
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. "059A-01"
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. "059A-01-001"
+
+        # Only allow known alphanumeric properties from config
+        if property_ref not in get_alphanumeric_properties():
+            raise MatchValidationException(f"Alphanumeric property '{property_ref}' not in allowed list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class AlphanumericPropertyForwardSlashStrategy(RegexStrategy):
+    """Match alphanumeric property references with forward slashes like '059A/01/001'"""
+
+    def __init__(self):
+        super().__init__(PBT_REGEX_ALPHANUMERIC_FWD_SLASHES)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. "059A"
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. "059A-01"
+        tenant_ref = f"{block_ref}-{match.group(3)}"  # e.g. "059A-01-001"
+
+        # Only allow known alphanumeric properties from config
+        if property_ref not in get_alphanumeric_properties():
+            raise MatchValidationException(f"Alphanumeric property '{property_ref}' not in allowed list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class AlphanumericPropertyBlockStrategy(RegexStrategy):
+    """Match alphanumeric property-block references like '059A-01'"""
+
+    def __init__(self):
+        super().__init__(PB_REGEX_ALPHANUMERIC)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. "059A"
+        block_ref = f"{property_ref}-{match.group(2)}"  # e.g. "059A-01"
+        tenant_ref = None
+
+        # Only allow known alphanumeric properties from config
+        if property_ref not in get_alphanumeric_properties():
+            raise MatchValidationException(f"Alphanumeric property '{property_ref}' not in allowed list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
+class AlphanumericPropertyOnlyStrategy(RegexStrategy):
+    """Match alphanumeric property references only like '059A'"""
+
+    def __init__(self):
+        super().__init__(P_REGEX_ALPHANUMERIC)
+
+    def process_match(self, match: re.Match, description: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
+        property_ref = match.group(1)  # e.g. "059A"
+        block_ref = None
+        tenant_ref = None
+
+        # Only allow known alphanumeric properties from config
+        if property_ref not in get_alphanumeric_properties():
+            raise MatchValidationException(f"Alphanumeric property '{property_ref}' not in allowed list")
+
+        return MatchResult.match(property_ref, block_ref, tenant_ref)
+
+
 class PropertyBlockTenantRefMatcher:
     def __init__(self):
         self.strategies: list[MatchingStrategy] = []
@@ -580,8 +700,9 @@ class PropertyBlockTenantRefMatcher:
     def _detect_test_environment(self):
         """Detect if we're running in a test environment."""
         import sys
+
         # Check if pytest is running
-        return 'pytest' in sys.modules or 'unittest' in sys.modules
+        return "pytest" in sys.modules or "unittest" in sys.modules
 
     def _setup_log_file(self):
         if self.log_file and not self.log_file.exists():
@@ -590,7 +711,7 @@ class PropertyBlockTenantRefMatcher:
             with open(self.log_file, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["description", "property_ref", "block_ref", "tenant_ref", "strategy"])
-    
+
     def add_strategy(self, strategy: MatchingStrategy):
         self.strategies.append(strategy)
 
@@ -649,10 +770,15 @@ def _get_matcher() -> PropertyBlockTenantRefMatcher:
         _matcher_instance = PropertyBlockTenantRefMatcher()
         _matcher_instance.add_strategy(IrregularTenantRefStrategy())
         _matcher_instance.add_strategy(ExcludeZSuffixStrategy())  # For properties 020, 022, 039 with Z-suffix exclusion - check before general RegexStrategy
+        # Add alphanumeric property strategies early for priority
+        _matcher_instance.add_strategy(AlphanumericPropertyStrategy())  # For alphanumeric properties like 059A-01-001
+        _matcher_instance.add_strategy(AlphanumericPropertyForwardSlashStrategy())  # For alphanumeric properties like 059A/01/001
+        _matcher_instance.add_strategy(AlphanumericPropertyNoHyphensStrategy())  # For alphanumeric properties like '059A 01 001'
         _matcher_instance.add_strategy(RegexStrategy(PBT_REGEX))
         _matcher_instance.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX_FWD_SLASHES))
         _matcher_instance.add_strategy(RegexDoubleCheckStrategy(PBT_REGEX2))  # Match tenant with spaces between hyphens
         _matcher_instance.add_strategy(PBTRegex3Strategy())
+        _matcher_instance.add_strategy(PBTRegex3SingleDigitBlockStrategy())  # For single digit blocks like 124-1-034
         _matcher_instance.add_strategy(PBTRegex4Strategy())
         # Add specific strategies before SpecialCaseStrategy to get priority
         _matcher_instance.add_strategy(PropertyBlockWithCommercialPropertyStrategy())  # For commercial property patterns e.g. 156-COM-001
@@ -665,12 +791,15 @@ def _get_matcher() -> PropertyBlockTenantRefMatcher:
         _matcher_instance.add_strategy(TwoLetterCodeStrategy())  # For two-letter code patterns e.g. 161-01-GH
         _matcher_instance.add_strategy(SpecialCaseStrategy())
         _matcher_instance.add_strategy(CatchRemainderStrategy())  # Safety net for any patterns missed by specific strategies
-        _matcher_instance.add_strategy(PBRegexStrategy())
+        _matcher_instance.add_strategy(AlphanumericPropertyBlockStrategy())  # For alphanumeric property-block like 059A-01
         # _matcher_instance.add_strategy(PTRegexStrategy())
         _matcher_instance.add_strategy(NoHyphenRegexStrategy())
-        # _matcher_instance.add_strategy(PRegexStrategy())
+        _matcher_instance.add_strategy(AlphanumericPropertyOnlyStrategy())  # For alphanumeric property-only like 059A
         # New strategies for 2025-08-04 scenario tenant reference formats - added at end
         _matcher_instance.add_strategy(RegexStrategy(PBT_REGEX_ALPHA_SUFFIX))  # For 059-01-001A patterns
+        # General fallback strategies - try these last as they are most general
+        _matcher_instance.add_strategy(PBRegexStrategy())  # For property-block patterns like 020-01
+        _matcher_instance.add_strategy(PRegexStrategy())  # For property-only patterns like 020
     return _matcher_instance
 
 

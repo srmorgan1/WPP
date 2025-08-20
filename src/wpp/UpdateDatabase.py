@@ -11,12 +11,13 @@ import pandas as pd
 from dateutil import parser
 from openpyxl import load_workbook
 
-from .calendars import BUSINESS_DAY
+from .calendars import get_business_day_offset
 from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .constants import DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_TENANT_NAME_MATCH_LENGTH, MINIMUM_VALID_PROPERTY_REF
 from .data_classes import ChargeData, TransactionReferences
 from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
 from .db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
+from .excel import format_all_excel_sheets_comprehensive
 from .exceptions import database_transaction, log_database_error
 from .logger import setup_logger
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
@@ -141,6 +142,200 @@ def removeDCReferencePostfix(tenant_ref: str | None) -> str | None:
     if tenant_ref is not None and tenant_ref.endswith(DEBIT_CARD_SUFFIX):
         tenant_ref = tenant_ref[:-2].strip()
     return tenant_ref
+
+
+def _validate_reference_parsing(references_df: pd.DataFrame, file_path: str, reference_column: str, name_column: str, file_type: str) -> list[dict]:
+    """
+    Validate that references in a dataframe can be parsed correctly.
+
+    Args:
+        references_df: DataFrame containing reference data
+        file_path: File path for error messages
+        reference_column: Name of the reference column
+        name_column: Name of the name column (for context)
+        file_type: Type of file for error messages ('Tenants', 'Estates', 'General Idents')
+
+    Returns:
+        List of validation issues found
+    """
+    validation_issues = []
+
+    for index, row in references_df.iterrows():
+        reference = row[reference_column]
+        name = row[name_column] if name_column in row and pd.notna(row[name_column]) else ""
+
+        # Skip blank/empty references
+        if pd.isna(reference) or str(reference).strip() == "":
+            continue
+
+        # Try to parse the reference
+        property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(str(reference).strip())
+
+        # Check if parsing was successful based on file type
+        parsing_failed = False
+        error_msg = ""
+
+        if file_type == "Tenants":
+            # For tenants file, we need all three parts (property, block, tenant)
+            if not all([property_ref, block_ref, tenant_ref]):
+                parsing_failed = True
+                error_msg = f"Tenant reference '{reference}' could not be parsed into property-block-tenant format"
+        elif file_type == "Estates":
+            # For estates file, we need at least property reference
+            if not property_ref:
+                parsing_failed = True
+                error_msg = f"Estate reference '{reference}' could not be parsed to extract property reference"
+        elif file_type == "General Idents":
+            # For general idents file, we need tenant reference to be parseable
+            if not tenant_ref:
+                parsing_failed = True
+                error_msg = f"Tenant reference '{reference}' could not be parsed to extract tenant reference"
+
+        if parsing_failed:
+            validation_issues.append(
+                {
+                    "Row Number": index + 2,  # +2 because pandas is 0-indexed and Excel has header row
+                    "Reference": reference,
+                    "Name": name,
+                    "Property Ref": property_ref or "N/A",
+                    "Block Ref": block_ref or "N/A",
+                    "Tenant Ref": tenant_ref or "N/A",
+                    "Error": error_msg,
+                }
+            )
+
+    return validation_issues
+
+
+def _report_reference_parsing_errors(validation_issues: list[dict], file_path: str, file_type: str, excel_writer: pd.ExcelWriter) -> None:
+    """
+    Report reference parsing errors to log and Excel sheet.
+
+    Args:
+        validation_issues: List of error dictionaries
+        file_path: File path for error messages
+        file_type: Type of file for sheet naming
+        excel_writer: Excel writer for outputting errors
+    """
+    if not validation_issues:
+        return
+
+    logger.error(f"Found {len(validation_issues)} reference parsing issues in {file_path}")
+    for error in validation_issues:
+        logger.error(f"Row {error['Row Number']}: {error['Error']} - Name: {error['Name']}")
+
+    # Write errors to Excel with file-type specific sheet name
+    sheet_name = f"{file_type} Import Problems"
+    errors_df = pd.DataFrame(validation_issues)
+    errors_df.to_excel(excel_writer, sheet_name=sheet_name, index=False, float_format="%.2f")
+
+
+def _report_qube_import_errors(qube_import_errors: list[dict], qube_file: str, excel_writer: pd.ExcelWriter) -> None:
+    """
+    Report Qube import errors to log and Excel sheet.
+
+    Args:
+        qube_import_errors: List of error dictionaries
+        qube_file: File path for error messages
+        excel_writer: Excel writer for outputting errors
+    """
+    if not qube_import_errors:
+        return
+
+    logger.error(f"Found {len(qube_import_errors)} Qube import issues in {qube_file}")
+    for error in qube_import_errors:
+        logger.error(f"Block {error['Block Reference']}: {error['Error']}")
+
+    # Write errors to Excel
+    errors_df = pd.DataFrame(qube_import_errors)
+    errors_df.to_excel(excel_writer, sheet_name="Qube Import Problems", index=False, float_format="%.2f")
+
+
+def _validate_account_designation_consistency(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, excel_writer: pd.ExcelWriter) -> list[dict]:
+    """
+    Validate that manual Property/Block designation matches the reference format for all accounts.
+
+    Args:
+        bank_accounts_df: DataFrame containing account data
+        bank_accounts_file: File path for error messages
+        excel_writer: Excel writer for outputting validation issues
+
+    Returns:
+        List of validation issues found
+    """
+    validation_issues = []
+
+    for index, row in bank_accounts_df.iterrows():
+        reference = row["Reference"]
+        property_or_block = row["Property Or Block"]
+        sort_code = row["Sort Code"]
+        account_number = row["Account Number"]
+        account_name = row["Account Name"]
+        client_ref = row["Client Reference"]
+
+        # Skip accounts with blank/empty references
+        if pd.isna(reference) or str(reference).strip() == "":
+            continue
+
+        # Skip accounts with blank/empty property_or_block
+        if pd.isna(property_or_block) or str(property_or_block).strip() == "":
+            continue
+
+        _, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
+
+        if block_ref is None:
+            continue  # Skip validation if reference couldn't be parsed
+
+        # Normalize property_or_block value
+        if property_or_block.upper() in ["PROPERTY", "P"]:
+            property_block = "P"
+        elif property_or_block.upper() in ["BLOCK", "B"]:
+            property_block = "B"
+        else:
+            continue  # Skip unknown values
+
+        # Derive automatic type from reference format
+        auto_type = "P" if block_ref.endswith("00") else "B"
+
+        # Check for inconsistency
+        if property_block != auto_type:
+            if auto_type == "P":
+                # Estate reference marked as Block
+                issue = f"Estate reference '{reference}' marked as 'Block' - should be 'Property'"
+                suggestion = f"Change 'Property Or Block' to 'Property' and add to Estates.xlsx, or change reference to '{reference[:-2]}01'"
+            else:
+                # Block reference marked as Property
+                property_ref = reference.split("-")[0] if "-" in reference else reference
+                suggested_ref = f"{property_ref}-00"
+                issue = f"Block reference '{reference}' marked as 'Property' - should be 'Block'"
+                suggestion = f"Change 'Property Or Block' to 'Block' or change reference to '{suggested_ref}'"
+
+            validation_issues.append(
+                {
+                    "Row Number": index + 2,  # +2 because pandas is 0-indexed and Excel has header row
+                    "Reference": reference,
+                    "Sort Code": sort_code,
+                    "Account Number": account_number,
+                    "Account Name": account_name,
+                    "Client Reference": client_ref,
+                    "Property Or Block": property_or_block,
+                    "Expected": "Property" if auto_type == "P" else "Block",
+                    "Issue": issue,
+                    "Suggestion": suggestion,
+                }
+            )
+
+    if validation_issues:
+        # Log all violations at ERROR level
+        logger.error(f"Found {len(validation_issues)} Property/Block designation inconsistencies in {bank_accounts_file}")
+        for issue in validation_issues:
+            logger.error(f"Row {issue['Row Number']}: {issue['Issue']} - Account {issue['Sort Code']}-{issue['Account Number']}")
+
+        # Write violations to Excel
+        issues_df = pd.DataFrame(validation_issues)
+        issues_df.to_excel(excel_writer, sheet_name="Account Designation Issues", index=False, float_format="%.2f")
+
+    return validation_issues
 
 
 def correctKnownCommonErrors(property_ref: str, block_ref: str, tenant_ref: str | None) -> tuple[str, str, str | None]:
@@ -753,9 +948,14 @@ def _process_tenant(csr: sqlite3.Cursor, tenant_ref: str, tenant_name: str, bloc
     return 0
 
 
-def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) -> None:
+def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
     """Import properties data from Excel file into database."""
     properties_df = _read_properties_df(properties_xls_file)
+
+    # Validate tenant reference parsing before import
+    if excel_writer is not None:
+        validation_issues = _validate_reference_parsing(properties_df, properties_xls_file, "Reference", "Name", "Tenants")
+        _report_reference_parsing_errors(validation_issues, properties_xls_file, "Tenants", excel_writer)
 
     num_properties_added_to_db = 0
     num_blocks_added_to_db = 0
@@ -800,11 +1000,21 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str) 
     logger.info(f"{num_blocks_added_to_db} blocks added to the database.")
     logger.info(f"{num_tenants_added_to_db} tenants added to the database.")
 
+    # Tenants validation errors don't stop processing
+    return False
 
-def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str) -> None:
+
+def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
     # Read Excel spreadsheet into dataframe
-    estates_df = pd.read_excel(estates_xls_file, dtype=str)
+    estates_df = pd.read_excel(estates_xls_file, dtype={"Reference": str})
     estates_df.fillna("", inplace=True)
+
+    # Validate estate reference parsing before import
+    has_critical_errors = False
+    if excel_writer is not None:
+        validation_issues = _validate_reference_parsing(estates_df, estates_xls_file, "Reference", "Name", "Estates")
+        _report_reference_parsing_errors(validation_issues, estates_xls_file, "Estates", excel_writer)
+        has_critical_errors = len(validation_issues) > 0
 
     num_estates_added_to_db = 0
     num_blocks_added_to_db = 0
@@ -820,8 +1030,13 @@ def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str) -> Non
             if reference is None or reference[0] == "9" or "Y" in reference.upper() or "Z" in reference.upper():
                 continue
 
-            # Update property to be an estate, if the property name has not already been set
+            # Create property if it doesn't exist, then update it to be an estate
             property_id = get_id_from_ref(csr, "Properties", "property", reference)
+            if not property_id:
+                # Create the property first
+                csr.execute(INSERT_PROPERTY_SQL, (reference,))
+                property_id = get_id_from_ref(csr, "Properties", "property", reference)
+            
             if property_id:
                 if get_id(csr, SELECT_PROPERTY_ID_FROM_REF_SQL, (reference,)) == property_id:
                     csr.execute(UPDATE_PROPERTY_DETAILS_SQL, (estate_name, property_id))
@@ -849,6 +1064,9 @@ def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str) -> Non
         logger.error("No estates or estate blocks have been added to the database.")
         csr.execute("rollback")
         raise
+
+    # Return whether critical validation errors were found
+    return has_critical_errors
 
 
 def addPropertyToDB(db_conn: sqlite3.Connection, property_ref: str, rethrow_exception: bool = False) -> int | None:
@@ -1008,11 +1226,80 @@ def addTenantToDB(
 #         # charges = {}
 
 
-def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> None:
+def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, excel_writer: pd.ExcelWriter) -> None:
+    """
+    Validate that there are no duplicate CL (Client) accounts per block reference.
+    Ignores accounts with blank/empty references.
+    Writes violations to the existing Excel writer and raises ValueError if violations are found.
+    """
+    # Find duplicate CL accounts per block reference, excluding blank references
+    cl_accounts = bank_accounts_df[(bank_accounts_df["Account Type"] == "CL") & (bank_accounts_df["Reference"].notna()) & (bank_accounts_df["Reference"].str.strip() != "")].copy()
+
+    if cl_accounts.empty:
+        return  # No CL accounts to validate
+
+    # Group by Reference and count CL accounts
+    cl_counts = cl_accounts.groupby("Reference").size()
+    duplicate_blocks = cl_counts[cl_counts > 1]
+
+    if duplicate_blocks.empty:
+        return  # No duplicates found
+
+    # Collect all violation details for reporting
+    violations = []
+    for block_ref in duplicate_blocks.index:
+        block_accounts = cl_accounts[cl_accounts["Reference"] == block_ref]
+        for _, row in block_accounts.iterrows():
+            violations.append(
+                {
+                    "Block Reference": block_ref,
+                    "Account Number": row["Account Number"],
+                    "Sort Code": row["Sort Code"],
+                    "Account Name": row["Account Name"],
+                    "Client Reference": row["Client Reference"],
+                    "Row Number": row.name + 2,  # +2 because pandas is 0-indexed and Excel has header row
+                    "Error": f"Multiple CL accounts found for block {block_ref}",
+                }
+            )
+
+    # Log all violations at ERROR level
+    logger.error(f"Found {len(violations)} duplicate CL account violations in {bank_accounts_file}")
+    for violation in violations:
+        logger.error(f"Row {violation['Row Number']}: Block {violation['Block Reference']} has multiple CL accounts - Account {violation['Sort Code']}-{violation['Account Number']}")
+
+    # Write violations to the existing Excel writer
+    violations_df = pd.DataFrame(violations)
+    violations_df.to_excel(excel_writer, sheet_name="Account Validation Problems", index=False, float_format="%.2f")
+
+    # Raise exception to stop the import process
+    # The Excel file will be saved by the finally block in importAllData()
+    block_list = ", ".join(duplicate_blocks.index)
+    raise ValueError(
+        f"Data validation failed: Found multiple CL (Client) accounts for the following blocks: {block_list}. "
+        f"Each block can have only one CL account. Please check the 'Account Validation Problems' sheet in the "
+        f"Data Import Issues Excel file for details and correct the Accounts.xlsx file before running the import again."
+    )
+
+
+def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
     # Read Excel spreadsheet into dataframe
-    bank_accounts_df = pd.read_excel(bank_accounts_file, "Accounts", dtype=str)
+    bank_accounts_df = pd.read_excel(bank_accounts_file, "Accounts", dtype={"Reference": str, "Sort Code": str, "Account Number": str})
     bank_accounts_df.replace("nan", "", inplace=True)
     bank_accounts_df.fillna("", inplace=True)
+
+    # Validate for duplicate CL accounts per block and Property/Block designation consistency before inserting any data
+    has_critical_errors = False
+    if excel_writer is not None:
+        try:
+            _validate_account_uniqueness(bank_accounts_df, bank_accounts_file, excel_writer)
+        except ValueError:
+            # Account uniqueness validation failed - this is critical
+            has_critical_errors = True
+
+        # Validate Property/Block designation consistency (doesn't stop import, just reports issues)
+        designation_issues = _validate_account_designation_consistency(bank_accounts_df, bank_accounts_file, excel_writer)
+        if designation_issues:
+            logger.warning(f"Found {len(designation_issues)} Property/Block designation issues - see Excel file for details")
 
     num_bank_accounts_added_to_db = 0
 
@@ -1028,6 +1315,11 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
             client_ref = row["Client Reference"]
             account_name = row["Account Name"]
 
+            # Skip accounts with blank/empty references
+            if pd.isna(reference) or str(reference).strip() == "":
+                logger.debug(f"Skipping bank account ({sort_code}, {account_number}) with blank reference")
+                continue
+
             property_block = None
             if property_or_block.upper() == "PROPERTY" or property_or_block.upper() == "P":
                 property_block = "P"
@@ -1039,16 +1331,6 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
                 raise ValueError(f"Unknown property/block type {property_or_block} for bank account ({sort_code}, {account_number})")
 
             _, block_ref, _ = getPropertyBlockAndTenantRefs(reference)
-
-            if property_block == "P" and block_ref is not None and not block_ref.endswith("00"):
-                property_ref, _, _ = getPropertyBlockAndTenantRefs(reference)
-                suggested_ref = f"{property_ref}-00" if property_ref else f"{reference.split('-')[0]}-00"
-                raise ValueError(
-                    f"Invalid block reference '{reference}' for estate account. "
-                    f"Estate accounts (Property Or Block = 'Property') must use estate block references ending in '-00'. "
-                    f"Either change the reference to '{suggested_ref}' or set 'Property Or Block' to 'Block'. "
-                    f"Bank account: {sort_code}-{account_number}"
-                )
 
             block_id = get_id_from_ref(csr, "Blocks", "block", reference)
             # if block_id is None:
@@ -1085,20 +1367,30 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str) -> 
         logger.error("The data which caused the failure is: " + str((reference, sort_code, account_number, account_type, property_or_block)))
         logger.error("No bank accounts have been added to the database")
         csr.execute("rollback")
-        raise
+        # Database constraint violations indicate critical errors - don't raise, let caller handle
+        has_critical_errors = True
     except Exception as ex:
         logger.error(str(ex))
         logger.error("The data which caused the failure is: " + str((reference, sort_code, account_number, account_type, property_or_block)))
         logger.error("No bank accounts have been added to the database.")
         csr.execute("rollback")
-        raise
+        # Other exceptions indicate critical errors - don't raise, let caller handle
+        has_critical_errors = True
+
+    # Return whether critical validation errors were found
+    return has_critical_errors
 
 
-def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_refs_file: str) -> None:
+def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_refs_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
     # Read Excel spreadsheet into dataframe
     anomalous_refs_df = pd.read_excel(anomalous_refs_file, "Sheet1", dtype=str)
     anomalous_refs_df.replace("nan", "", inplace=True)
     anomalous_refs_df.fillna("", inplace=True)
+
+    # Validate tenant reference parsing before import
+    if excel_writer is not None:
+        validation_issues = _validate_reference_parsing(anomalous_refs_df, anomalous_refs_file, "Tenant Reference", "Payment Reference Pattern", "General Idents")
+        _report_reference_parsing_errors(validation_issues, anomalous_refs_file, "General Idents", excel_writer)
 
     num_anomalous_refs_added_to_db = 0
     tenant_reference = ""
@@ -1138,6 +1430,9 @@ def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_
         logger.error("The data which caused the failure is: " + str((tenant_reference, payment_reference_pattern)))
         csr.execute("rollback")
         raise
+
+    # General idents validation errors don't stop processing
+    return False
 
 
 def calculateSCFund(auth_creditors: float, available_funds: float, property_ref: str, block_ref: str) -> float:
@@ -1250,9 +1545,9 @@ def _add_charge_if_not_exists(csr, charge: ChargeData) -> bool:
     return False
 
 
-def _process_fund_category_data(
+def _process_qube_data(
     csr, property_code_or_fund: str, property_ref: str, block_ref: str, block_name: str, fund: str, category: str, auth_creditors: float, available_funds: float, at_date: str, type_ids: dict
-) -> int:
+) -> tuple[int, dict | None]:
     """Process fund/category data and add charges to database. Returns number of charges added."""
     num_charges_added = 0
 
@@ -1260,8 +1555,23 @@ def _process_fund_category_data(
     block_id = _ensure_block_exists(csr, property_ref, block_ref)
     if not block_id:
         diagnostic_info = _diagnose_missing_property(csr, property_ref, block_ref)
-        logger.warning(f"Cannot process Qube balances for block '{block_ref}'. {diagnostic_info} Skipping {block_ref} charges.")
-        return 0
+        error_msg = f"Cannot process Qube balances for block '{block_ref}'. {diagnostic_info}"
+        logger.error(error_msg + f" Skipping {block_ref} charges.")
+
+        # Return error details for Excel reporting
+        error_details = {
+            "Property Code/Fund": property_code_or_fund,
+            "Property Reference": property_ref,
+            "Block Reference": block_ref,
+            "Block Name": block_name,
+            "Fund": fund,
+            "Category": category,
+            "Auth Creditors": auth_creditors,
+            "Available Funds": available_funds,
+            "Date": at_date,
+            "Error": diagnostic_info,
+        }
+        return 0, error_details
 
     # Update block name if needed
     _update_block_name_if_needed(csr, block_ref, block_name, block_id)
@@ -1289,12 +1599,13 @@ def _process_fund_category_data(
             logger.debug(f"\tAdding charge for {(fund, category, SC_FUND, at_date, block_ref, sc_fund)}")
             num_charges_added += 1
 
-    return num_charges_added
+    return num_charges_added, None  # No error for successful processing
 
 
-def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str) -> None:
+def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
     """Import Qube End of Day balances from Excel file into database."""
     num_charges_added_to_db = 0
+    qube_import_errors = []  # Collect import errors for Excel reporting
 
     # Load and validate spreadsheet
     qube_eod_balances_workbook = load_workbook(qube_eod_balances_xls_file, read_only=True, data_only=True)
@@ -1351,8 +1662,12 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
                 assert block_ref is not None
                 assert block_name is not None
 
-                charges_added = _process_fund_category_data(csr, property_code_or_fund, property_ref, block_ref, block_name, fund, category, auth_creditors, available_funds, at_date, type_ids)
+                charges_added, error_info = _process_qube_data(csr, property_code_or_fund, property_ref, block_ref, block_name, fund, category, auth_creditors, available_funds, at_date, type_ids)
                 num_charges_added_to_db += charges_added
+
+                # Collect error information for Excel reporting
+                if error_info:
+                    qube_import_errors.append(error_info)
 
             elif property_code_or_fund == "Property Totals":
                 # Reset for next property
@@ -1361,6 +1676,10 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         csr.execute("end")
         db_conn.commit()
         logger.info(f"{num_charges_added_to_db} charges added to the database.")
+
+        # Report any Qube import errors to Excel
+        if excel_writer is not None:
+            _report_qube_import_errors(qube_import_errors, qube_eod_balances_xls_file, excel_writer)
 
     except db_conn.Error as err:
         logger.error(str(err))
@@ -1374,6 +1693,9 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         logger.error("No Qube balances have been added to the database.")
         logger.exception(ex)
         csr.execute("rollback")
+
+    # Return whether critical errors were found (qube import errors are critical)
+    return len(qube_import_errors) > 0
 
 
 def add_misc_data_to_db(db_conn: sqlite3.Connection) -> None:
@@ -1413,6 +1735,9 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.debug(f"Creating Excel spreadsheet report file {excel_log_file}")
     excel_writer = pd.ExcelWriter(excel_log_file, engine="openpyxl")
 
+    # Track critical validation errors that should stop processing
+    has_critical_validation_errors = False
+
     config = get_config()
     inputs_config = config["INPUTS"]
 
@@ -1421,7 +1746,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
         logger.info(f"Importing irregular transaction references from file {irregular_transaction_refs_file}")
-        importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file)
+        has_critical_validation_errors |= importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file, excel_writer)
     else:
         logger.error(f"Cannot find irregular transaction references file matching {irregular_transaction_refs_file_pattern}")
     logger.info("")
@@ -1432,7 +1757,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
         logger.info(f"Importing Properties from file {properties_xls_file}")
-        importPropertiesFile(db_conn, properties_xls_file)
+        has_critical_validation_errors |= importPropertiesFile(db_conn, properties_xls_file, excel_writer)
     else:
         logger.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logger.info("")
@@ -1441,7 +1766,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logger.info(f"Importing Estates from file {estates_xls_file}")
-        importEstatesFile(db_conn, estates_xls_file)
+        has_critical_validation_errors |= importEstatesFile(db_conn, estates_xls_file, excel_writer)
     else:
         logger.error(f"Cannot find Estates file matching {estates_file_pattern}")
     logger.info("")
@@ -1451,7 +1776,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
             logger.info(f"Importing Qube balances from file {qube_eod_balances_file}")
-            importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file)
+            has_critical_validation_errors |= importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file, excel_writer)
     else:
         logger.error(f"Cannot find Qube EOD Balances file matching {qube_eod_balances_file_pattern}")
     logger.info("")
@@ -1460,7 +1785,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logger.info(f"Importing bank accounts from file {accounts_file}")
-        importBankAccounts(db_conn, accounts_file)
+        has_critical_validation_errors |= importBankAccounts(db_conn, accounts_file, excel_writer)
     else:
         logger.error(f"ERROR: Cannot find account numbers file matching {accounts_file_pattern}")
     logger.info("")
@@ -1533,6 +1858,21 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     logger.info("")
 
     add_misc_data_to_db(db_conn)
+
+    # Check if any critical validation errors occurred and raise exception to stop processing
+    if has_critical_validation_errors:
+        # Format all Excel sheets before closing when there are errors
+        format_all_excel_sheets_comprehensive(excel_writer)
+        excel_writer.close()
+        logger.error(f"Data Import Issues Excel file saved with validation errors: {excel_log_file}")
+        raise ValueError(
+            "Data validation failed: Critical validation errors were found in estates, qube, or accounts data. "
+            "Please check the Data Import Issues Excel file for details and correct the input files before "
+            "running the import again."
+        )
+
+    # Format all Excel sheets before closing (no errors case)
+    format_all_excel_sheets_comprehensive(excel_writer)
     excel_writer.close()
 
 
@@ -1552,6 +1892,9 @@ def main() -> None:
     global logger
     log_file = get_wpp_update_database_log_file(dt.datetime.today())
     logger = setup_logger(__name__, log_file)
+
+    global BUSINESS_DAY
+    BUSINESS_DAY = get_business_day_offset(logger)
 
     start_time = time.time()
 

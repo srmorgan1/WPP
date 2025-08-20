@@ -78,6 +78,14 @@ def get_wpp_ref_matcher_log_file(date: dt.date | dt.datetime) -> Path:
     return get_wpp_log_dir() / f"ref_matcher_{timestamp}.csv"
 
 
+def get_wpp_app_log_file(date: dt.date | dt.datetime) -> Path:
+    if isinstance(date, dt.datetime):
+        timestamp = date.strftime("%Y-%m-%d_%H-%M-%S")
+    else:
+        timestamp = date.strftime("%Y-%m-%d")
+    return get_wpp_log_dir() / f"Log_App_{timestamp}.txt"
+
+
 def get_special_case_properties() -> list[str]:
     """Get the list of properties that require special handling for tenant references."""
     config = get_config()
@@ -130,6 +138,12 @@ def get_two_letter_code_properties() -> list[str]:
     """Get the list of properties that use two-letter code tenant references (XXX-XX-AB format)."""
     config = get_config()
     return config["TENANT_REFERENCE_PARSING"]["TWO_LETTER_CODE_PROPERTIES"]
+
+
+def get_alphanumeric_properties() -> list[str]:
+    """Get the list of properties that use alphanumeric property references (059A format)."""
+    config = get_config()
+    return config["TENANT_REFERENCE_PARSING"]["ALPHANUMERIC_PROPERTIES"]
 
 
 @cache

@@ -261,7 +261,7 @@ WHERE
     AND block_ref NOT IN
     (
         -- Doesn't have a block account in the Accounts table
-        SELECT DISTINCT block_ref FROM Accounts, Blocks WHERE Accounts.property_or_block = 'B' AND Accounts.block_id = Blocks.ID ORDER BY block_ref
+        SELECT DISTINCT block_ref FROM Accounts, Blocks WHERE Blocks.type = 'B' AND Accounts.block_id = Blocks.ID ORDER BY block_ref
     )
     AND property_ref NOT IN
     (
