@@ -713,7 +713,7 @@ def test_get_element_text():
     # Test getting non-existent element text - should raise ValueError
     import pytest
 
-    with pytest.raises(ValueError, match="Missing or empty field"):
+    with pytest.raises(ValueError, match="Missing required XML element"):
         get_element_text(root, "nonexistent")
 
 

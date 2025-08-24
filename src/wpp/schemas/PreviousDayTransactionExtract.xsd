@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="https://isite.bankofscotland.co.uk/Schemas/PreviousDayTransactionExtract.xsd" targetNamespace="https://isite.bankofscotland.co.uk/Schemas/PreviousDayTransactionExtract.xsd" elementFormDefault="qualified" attributeFormDefault="unqualified" version="1.1">
+	<xs:annotation>
+		<xs:documentation>
+		      
+		</xs:documentation>
+	</xs:annotation>
+
+  <xs:annotation>
+    <xs:documentation>
+      This schema can be downloaded from i|Site application at the URL
+      https://isite.bankofscotland.co.uk/Schemas/PreviousDayTransactionExtract.xsd
+    </xs:documentation>
+  </xs:annotation>
+
+  <!-- Include the supported IBL types -->
+  <xs:include schemaLocation="IBLTypes.xsd"/>
+
+  <xs:element name="PreviousDayTransactionExtract">
+			<xs:annotation>
+			<xs:documentation>
+						This report is a sub set of Transaction Detail Report and will include information for Sterling accounts only. 
+						Provides the detailed information of transactions of particular accounts.
+				</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="ReportingDays">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="ReportingDay" minOccurs="0" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="Date" type="IBLDateTypeRequired"/>
+										<xs:element name="TransactionRecords">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="TransactionRecord" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:sequence>
+																<xs:element name="SortCode" type="IBLSortcodeTypeRequired"/>
+																<xs:element name="AccountNumber" type="IBLSterlingAccountNumberType"/>
+																<xs:element name="ClientRef" type="IBLFourteenCharsType"/>
+																<xs:element name="TransactionType" type="IBLTwentyCharsTypeRequired"/>
+																<xs:element name="TransactionAmount" type="IBLAmountTypeRequired"/>
+																<xs:element name="TransactionDescription" type="IBLEightyCharsType"/>
+																<xs:element name="TransactionPostedDate" type="IBLDateTypeRequired"/>
+															</xs:sequence>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TotalResultsRetrieved" type="IBLResultsType"/>
+				<xs:element name="ReportGenerated" type="IBLDateTimeTypeRequired"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

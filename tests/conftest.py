@@ -354,7 +354,7 @@ def get_unique_date_from_charges(db_conn) -> dt.date:
         return date_str
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)  # Disabled to allow regression tests to preserve CSV files
 def cleanup_ref_matcher_csv_files():
     """Automatically clean up ref_matcher CSV files after each test."""
     import glob

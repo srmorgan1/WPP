@@ -44,6 +44,10 @@ def setup_logger(module_name: str, log_file_path: Path, include_timestamp: bool 
     logger = logging.getLogger(module_name)
     logger.setLevel(logging.INFO)
 
+    # Remove existing handlers to prevent duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
     # File handler (logs everything at INFO level and above)
     file_handler = logging.FileHandler(log_file_path)
     file_handler.setFormatter(log_formatter)

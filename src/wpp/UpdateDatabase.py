@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 from dateutil import parser
+from lxml import etree
 from openpyxl import load_workbook
 
 from .calendars import get_business_day_offset
@@ -301,7 +302,7 @@ def _validate_account_designation_consistency(bank_accounts_df: pd.DataFrame, ba
         if property_block != auto_type:
             if auto_type == "P":
                 # Estate reference marked as Block
-                issue = f"Estate reference '{reference}' marked as 'Block' - should be 'Property'"
+                issue = f"Estate reference '{reference}' marked as 'Block' - should be 'Property'?"
                 suggestion = f"Change 'Property Or Block' to 'Property' and add to Estates.xlsx, or change reference to '{reference[:-2]}01'"
             else:
                 # Block reference marked as Property
@@ -550,10 +551,135 @@ def getTenantID(csr: sqlite3.Cursor, tenant_ref: str) -> None:
 
 # Helper function to get text from an XML element and ensure it is not None
 def get_element_text(parent_element: et.Element, child_element_name: str) -> str:
+    """Extract text from required XML element with enhanced validation.
+
+    Args:
+        parent_element: The parent XML element
+        child_element_name: Name of the child element to find
+
+    Returns:
+        Element text (stripped of whitespace)
+
+    Raises:
+        ValueError: When element is missing, empty, or contains only whitespace
+    """
     child_element = parent_element.find(child_element_name)
-    if child_element is None or child_element.text is None:
-        raise ValueError(f"Missing or empty field: {child_element_name}")
-    return child_element.text
+
+    if child_element is None:
+        raise ValueError(f"Missing required XML element: {child_element_name}")
+
+    if child_element.text is None or child_element.text.strip() == "":
+        raise ValueError(f"Empty required XML element: {child_element_name}")
+
+    return child_element.text.strip()
+
+
+def _validate_xml_against_xsd(xml_content: str, xsd_filename: str) -> None:
+    """Validate XML content against XSD schema using lxml.
+
+    Args:
+        xml_content: XML content as string
+        xsd_filename: Name of the XSD file (e.g., 'PreviousDayTransactionExtract.xsd')
+
+    Raises:
+        ValueError: If validation fails or XSD file not found
+    """
+    from pathlib import Path
+
+    # Get XSD file path from bundled schemas directory
+    schemas_dir = Path(__file__).parent / "schemas"
+    xsd_path = schemas_dir / xsd_filename
+    if not xsd_path.exists():
+        logger.warning(f"XSD file not found: {xsd_path}. Skipping schema validation.")
+        return
+
+    try:
+        # Parse XSD schema and remove problematic anchors
+        with open(xsd_path, encoding="utf-8") as xsd_file:
+            xsd_content = xsd_file.read()
+            
+        # Remove ^ and $ anchors from xs:pattern values since XML Schema patterns are implicitly anchored  
+        # Also fix the problematic \d{0,2} pattern to be XML Schema compliant
+        original_content = xsd_content
+        # Handle patterns with alternation (|) more carefully
+        xsd_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$\|\^\$"', r'\1\2|"', xsd_content)  # ^pattern$|^$ -> pattern|
+        xsd_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$"', r'\1\2"', xsd_content)  # ^pattern$ -> pattern
+        xsd_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)"', r'\1\2"', xsd_content)  # ^pattern -> pattern (no ending $)
+        # Fix the specific problematic pattern: replace the entire amount pattern
+        xsd_content = xsd_content.replace(
+            '[-+]?\\d{1,13}(?:\\.\\d{0,2})?', 
+            '[-+]?\\d{1,13}(\\.\\d{1,2})?'
+        )
+        logger.debug(f"XSD pattern modifications applied: {original_content != xsd_content}")
+        
+        # Create temporary directory with all XSD files to handle includes properly
+        import tempfile
+        import os
+        import shutil
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Copy all XSD files to temp directory, applying fixes to all of them
+            for schema_file in xsd_path.parent.glob("*.xsd"):
+                if schema_file.name == xsd_filename:
+                    # Write our modified main XSD content
+                    temp_file_path = Path(temp_dir) / schema_file.name
+                    with open(temp_file_path, 'w', encoding='utf-8') as f:
+                        f.write(xsd_content)
+                else:
+                    # Read, fix, and write other XSD files (like IBLTypes.xsd)
+                    with open(schema_file, 'r', encoding='utf-8') as f:
+                        other_content = f.read()
+                    # Apply same fixes to included files
+                    # Handle patterns with alternation (|) more carefully
+                    other_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$\|\^\$"', r'\1\2|"', other_content)  # ^pattern$|^$ -> pattern|
+                    other_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$"', r'\1\2"', other_content)  # ^pattern$ -> pattern
+                    other_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)"', r'\1\2"', other_content)  # ^pattern -> pattern (no ending $)
+                    other_content = other_content.replace(
+                        '[-+]?\\d{1,13}(?:\\.\\d{0,2})?', 
+                        '[-+]?\\d{1,13}(\\.\\d{1,2})?'
+                    )
+                    temp_file_path = Path(temp_dir) / schema_file.name
+                    with open(temp_file_path, 'w', encoding='utf-8') as f:
+                        f.write(other_content)
+            
+            # Parse XSD schema from temp directory and create schema object
+            main_xsd = Path(temp_dir) / xsd_filename  
+            xsd_doc = etree.parse(str(main_xsd))
+            schema = etree.XMLSchema(xsd_doc)
+            
+            # Perform the actual XML validation while temp files still exist
+            xml_doc = etree.fromstring(xml_content.encode("utf-8"))
+            if not schema.validate(xml_doc):
+                error_log = schema.error_log
+                raise ValueError(f"XML validation failed against {xsd_filename}: {error_log}")
+                
+        # If we get here, validation passed
+        logger.info(f"XML successfully validated against {xsd_filename}")
+        return
+
+    except etree.XMLSyntaxError:
+        logger.warning(f"XSD file {xsd_filename} is not valid XML (possibly downloaded error page). Skipping schema validation.")
+        return
+    except Exception as e:
+        logger.warning(f"Unable to perform XSD validation against {xsd_filename}: {e}. Skipping schema validation.")
+        return
+
+
+def _validate_transaction_xml_structure(root: et.Element) -> None:
+    """Validate the business structure of transaction XML.
+
+    Args:
+        root: The root XML element
+
+    Raises:
+        ValueError: If expected business elements are missing
+    """
+    # Check if we have any TransactionRecord elements
+    transaction_records = list(root.iter("TransactionRecord"))
+    if not transaction_records:
+        raise ValueError("No TransactionRecord elements found in XML - possible schema change")
+
+    logger.debug(f"Found {len(transaction_records)} transaction records in XML")
 
 
 def _prepare_bos_transaction_xml(transactions_xml_file: str) -> et.Element:
@@ -563,6 +689,11 @@ def _prepare_bos_transaction_xml(transactions_xml_file: str) -> et.Element:
         if type(xml) is bytes:
             xml = str(xml, "utf-8")
         xml = xml.replace("\n", "")
+
+        # Validate XML against XSD before processing
+        _validate_xml_against_xsd(xml, "PreviousDayTransactionExtract.xsd")
+
+        # Remove schema namespace for ElementTree parsing
         schema = "PreviousDayTransactionExtract"
         xsd = f"https://isite.bankofscotland.co.uk/Schemas/{schema}.xsd"
         xml = re.sub(
@@ -570,7 +701,14 @@ def _prepare_bos_transaction_xml(transactions_xml_file: str) -> et.Element:
             r"<\1>",
             xml,
         )
-    return et.fromstring(xml)
+
+    # Let ParseError propagate naturally - it has valuable diagnostic info
+    root = et.fromstring(xml)
+
+    # Add business-level validation
+    _validate_transaction_xml_structure(root)
+
+    return root
 
 
 def _extract_transaction_data(transaction: et.Element) -> dict:
@@ -652,6 +790,20 @@ def _create_error_record(transaction_data: dict, error_message: str) -> list:
     ]
 
 
+def _create_missing_tenant_record(transaction_data: dict, tenant_ref: str) -> list:
+    """Create a record for transactions with valid references but missing tenants."""
+    return [
+        transaction_data["pay_date"],
+        transaction_data["sort_code"],
+        transaction_data["account_number"],
+        transaction_data["transaction_type"],
+        float(transaction_data["amount"]),
+        transaction_data["description"],
+        tenant_ref,
+        f"Tenant '{tenant_ref}' not found in tenants file",
+    ]
+
+
 def _create_duplicate_record(transaction_data: dict, tenant_ref: str) -> list:
     """Create a duplicate transaction record."""
     return [
@@ -682,14 +834,117 @@ def _handle_transaction_processing_error(csr: sqlite3.Cursor, error: Exception, 
     csr.execute("rollback")
 
 
-def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transactions_xml_file: str) -> tuple[list[list[Any]], list[list[Any]]]:
+def _process_single_transaction(csr: sqlite3.Cursor, transaction_data: dict) -> tuple[str, bool, bool]:
+    """Process a single transaction and return the result.
+
+    Returns:
+        tuple: (result_type, was_processed, needs_error_record)
+        result_type: "added", "duplicate", "tenant_not_found", "invalid_refs"
+        was_processed: True if transaction was successfully processed
+        needs_error_record: True if an error record should be created
+    """
+    property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(transaction_data["description"], csr)
+
+    if not (tenant_ref and property_ref and block_ref):
+        return "invalid_refs", False, True
+
+    refs = TransactionReferences(property_ref, block_ref, tenant_ref)
+    was_added, is_duplicate = _process_valid_transaction(csr, transaction_data, refs)
+
+    if was_added:
+        return "added", True, False
+    elif is_duplicate:
+        return "duplicate", True, False
+    else:
+        return "tenant_not_found", False, True
+
+
+def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, refs: TransactionReferences) -> tuple[bool, bool]:
+    """Process a valid transaction (where tenant references are available).
+
+    Returns:
+        tuple: (was_added, is_duplicate)
+    """
+    account_id = get_id(csr, SELECT_BANK_ACCOUNT_SQL1, (transaction_data["sort_code"], transaction_data["account_number"]))
+    tenant_id = get_id_from_ref(csr, "Tenants", "tenant", refs.tenant_ref) if refs.tenant_ref else None
+
+    if not tenant_id:
+        return False, False
+
+    # Check for duplicate transaction
+    transaction_id = get_id(
+        csr,
+        SELECT_TRANSACTION_SQL,
+        (
+            tenant_id,
+            transaction_data["description"],
+            transaction_data["pay_date"],
+            account_id,
+            transaction_data["transaction_type"],
+            transaction_data["amount"],
+            transaction_data["amount"],
+        ),
+    )
+
+    if transaction_id:
+        return False, True  # Duplicate found
+
+    # Add new transaction
+    executor = DatabaseCommandExecutor(csr, logger)
+    command = InsertTransactionCommand(
+        transaction_data["transaction_type"],
+        transaction_data["amount"],
+        transaction_data["description"],
+        transaction_data["pay_date"],
+        tenant_id,
+        account_id,
+        transaction_data["sort_code"],
+        transaction_data["account_number"],
+        refs.tenant_ref,
+        INSERT_TRANSACTION_SQL,
+    )
+    executor.execute(command)
+    return True, False
+
+
+def _process_transaction_results(result_type: str, transaction_data: dict, tenant_ref: str | None, unrecognised_transactions: list, duplicate_transactions: list, missing_tenant_transactions: list) -> tuple[int, int]:
+    """Process the results of a transaction and update counters.
+
+    Returns:
+        tuple: (added_count, error_count)
+    """
+    if result_type == "added":
+        return 1, 0
+    elif result_type == "duplicate":
+        duplicate_transactions.append(_create_duplicate_record(transaction_data, tenant_ref))
+        return 0, 0
+    elif result_type == "tenant_not_found":
+        error_msg = f"Cannot find tenant with reference '{tenant_ref}'"
+        logger.debug(
+            f"{error_msg}. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}"
+        )
+        missing_tenant_transactions.append(_create_missing_tenant_record(transaction_data, tenant_ref))
+        return 0, 1
+    elif result_type == "invalid_refs":
+        error_msg = "Cannot determine tenant from description"
+        logger.debug(
+            f"{error_msg} '{transaction_data['description']}'. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}"
+        )
+        unrecognised_transactions.append(_create_error_record(transaction_data, error_msg))
+        return 0, 1
+
+    return 0, 0
+
+
+def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transactions_xml_file: str) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
     """Import Bank of Scotland transactions from XML file into database.
 
     Returns:
-        tuple: (errors_list, duplicate_transactions) - Lists of problematic transactions
+        tuple: (unrecognised_transactions, duplicate_transactions, missing_tenant_transactions) - Lists of problematic transactions
     """
-    errors_list = []
+    unrecognised_transactions = []
     duplicate_transactions = []
+    missing_tenant_transactions = []
     tree = _prepare_bos_transaction_xml(transactions_xml_file)
 
     num_transactions_added_to_db = 0
@@ -709,33 +964,18 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
 
             transaction_data["pay_date"] = _format_pay_date(transaction_data["pay_date"])
 
-            # Parse the description field to determine the property, block and tenant
-            property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs(transaction_data["description"], csr)
+            result_type, was_processed, needs_error = _process_single_transaction(csr, transaction_data)
 
-            if tenant_ref and property_ref and block_ref:
-                refs = TransactionReferences(property_ref, block_ref, tenant_ref)
-                was_added, is_duplicate = _process_valid_transaction(csr, transaction_data, refs)
-
-                if was_added:
-                    num_transactions_added_to_db += 1
-                elif is_duplicate:
-                    duplicate_transactions.append(_create_duplicate_record(transaction_data, tenant_ref))
-                else:
-                    # Tenant not found in database
-                    num_import_errors += 1
-                    error_msg = f"Cannot find tenant with reference '{tenant_ref}'"
-                    logger.debug(
-                        f"{error_msg}. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}"
-                    )
-                    errors_list.append(_create_error_record(transaction_data, error_msg))
+            # Extract tenant_ref for duplicate records
+            if result_type in ["duplicate", "tenant_not_found"]:
+                _, _, tenant_ref = getPropertyBlockAndTenantRefs(transaction_data["description"], csr)
             else:
-                # Cannot determine tenant from description
-                num_import_errors += 1
-                error_msg = "Cannot determine tenant from description"
-                logger.debug(
-                    f"{error_msg} '{transaction_data['description']}'. Ignoring transaction {(transaction_data['pay_date'], transaction_data['sort_code'], transaction_data['account_number'], transaction_data['transaction_type'], transaction_data['amount'], transaction_data['description'])}"
-                )
-                errors_list.append(_create_error_record(transaction_data, error_msg))
+                tenant_ref = None
+
+            added_count, error_count = _process_transaction_results(result_type, transaction_data, tenant_ref, unrecognised_transactions, duplicate_transactions, missing_tenant_transactions)
+
+            num_transactions_added_to_db += added_count
+            num_import_errors += error_count
 
         csr.execute("end")
         db_conn.commit()
@@ -747,11 +987,33 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
                 f"{get_config()['INPUTS']['IRREGULAR_TRANSACTION_REFS_FILE']} and run import again."
             )
         logger.info(f"{num_transactions_added_to_db} Bank Of Scotland transactions added to the database.")
-        return errors_list, duplicate_transactions
+        return unrecognised_transactions, duplicate_transactions, missing_tenant_transactions
 
     except (db_conn.Error, Exception) as error:
         _handle_transaction_processing_error(csr, error, transaction_data, tenant_id)
-        return [], []
+        return [], [], []
+
+
+def _validate_balance_xml_structure(root: et.Element) -> None:
+    """Validate the business structure of balance XML.
+
+    Args:
+        root: The root XML element
+
+    Raises:
+        ValueError: If expected business elements are missing
+    """
+    # Check if we have any ReportingDay elements
+    reporting_days = list(root.iter("ReportingDay"))
+    if not reporting_days:
+        raise ValueError("No ReportingDay elements found in XML - possible schema change")
+
+    # Check if we have any BalanceRecord elements
+    balance_records = list(root.iter("BalanceRecord"))
+    if not balance_records:
+        raise ValueError("No BalanceRecord elements found in XML - possible schema change")
+
+    logger.debug(f"Found {len(reporting_days)} reporting days and {len(balance_records)} balance records in XML")
 
 
 def _prepare_bos_xml(balances_xml_file: str) -> et.Element:
@@ -762,6 +1024,9 @@ def _prepare_bos_xml(balances_xml_file: str) -> et.Element:
             xml = str(xml, "utf-8")
         xml = xml.replace("\n", "")
 
+        # Validate XML against XSD before processing
+        _validate_xml_against_xsd(xml, "EndOfDayBalanceExtract.xsd")
+
         # Remove schema namespaces to simplify XML parsing
         for schema in ["BalanceDetailedReport", "EndOfDayBalanceExtract"]:
             xsd = f"https://isite.bankofscotland.co.uk/Schemas/{schema}.xsd"
@@ -771,7 +1036,13 @@ def _prepare_bos_xml(balances_xml_file: str) -> et.Element:
                 xml,
             )
 
-    return et.fromstring(xml)
+    # Let ParseError propagate naturally - it has valuable diagnostic info
+    root = et.fromstring(xml)
+
+    # Add business-level validation
+    _validate_balance_xml_structure(root)
+
+    return root
 
 
 def _determine_account_type(client_ref: str | None) -> str:
@@ -792,8 +1063,13 @@ def _determine_account_type(client_ref: str | None) -> str:
 
 def _extract_balance_data(balance_element) -> dict:
     """Extract balance data from XML balance element."""
+    # ClientRef is optional - handle explicitly
     client_ref_element = balance_element.find("ClientRef")
-    client_ref = client_ref_element.text if client_ref_element is not None else None
+    client_ref = None
+    if client_ref_element is not None and client_ref_element.text is not None:
+        client_ref = client_ref_element.text.strip()
+        if client_ref == "":  # Empty string treated as None
+            client_ref = None
 
     return {
         "sort_code": get_element_text(balance_element, "SortCode"),
@@ -843,53 +1119,74 @@ def _process_balance_record(csr, balance_data: dict, at_date: str) -> bool:
     return True
 
 
+def _process_balance_reporting_day(csr: sqlite3.Cursor, reporting_day_element) -> int:
+    """Process all balance records for a single reporting day.
+
+    Returns:
+        int: Number of balance records added to database
+    """
+    at_date = get_element_text(reporting_day_element, "Date")
+    at_date = parser.parse(at_date, dayfirst=True).strftime("%Y-%m-%d")
+
+    balances_added = 0
+    for balance in reporting_day_element.iter("BalanceRecord"):
+        balance_data = _extract_balance_data(balance)
+        if _process_balance_record(csr, balance_data, at_date):
+            balances_added += 1
+
+    return balances_added
+
+
+def _log_balance_import_error(error: Exception, balance_data: dict, at_date: str) -> None:
+    """Log balance import error with context data."""
+    sort_code = balance_data.get("sort_code")
+    account_number = balance_data.get("account_number")
+    account_type = balance_data.get("account_type")
+    client_ref = balance_data.get("client_ref")
+    account_name = balance_data.get("account_name")
+    current_balance = balance_data.get("current_balance")
+    available_balance = balance_data.get("available_balance")
+
+    logger.error(str(error))
+    logger.error(f"The data which caused the failure is: {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
+    logger.error("No Bank Of Scotland account balances have been added to the database.")
+    logger.exception(error)
+
+
 def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xml_file: str) -> None:
     """Import Bank of Scotland account balances from XML file into database."""
     tree = _prepare_bos_xml(balances_xml_file)
     num_balances_added_to_db = 0
 
     # Variables for error handling context
-    sort_code = account_number = account_type = client_ref = None
-    account_name = at_date = current_balance = available_balance = None
+    last_balance_data = {}
+    last_at_date = ""
 
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
 
         for reporting_day in tree.iter("ReportingDay"):
-            at_date = get_element_text(reporting_day, "Date")
-            at_date = parser.parse(at_date, dayfirst=True).strftime("%Y-%m-%d")
-
-            for balance in reporting_day.iter("BalanceRecord"):
-                balance_data = _extract_balance_data(balance)
-
-                # Update error context variables
-                sort_code = balance_data["sort_code"]
-                account_number = balance_data["account_number"]
-                account_type = balance_data["account_type"]
-                client_ref = balance_data["client_ref"]
-                account_name = balance_data["account_name"]
-                current_balance = balance_data["current_balance"]
-                available_balance = balance_data["available_balance"]
-
-                if _process_balance_record(csr, balance_data, at_date):
-                    num_balances_added_to_db += 1
+            last_at_date = get_element_text(reporting_day, "Date")
+            try:
+                balances_added = _process_balance_reporting_day(csr, reporting_day)
+                num_balances_added_to_db += balances_added
+            except Exception as day_error:
+                # Update context for error reporting
+                for balance in reporting_day.iter("BalanceRecord"):
+                    last_balance_data = _extract_balance_data(balance)
+                    break  # Just get the first one for context
+                raise day_error
 
         csr.execute("end")
         db_conn.commit()
         logger.info(f"{num_balances_added_to_db} Bank Of Scotland account balances added to the database.")
 
     except db_conn.Error as err:
-        logger.error(str(err))
-        logger.error(f"The data which caused the failure is: {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
-        logger.error("No Bank Of Scotland account balances have been added to the database.")
-        logger.exception(err)
+        _log_balance_import_error(err, last_balance_data, last_at_date)
         csr.execute("rollback")
     except Exception as ex:
-        logger.error(str(ex))
-        logger.error(f"The data which caused the failure is: {(sort_code, account_number, account_type, client_ref, account_name, at_date, current_balance, available_balance)}")
-        logger.error("No Bank Of Scotland account balances have been added to the database.")
-        logger.exception(ex)
+        _log_balance_import_error(ex, last_balance_data, last_at_date)
         csr.execute("rollback")
 
 
@@ -1036,7 +1333,7 @@ def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, excel_
                 # Create the property first
                 csr.execute(INSERT_PROPERTY_SQL, (reference,))
                 property_id = get_id_from_ref(csr, "Properties", "property", reference)
-            
+
             if property_id:
                 if get_id(csr, SELECT_PROPERTY_ID_FROM_REF_SQL, (reference,)) == property_id:
                     csr.execute(UPDATE_PROPERTY_DETAILS_SQL, (estate_name, property_id))
@@ -1798,14 +2095,21 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         ]
     ]
     bos_statement_xml_files = getMatchingFileNames(bos_statement_file_pattern)
-    errors_list = []
+
+    # Filter out .xml files if corresponding .zip files exist to avoid duplicate processing
+    file_set = set(bos_statement_xml_files)
+    bos_statement_xml_files = [f for f in bos_statement_xml_files if not (f.endswith(".xml") and f[:-4] + ".zip" in file_set)]
+
+    unrecognised_transactions = []
     duplicate_transactions = []
+    missing_tenant_transactions = []
     if bos_statement_xml_files:
         for bos_statement_xml_file in bos_statement_xml_files:
             logger.info(f"Importing Bank Account Transactions from file {bos_statement_xml_file}")
-            errors, duplicates = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
-            errors_list.extend(errors)
+            unrecognised, duplicates, missing_tenants = importBankOfScotlandTransactionsXMLFile(db_conn, bos_statement_xml_file)
+            unrecognised_transactions.extend(unrecognised)
             duplicate_transactions.extend(duplicates)
+            missing_tenant_transactions.extend(missing_tenants)
         errors_columns = [
             "Payment Date",
             "Sort Code",
@@ -1822,20 +2126,43 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
             "Tenant Reference",
             "Description",
         ]
-        errors_df = pd.DataFrame(errors_list, columns=errors_columns)
-        duplicates_df = pd.DataFrame(duplicate_transactions, columns=duplicates_columns)
-        errors_df.to_excel(
-            excel_writer,
-            sheet_name="Unrecognised Transactions",
-            index=False,
-            float_format="%.2f",
-        )
-        duplicates_df.to_excel(
-            excel_writer,
-            sheet_name="Duplicate Transactions",
-            index=False,
-            float_format="%.2f",
-        )
+        missing_tenant_columns = [
+            "Payment Date",
+            "Sort Code",
+            "Account Number",
+            "Transaction Type",
+            "Amount",
+            "Description",
+            "Parsed Tenant Reference",
+            "Issue",
+        ]
+        # Only create Excel sheets that have data rows (not just headers)
+        if unrecognised_transactions:
+            errors_df = pd.DataFrame(unrecognised_transactions, columns=errors_columns)
+            errors_df.to_excel(
+                excel_writer,
+                sheet_name="Unrecognised Transactions",
+                index=False,
+                float_format="%.2f",
+            )
+        
+        if duplicate_transactions:
+            duplicates_df = pd.DataFrame(duplicate_transactions, columns=duplicates_columns)
+            duplicates_df.to_excel(
+                excel_writer,
+                sheet_name="Duplicate Transactions",
+                index=False,
+                float_format="%.2f",
+            )
+        
+        if missing_tenant_transactions:
+            missing_tenant_df = pd.DataFrame(missing_tenant_transactions, columns=missing_tenant_columns)
+            missing_tenant_df.to_excel(
+                excel_writer,
+                sheet_name="Missing Tenants",
+                index=False,
+                float_format="%.2f",
+            )
     else:
         logger.error(f"Cannot find bank account transactions file matching {bos_statement_file_pattern}")
     logger.info("")
@@ -1849,6 +2176,11 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         ]
     ]
     eod_balances_xml_files = getMatchingFileNames(eod_balances_file_patterns)
+
+    # Filter out .xml files if corresponding .zip files exist to avoid duplicate processing
+    file_set = set(eod_balances_xml_files)
+    eod_balances_xml_files = [f for f in eod_balances_xml_files if not (f.endswith(".xml") and f[:-4] + ".zip" in file_set)]
+
     if eod_balances_xml_files:
         for eod_balances_xml_file in eod_balances_xml_files:
             logger.info(f"Importing Bank Account balances from file {eod_balances_xml_file}")
@@ -1907,7 +2239,7 @@ def main() -> None:
     os.makedirs(get_wpp_static_input_dir(), exist_ok=True)
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
-    logger.info(f"Beginning Import of data into the database, at {dt.datetime.today().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("Beginning Import of data into the database")
 
     db_conn = get_or_create_db(get_wpp_db_file(), logger)
     importAllData(db_conn)
@@ -1915,9 +2247,25 @@ def main() -> None:
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    logger.info(f"Finished at {dt.datetime.today().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("Import completed")
     logger.info("----------------------------------------------------------------------------------------")
     # input("Press enter to end.")
+
+
+def _handle_database_error(error: Exception, context_data: dict, operation_description: str) -> None:
+    """
+    Handle database errors with consistent logging format.
+
+    Args:
+        error: The exception that occurred
+        context_data: Dictionary of relevant data that caused the failure
+        operation_description: Description of what operation failed
+    """
+    logger.error(str(error))
+    logger.error(f"The data which caused the failure is: {context_data}")
+    logger.error(f"{operation_description}")
+    if hasattr(error, "__traceback__"):
+        logger.exception(error)
 
 
 if __name__ == "__main__":

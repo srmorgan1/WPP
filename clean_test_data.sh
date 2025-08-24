@@ -56,7 +56,7 @@ parse_arguments() {
 
 clean_files_in_dir() {
     local dir="$1"
-    local extensions=("xlsx" "csv" "zip")
+    local extensions=("xlsx" "csv" "zip" "xml")
     
     if [[ ! -d "$dir" ]]; then
         return

@@ -24,7 +24,7 @@ TEST_SCENARIOS = [
 # Regression test operation configuration
 # Set these to False to skip specific operations during testing
 REGRESSION_TEST_CONFIG = {
-    "run_decrypt": True,  # Whether to run decrypt operations on test data
+    "run_decrypt": True,  # Whether to run   decrypt operations on test data
     "run_encrypt": True,  # Whether to re-encrypt/remove decrypted data after tests
     "run_delete": True,  # Whether to run cleanup/delete operations on test files
     "generate_reference_data": False,  # Whether to copy generated logs/reports to reference directories

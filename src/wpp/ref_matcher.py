@@ -294,12 +294,12 @@ class PBTRegex3SingleDigitBlockStrategy(RegexStrategy):
             property_ref = match.group(1)
             block_ref = match.group(2).zfill(2)  # "1" -> "01"
             tenant_ref = match.group(3).zfill(3) if len(match.group(3)) == 2 else match.group(3)  # Pad if 2 digits
-            
+
             padded_tenant_ref = f"{property_ref}-{block_ref}-{tenant_ref}"
             if not doubleCheckTenantRef(db_cursor, padded_tenant_ref, description):
                 raise MatchValidationException("Failed to validate tenant reference")
             return MatchResult.match(property_ref, block_ref, padded_tenant_ref)
-        
+
         return result
 
 

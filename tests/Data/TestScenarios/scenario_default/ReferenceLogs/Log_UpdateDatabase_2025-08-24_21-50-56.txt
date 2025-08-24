@@ -1,5 +1,4 @@
-WARNING: - Holidays.xlsx not found. No additional holidays will be loaded.
-INFO: - Beginning Import of data into the database, at 2025-08-20 11:35:55
+INFO: - Beginning Import of data into the database
 INFO: - Importing irregular transaction references from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx
 INFO: - 352 irregular transaction reference patterns added to the database.
 INFO: - 
@@ -24,17 +23,19 @@ INFO: - 911 charges added to the database.
 INFO: - 
 INFO: - Importing bank accounts from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/Accounts.xlsx
 ERROR: - Found 2 Property/Block designation inconsistencies in /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/Accounts.xlsx
-ERROR: - Row 164: Estate reference '155-00' marked as 'Block' - should be 'Property' - Account 802925-16763267
-ERROR: - Row 165: Estate reference '155-00' marked as 'Block' - should be 'Property' - Account 802925-16763363
+ERROR: - Row 164: Estate reference '155-00' marked as 'Block' - should be 'Property'? - Account 802925-16763267
+ERROR: - Row 165: Estate reference '155-00' marked as 'Block' - should be 'Property'? - Account 802925-16763363
 WARNING: - Found 2 Property/Block designation issues - see Excel file for details
 INFO: - 152 bank accounts added to the database.
 INFO: - 
 INFO: - Importing Bank Account Transactions from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/PreviousDayTransactionExtract_175_11102022_031250.zip
+INFO: - XML successfully validated against PreviousDayTransactionExtract.xsd
 INFO: - Unable to import 2 transactions into the database. See the Data_Import_Issues Excel file for details. Add tenant references to 001 GENERAL CREDITS CLIENTS WITHOUT IDENTS.xlsx and run import again.
 INFO: - 16 Bank Of Scotland transactions added to the database.
 INFO: - 
 INFO: - Importing Bank Account balances from file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Inputs/EndOfDayBalanceExtract_175_11102022_031250.zip
+INFO: - XML successfully validated against EndOfDayBalanceExtract.xsd
 INFO: - 134 Bank Of Scotland account balances added to the database.
 INFO: - 
-INFO: - Finished at 2025-08-20 11:35:58
+INFO: - Import completed
 INFO: - ----------------------------------------------------------------------------------------

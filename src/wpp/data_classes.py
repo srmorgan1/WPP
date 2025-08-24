@@ -32,7 +32,7 @@ class RunConfiguration:
 
         if self.business_day_offset is None:
             raise ValueError("business_day_offset must be provided to RunConfiguration")
-        
+
         qube = self.qube_date or (dt_date.today() - self.business_day_offset)
         bos = self.bos_date or qube
         return qube, bos
