@@ -112,7 +112,7 @@ def test_validate_account_uniqueness_violations():
 
     mock_excel_writer = Mock()
 
-    with patch("wpp.UpdateDatabase.logger") as mock_logger, patch("pandas.DataFrame.to_excel") as mock_to_excel:
+    with patch("wpp.UpdateDatabase.logger") as mock_logger, patch("pandas.DataFrame.to_excel"):
         with pytest.raises(ValueError, match="multiple CL"):
             _validate_account_uniqueness(df, "/path/to/accounts.xlsx", mock_excel_writer)
 

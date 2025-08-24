@@ -24,7 +24,7 @@ def format_excel_sheet(worksheet, expand_columns: bool = True) -> None:
                     cell_length = len(cell_text)
                     if cell_length > max_length:
                         max_length = cell_length
-            except:
+            except Exception:
                 pass
 
         # Content-aware width calculation (matching comprehensive function)
@@ -87,7 +87,7 @@ def format_excel_sheet_comprehensive(worksheet, sheet_name: str = "", expand_col
     error_font = Font(color="D32F2F")  # Red text for errors
 
     # Bold outer border
-    bold_border = Border(left=Side(style="medium"), right=Side(style="medium"), top=Side(style="medium"), bottom=Side(style="medium"))
+    # bold_border = Border(left=Side(style="medium"), right=Side(style="medium"), top=Side(style="medium"), bottom=Side(style="medium"))
 
     # Alternating row fills
     light_grey_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")  # Light grey
@@ -111,7 +111,7 @@ def format_excel_sheet_comprehensive(worksheet, sheet_name: str = "", expand_col
 
                     if cell_length > max_length:
                         max_length = cell_length
-            except:
+            except Exception:
                 pass
 
         # Content-aware width calculation

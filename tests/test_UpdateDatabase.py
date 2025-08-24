@@ -695,7 +695,7 @@ def test_checkForIrregularTenantRefInDatabase():
     conn.close()
 
 
-def test_get_element_text():
+def test_get_element_text2():
     """Test get_element_text function"""
     import xml.etree.ElementTree as ET
 

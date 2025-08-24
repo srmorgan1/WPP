@@ -8,6 +8,8 @@ import streamlit as st
 
 from wpp.calendars import get_business_day_offset
 from wpp.config import get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
+from wpp.RunReports import main as run_reports_main
+from wpp.UpdateDatabase import main as update_database_main
 
 # Initialize session state for app logs
 if "app_logs" not in st.session_state:
@@ -36,10 +38,6 @@ def get_business_day_offset_cached():
 
 # Get the business day offset
 BUSINESS_DAY = get_business_day_offset_cached()
-
-# Import the main functions from the scripts
-from wpp.RunReports import main as run_reports_main
-from wpp.UpdateDatabase import main as update_database_main
 
 
 # Function to display the latest report

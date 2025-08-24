@@ -597,8 +597,8 @@ def _validate_xml_against_xsd(xml_content: str, xsd_filename: str) -> None:
         # Parse XSD schema and remove problematic anchors
         with open(xsd_path, encoding="utf-8") as xsd_file:
             xsd_content = xsd_file.read()
-            
-        # Remove ^ and $ anchors from xs:pattern values since XML Schema patterns are implicitly anchored  
+
+        # Remove ^ and $ anchors from xs:pattern values since XML Schema patterns are implicitly anchored
         # Also fix the problematic \d{0,2} pattern to be XML Schema compliant
         original_content = xsd_content
         # Handle patterns with alternation (|) more carefully
@@ -606,53 +606,45 @@ def _validate_xml_against_xsd(xml_content: str, xsd_filename: str) -> None:
         xsd_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$"', r'\1\2"', xsd_content)  # ^pattern$ -> pattern
         xsd_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)"', r'\1\2"', xsd_content)  # ^pattern -> pattern (no ending $)
         # Fix the specific problematic pattern: replace the entire amount pattern
-        xsd_content = xsd_content.replace(
-            '[-+]?\\d{1,13}(?:\\.\\d{0,2})?', 
-            '[-+]?\\d{1,13}(\\.\\d{1,2})?'
-        )
+        xsd_content = xsd_content.replace("[-+]?\\d{1,13}(?:\\.\\d{0,2})?", "[-+]?\\d{1,13}(\\.\\d{1,2})?")
         logger.debug(f"XSD pattern modifications applied: {original_content != xsd_content}")
-        
+
         # Create temporary directory with all XSD files to handle includes properly
         import tempfile
-        import os
-        import shutil
-        
+
         with tempfile.TemporaryDirectory() as temp_dir:
             # Copy all XSD files to temp directory, applying fixes to all of them
             for schema_file in xsd_path.parent.glob("*.xsd"):
                 if schema_file.name == xsd_filename:
                     # Write our modified main XSD content
                     temp_file_path = Path(temp_dir) / schema_file.name
-                    with open(temp_file_path, 'w', encoding='utf-8') as f:
+                    with open(temp_file_path, "w", encoding="utf-8") as f:
                         f.write(xsd_content)
                 else:
                     # Read, fix, and write other XSD files (like IBLTypes.xsd)
-                    with open(schema_file, 'r', encoding='utf-8') as f:
+                    with open(schema_file, encoding="utf-8") as f:
                         other_content = f.read()
                     # Apply same fixes to included files
                     # Handle patterns with alternation (|) more carefully
                     other_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$\|\^\$"', r'\1\2|"', other_content)  # ^pattern$|^$ -> pattern|
                     other_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)\$"', r'\1\2"', other_content)  # ^pattern$ -> pattern
                     other_content = re.sub(r'(<xs:pattern\s+value=")\^([^"]*)"', r'\1\2"', other_content)  # ^pattern -> pattern (no ending $)
-                    other_content = other_content.replace(
-                        '[-+]?\\d{1,13}(?:\\.\\d{0,2})?', 
-                        '[-+]?\\d{1,13}(\\.\\d{1,2})?'
-                    )
+                    other_content = other_content.replace("[-+]?\\d{1,13}(?:\\.\\d{0,2})?", "[-+]?\\d{1,13}(\\.\\d{1,2})?")
                     temp_file_path = Path(temp_dir) / schema_file.name
-                    with open(temp_file_path, 'w', encoding='utf-8') as f:
+                    with open(temp_file_path, "w", encoding="utf-8") as f:
                         f.write(other_content)
-            
+
             # Parse XSD schema from temp directory and create schema object
-            main_xsd = Path(temp_dir) / xsd_filename  
+            main_xsd = Path(temp_dir) / xsd_filename
             xsd_doc = etree.parse(str(main_xsd))
             schema = etree.XMLSchema(xsd_doc)
-            
+
             # Perform the actual XML validation while temp files still exist
             xml_doc = etree.fromstring(xml_content.encode("utf-8"))
             if not schema.validate(xml_doc):
                 error_log = schema.error_log
                 raise ValueError(f"XML validation failed against {xsd_filename}: {error_log}")
-                
+
         # If we get here, validation passed
         logger.info(f"XML successfully validated against {xsd_filename}")
         return
@@ -907,7 +899,9 @@ def _process_valid_transaction(csr: sqlite3.Cursor, transaction_data: dict, refs
     return True, False
 
 
-def _process_transaction_results(result_type: str, transaction_data: dict, tenant_ref: str | None, unrecognised_transactions: list, duplicate_transactions: list, missing_tenant_transactions: list) -> tuple[int, int]:
+def _process_transaction_results(
+    result_type: str, transaction_data: dict, tenant_ref: str | None, unrecognised_transactions: list, duplicate_transactions: list, missing_tenant_transactions: list
+) -> tuple[int, int]:
     """Process the results of a transaction and update counters.
 
     Returns:
@@ -2145,7 +2139,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
                 index=False,
                 float_format="%.2f",
             )
-        
+
         if duplicate_transactions:
             duplicates_df = pd.DataFrame(duplicate_transactions, columns=duplicates_columns)
             duplicates_df.to_excel(
@@ -2154,7 +2148,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
                 index=False,
                 float_format="%.2f",
             )
-        
+
         if missing_tenant_transactions:
             missing_tenant_df = pd.DataFrame(missing_tenant_transactions, columns=missing_tenant_columns)
             missing_tenant_df.to_excel(

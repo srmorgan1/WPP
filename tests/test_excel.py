@@ -41,7 +41,7 @@ def sample_workbook():
 def empty_workbook():
     """Create an empty workbook."""
     wb = Workbook()
-    ws = wb.active
+    wb.active
     return wb
 
 

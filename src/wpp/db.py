@@ -183,7 +183,7 @@ CREATE UNIQUE INDEX Index_Accounts ON Accounts (
 """
 
 CREATE_ACCOUNTS_CL_UNIQUENESS_INDEX = """
-CREATE UNIQUE INDEX Index_Accounts_CL_Per_Block ON Accounts (block_id, account_type) 
+CREATE UNIQUE INDEX Index_Accounts_CL_Per_Block ON Accounts (block_id, account_type)
 WHERE account_type = 'CL';
 """
 
