@@ -1,26 +1,47 @@
 import os
+import re
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import pandas as pd
+import pytest
 
 # Use get_wpp_input_dir and get_wpp_log_dir which respect the WPP_ROOT_DIR set by conftest.py's setup_wpp_root_dir
 from wpp.db import get_data, get_db_connection  # get_or_create_db might be needed if tests create dbs directly
 from wpp.UpdateDatabase import (
+    _determine_account_type,
+    _format_pay_date,
+    _is_valid_reference,
+    _should_process_transaction,
     addBlockToDB,
     addPropertyToDB,
     addTenantToDB,
     calculateSCFund,
+    checkForIrregularTenantRefInDatabase,
     checkTenantExists,
+    correctKnownCommonErrors,
+    doubleCheckTenantRef,
     get_element_text,
     get_id,
     get_id_from_key_table,
     get_id_from_ref,
     get_last_insert_id,
     get_single_value,
+    getLatestMatchingFileName,
+    getPropertyBlockAndTenantRefs,
+    getPropertyBlockAndTenantRefsFromRegexMatch,
     getTenantName,
     importBankAccounts,
     importBankOfScotlandTransactionsXMLFile,
     importEstatesFile,
     importIrregularTransactionReferences,
     importPropertiesFile,  # Used by regression tests
+    matchTransactionRef,
+    postProcessPropertyBlockTenantRefs,
+    recodeSpecialBlockReferenceCases,
+    recodeSpecialPropertyReferenceCases,
+    removeDCReferencePostfix,
 )
 
 # No local fixtures for db_conn, db_file, or setup_wpp_root_dir needed, they come from conftest.py
@@ -84,7 +105,6 @@ def test_get_id_from_key_table(db_conn):
 def test_importBankAccounts_unit(db_conn):
     """Unit test for importBankAccounts with minimal test data"""
     # Create minimal test Excel data in memory
-    import tempfile
 
     # Create test data
     test_data = {
@@ -103,7 +123,6 @@ def test_importBankAccounts_unit(db_conn):
 
     try:
         # Write test data to Excel file
-        import pandas as pd
 
         df = pd.DataFrame(test_data)
         with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
@@ -140,9 +159,6 @@ def test_importBankAccounts_unit(db_conn):
 
 def test_importPropertiesFile_unit(db_conn):
     """Unit test for importPropertiesFile with minimal test data"""
-    import tempfile
-
-    import pandas as pd
 
     # Create minimal test data for properties/tenants
     # Function expects "Reference" (tenant ref) and "Name" (tenant name) columns
@@ -188,9 +204,6 @@ def test_importPropertiesFile_unit(db_conn):
 
 def test_importEstatesFile_unit(db_conn):
     """Unit test for importEstatesFile with minimal test data"""
-    import tempfile
-
-    import pandas as pd
 
     # Set up a property first
     addPropertyToDB(db_conn, "175")
@@ -256,9 +269,6 @@ def test_addTenantToDB(db_conn):
 
 def test_importIrregularTransactionReferences_unit(db_conn):
     """Unit test for importIrregularTransactionReferences with minimal test data"""
-    import tempfile
-
-    import pandas as pd
 
     # Create minimal test data for irregular transaction references
     # Function expects "Tenant Reference" and "Payment Reference Pattern" columns in "Sheet1"
@@ -335,7 +345,6 @@ def test_checkTenantExists(db_conn):
 
 def test_matchTransactionRef():
     """Test matchTransactionRef function"""
-    from wpp.UpdateDatabase import matchTransactionRef
 
     # Test exact match
     assert matchTransactionRef("John Smith", "john smith")
@@ -369,7 +378,6 @@ def test_matchTransactionRef():
 
 def test_getPropertyBlockAndTenantRefs():
     """Test getPropertyBlockAndTenantRefs function"""
-    from wpp.UpdateDatabase import getPropertyBlockAndTenantRefs
 
     # Test standard reference format
     property_ref, block_ref, tenant_ref = getPropertyBlockAndTenantRefs("123-01-001")
@@ -409,9 +417,6 @@ def test_calculateSCFund_edge_cases():
 
 def test_getLatestMatchingFileName():
     """Test getLatestMatchingFileName function"""
-    import tempfile
-
-    from wpp.UpdateDatabase import getLatestMatchingFileName
 
     # Create temporary directory with test files
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -441,7 +446,6 @@ def test_getLatestMatchingFileName():
 
 def test_get_element_text():
     """Test get_element_text function"""
-    import xml.etree.ElementTree as ET
 
     # Create test XML
     xml_string = """
@@ -467,19 +471,18 @@ def test_get_element_text():
         get_element_text(root, "empty")
         assert False, "Should have raised ValueError for empty element"
     except ValueError as e:
-        assert "Missing or empty field: empty" in str(e)
+        assert "Empty required XML element: empty" in str(e)
 
     # Test missing element - should raise ValueError
     try:
         get_element_text(root, "nonexistent")
         assert False, "Should have raised ValueError for missing element"
     except ValueError as e:
-        assert "Missing or empty field: nonexistent" in str(e)
+        assert "Missing required XML element: nonexistent" in str(e)
 
 
 def test_error_handling_in_imports(db_conn):
     """Test error handling in import functions"""
-    import tempfile
 
     # Test with invalid XML file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as temp_file:
@@ -499,7 +502,6 @@ def test_error_handling_in_imports(db_conn):
 
 def test_database_constraint_violations(db_conn):
     """Test handling of database constraint violations"""
-    from wpp.UpdateDatabase import addPropertyToDB
 
     # Add a property
     property_id_1 = addPropertyToDB(db_conn, "TEST-PROP", "Test Property")
@@ -513,7 +515,6 @@ def test_database_constraint_violations(db_conn):
 
 def test_addTenantToDB_error_conditions(db_conn):
     """Test addTenantToDB error handling"""
-    from wpp.UpdateDatabase import addTenantToDB
 
     # Test with invalid block_ref (should handle gracefully)
     tenant_id = addTenantToDB(db_conn, "999-99", "999-99-999", "Test Tenant", rethrow_exception=False)
@@ -523,7 +524,6 @@ def test_addTenantToDB_error_conditions(db_conn):
 
 def test_removeDCReferencePostfix():
     """Test removeDCReferencePostfix function"""
-    from wpp.UpdateDatabase import removeDCReferencePostfix
 
     # Test with DC suffix
     result = removeDCReferencePostfix("123-01-001 DC")
@@ -548,7 +548,6 @@ def test_removeDCReferencePostfix():
 
 def test_correctKnownCommonErrors():
     """Test correctKnownCommonErrors function"""
-    from wpp.UpdateDatabase import correctKnownCommonErrors
 
     # Test property 094 with O error
     property_ref, block_ref, tenant_ref = correctKnownCommonErrors("094", "094-01", "094-01-O23")
@@ -569,7 +568,6 @@ def test_correctKnownCommonErrors():
 
 def test_recodeSpecialPropertyReferenceCases():
     """Test recodeSpecialPropertyReferenceCases function"""
-    from wpp.UpdateDatabase import recodeSpecialPropertyReferenceCases
 
     # Test 020-03 recoding
     property_ref, block_ref, tenant_ref = recodeSpecialPropertyReferenceCases("020", "020-03", "020-03-001")
@@ -586,7 +584,6 @@ def test_recodeSpecialPropertyReferenceCases():
 
 def test_recodeSpecialBlockReferenceCases():
     """Test recodeSpecialBlockReferenceCases function"""
-    from wpp.UpdateDatabase import recodeSpecialBlockReferenceCases
 
     # Test 101-02 recoding with tenant_ref
     property_ref, block_ref, tenant_ref = recodeSpecialBlockReferenceCases("101", "101-02", "101-02-001")
@@ -606,9 +603,6 @@ def test_recodeSpecialBlockReferenceCases():
 
 def test_getPropertyBlockAndTenantRefsFromRegexMatch():
     """Test getPropertyBlockAndTenantRefsFromRegexMatch function"""
-    import re
-
-    from wpp.UpdateDatabase import getPropertyBlockAndTenantRefsFromRegexMatch
 
     # Test with valid match
     pattern = re.compile(r"(\d{3})-(\d{2})-(\d{3})")
@@ -627,7 +621,6 @@ def test_getPropertyBlockAndTenantRefsFromRegexMatch():
 
 def test_doubleCheckTenantRef():
     """Test doubleCheckTenantRef function"""
-    from wpp.UpdateDatabase import doubleCheckTenantRef
 
     # Create in-memory database with test data
     conn = get_db_connection(":memory:")
@@ -648,7 +641,6 @@ def test_doubleCheckTenantRef():
 
 def test_postProcessPropertyBlockTenantRefs():
     """Test postProcessPropertyBlockTenantRefs function"""
-    from wpp.UpdateDatabase import postProcessPropertyBlockTenantRefs
 
     # Test filtering out Z suffix
     result = postProcessPropertyBlockTenantRefs("123", "123-01", "123-01-Z01")
@@ -672,7 +664,6 @@ def test_postProcessPropertyBlockTenantRefs():
 
 def test_checkForIrregularTenantRefInDatabase():
     """Test checkForIrregularTenantRefInDatabase function"""
-    from wpp.UpdateDatabase import checkForIrregularTenantRefInDatabase
 
     # Create in-memory database with test data
     conn = get_db_connection(":memory:")
@@ -697,9 +688,6 @@ def test_checkForIrregularTenantRefInDatabase():
 
 def test_get_element_text2():
     """Test get_element_text function"""
-    import xml.etree.ElementTree as ET
-
-    from wpp.UpdateDatabase import get_element_text
 
     # Create test XML
     root = ET.Element("root")
@@ -711,7 +699,6 @@ def test_get_element_text2():
     assert result == "test_value"
 
     # Test getting non-existent element text - should raise ValueError
-    import pytest
 
     with pytest.raises(ValueError, match="Missing required XML element"):
         get_element_text(root, "nonexistent")
@@ -719,7 +706,6 @@ def test_get_element_text2():
 
 def test_format_pay_date():
     """Test _format_pay_date function"""
-    from wpp.UpdateDatabase import _format_pay_date
 
     # Test formatting date
     result = _format_pay_date("2023-12-25")
@@ -733,7 +719,6 @@ def test_format_pay_date():
 
 def test_should_process_transaction():
     """Test _should_process_transaction function"""
-    from wpp.UpdateDatabase import _should_process_transaction
 
     # Test valid transaction with correct account number (06000792)
     transaction_data = {"amount": "100.00", "account_number": "06000792", "transaction_ref": "123-01-001"}
@@ -748,7 +733,6 @@ def test_should_process_transaction():
 
 def test_determine_account_type():
     """Test _determine_account_type function"""
-    from wpp.UpdateDatabase import _determine_account_type
 
     # Test with None client_ref
     result = _determine_account_type(None)
@@ -777,7 +761,6 @@ def test_determine_account_type():
 
 def test_is_valid_reference():
     """Test _is_valid_reference function"""
-    from wpp.UpdateDatabase import _is_valid_reference
 
     # Test valid reference
     assert _is_valid_reference("123-01-001") is True
@@ -800,7 +783,6 @@ def test_is_valid_reference():
 
 def test_get_id_edge_cases(db_conn):
     """Test get_id function edge cases"""
-    from wpp.UpdateDatabase import get_id
 
     cursor = db_conn.cursor()
 
@@ -815,7 +797,6 @@ def test_get_id_edge_cases(db_conn):
 
 def test_get_id_from_ref_edge_cases(db_conn):
     """Test get_id_from_ref function edge cases"""
-    from wpp.UpdateDatabase import get_id_from_ref
 
     cursor = db_conn.cursor()
 
@@ -826,7 +807,6 @@ def test_get_id_from_ref_edge_cases(db_conn):
 
 def test_import_functions_with_missing_files():
     """Test import functions with missing files"""
-    from wpp.UpdateDatabase import importBankAccounts, importEstatesFile, importPropertiesFile
 
     conn = get_db_connection(":memory:")
 

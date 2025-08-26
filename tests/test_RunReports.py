@@ -244,8 +244,6 @@ def test_runReports_raises_exception_when_no_data(mock_checkDataIsPresent, db_co
 @patch("argparse.ArgumentParser.parse_args")
 def test_get_args_error_handling(mock_parse_args):
     """Test get_args error handling for invalid argument combinations (lines 488-489)"""
-    from unittest.mock import MagicMock
-
     # Mock args with bos_date but no qube_date (invalid combination)
     mock_args = MagicMock()
     mock_args.bos_date = "2023-01-01"

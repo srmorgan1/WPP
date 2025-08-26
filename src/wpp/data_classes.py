@@ -1,7 +1,7 @@
 """Data classes for parameter grouping to reduce long parameter lists."""
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, date as dt_date
 
 
 @dataclass
@@ -28,8 +28,6 @@ class RunConfiguration:
 
     def get_dates(self) -> tuple[date, date]:
         """Get both dates, with fallbacks."""
-        from datetime import date as dt_date
-
         if self.business_day_offset is None:
             raise ValueError("business_day_offset must be provided to RunConfiguration")
 

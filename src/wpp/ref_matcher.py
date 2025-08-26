@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 import re
 import sqlite3
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from wpp.config import (
     get_alphanumeric_properties,
@@ -693,16 +695,25 @@ class PropertyBlockTenantRefMatcher:
         self.strategies: list[MatchingStrategy] = []
         self.log_file = None
         self._is_test_environment = self._detect_test_environment()
-        if self._is_test_environment:
+        # Only create log files automatically in production (non-test) environments
+        # In test environments, logging must be explicitly enabled to control file location
+        if not self._is_test_environment:
             self.log_file = get_wpp_ref_matcher_log_file(datetime.now())
             self._setup_log_file()
 
     def _detect_test_environment(self):
         """Detect if we're running in a test environment."""
-        import sys
-
         # Check if pytest is running
         return "pytest" in sys.modules or "unittest" in sys.modules
+
+    def enable_logging(self, log_file_path=None):
+        """Enable CSV logging for this matcher instance."""
+        if log_file_path:
+            self.log_file = Path(log_file_path)
+        elif not self.log_file:
+            # Use default log file path if none provided
+            self.log_file = get_wpp_ref_matcher_log_file(datetime.now())
+        self._setup_log_file()
 
     def _setup_log_file(self):
         if self.log_file and not self.log_file.exists():
@@ -739,8 +750,11 @@ class PropertyBlockTenantRefMatcher:
         return MatchResult.no_match()
 
     def _log_match(self, match_data: MatchLogData):
-        # Only log if we're in a test environment and have a log file
+        # Only log if we have a log file configured
         if self.log_file is not None:
+            # Ensure the file exists with headers before appending
+            if not self.log_file.exists():
+                self._setup_log_file()
             with open(self.log_file, "a", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow([match_data.description, match_data.property_ref, match_data.block_ref, match_data.tenant_ref, match_data.strategy_name])

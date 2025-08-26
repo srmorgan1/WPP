@@ -1,6 +1,7 @@
 import datetime as dt
+import glob
 import os
-import shutil  # Added
+import shutil
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -8,8 +9,9 @@ from pathlib import Path
 import pytest
 from dateutil import parser
 
-from wpp.config import get_wpp_db_dir, set_wpp_root_dir
+from wpp.config import get_wpp_db_dir, get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir, set_wpp_root_dir
 from wpp.db import get_or_create_db
+from wpp.ref_matcher import _reset_matcher
 
 # Override deprecated SQLite date adapters for tests to prevent Python 3.12+ warnings
 # This is needed because tests pass date objects as query parameters, triggering adaptation
@@ -66,7 +68,6 @@ def _clean_up_input_dirs():
 
 def _clean_up_output_dirs():
     """Cleans up test output directories, temporary files, and decrypted input files."""
-    from wpp.config import get_wpp_db_file, get_wpp_log_dir
 
     # Clean up main log directory files (*.txt and *.csv files)
     log_dir = get_wpp_log_dir()
@@ -80,6 +81,15 @@ def _clean_up_output_dirs():
     main_db_file = get_wpp_db_file()
     if main_db_file.exists():
         main_db_file.unlink(missing_ok=True)
+
+    # Remove main output directories if they're empty after cleanup
+    for main_dir in [get_wpp_db_dir(), get_wpp_report_dir(), log_dir]:
+        if main_dir.exists():
+            try:
+                main_dir.rmdir()  # Only removes if empty
+            except OSError:
+                # Directory not empty, leave it alone
+                pass
 
     # Clean up output directories in all test scenarios
     scenarios_dir = get_test_scenarios_dir()
@@ -357,7 +367,6 @@ def get_unique_date_from_charges(db_conn) -> dt.date:
 @pytest.fixture(autouse=False)  # Disabled to allow regression tests to preserve CSV files
 def cleanup_ref_matcher_csv_files():
     """Automatically clean up ref_matcher CSV files after each test."""
-    import glob
 
     yield  # Let the test run
 
@@ -374,8 +383,28 @@ def cleanup_ref_matcher_csv_files():
 
     # Reset the singleton matcher to prevent state pollution
     try:
-        from wpp.ref_matcher import _reset_matcher
-
         _reset_matcher()
     except ImportError:
         pass  # ref_matcher might not be available in all test contexts
+
+
+@pytest.fixture(autouse=True)  # Auto-use for all tests
+def cleanup_empty_output_dirs(request):
+    """Clean up empty output directories after each test."""
+
+    # Skip cleanup for regression tests (they handle their own cleanup)
+    if "test_regression" in request.node.name:
+        yield
+        return
+
+    yield  # Let the test run
+
+    # Clean up empty main output directories for regular unit tests
+    for output_dir_func in [get_wpp_db_dir, get_wpp_log_dir, get_wpp_report_dir]:
+        output_dir = output_dir_func()
+        if output_dir.exists():
+            try:
+                output_dir.rmdir()  # Only removes if empty
+            except OSError:
+                # Directory not empty, leave it alone
+                pass

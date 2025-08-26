@@ -219,6 +219,12 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
     scenario_dir = get_test_scenarios_dir() / scenario
     mock_data_dir.return_value = scenario_dir
 
+    # Enable logging for the ref_matcher with the correct scenario path
+    from wpp.ref_matcher import _get_matcher
+
+    matcher = _get_matcher()
+    matcher.enable_logging()  # This will use the mocked data directory path
+
     # Decrypt files for this scenario only
     _decrypt_scenario_files(scenario)
 

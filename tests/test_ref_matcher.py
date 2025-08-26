@@ -25,6 +25,7 @@ from wpp.ref_matcher import (
     checkForIrregularTenantRefInDatabase,
     checkTenantExists,
     correctKnownCommonErrors,
+    doubleCheckTenantRef,
     getPropertyBlockAndTenantRefsFromRegexMatch,
     matchTransactionRef,
     postProcessPropertyBlockTenantRefs,
@@ -385,7 +386,6 @@ def test_p_regex_strategy():
 
 def test_double_check_tenant_ref():
     """Test doubleCheckTenantRef function."""
-    from wpp.ref_matcher import doubleCheckTenantRef
 
     # Create mock cursor
     class MockCursor:
@@ -414,7 +414,6 @@ def test_double_check_tenant_ref():
 
 def test_regex_double_check_strategy():
     """Test RegexDoubleCheckStrategy validation."""
-    from wpp.ref_matcher import PBT_REGEX
 
     class TestRegexDoubleCheckStrategy(RegexDoubleCheckStrategy):
         def __init__(self):

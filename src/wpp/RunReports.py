@@ -5,6 +5,7 @@ import logging
 import os
 import sqlite3
 import sys
+import time
 from typing import cast
 
 import pandas as pd
@@ -250,8 +251,6 @@ def get_run_date_args(args: argparse.Namespace, config: RunConfiguration) -> tup
 
 
 def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> None:
-    import time
-
     start_time = time.time()
 
     global logger

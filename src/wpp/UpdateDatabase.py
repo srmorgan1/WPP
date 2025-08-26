@@ -4,7 +4,11 @@ import logging
 import os
 import re
 import sqlite3
+import tempfile
+import time
+import warnings
 import xml.etree.ElementTree as et
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -584,8 +588,6 @@ def _validate_xml_against_xsd(xml_content: str, xsd_filename: str) -> None:
     Raises:
         ValueError: If validation fails or XSD file not found
     """
-    from pathlib import Path
-
     # Get XSD file path from bundled schemas directory
     schemas_dir = Path(__file__).parent / "schemas"
     xsd_path = schemas_dir / xsd_filename
@@ -610,8 +612,6 @@ def _validate_xml_against_xsd(xml_content: str, xsd_filename: str) -> None:
         logger.debug(f"XSD pattern modifications applied: {original_content != xsd_content}")
 
         # Create temporary directory with all XSD files to handle includes properly
-        import tempfile
-
         with tempfile.TemporaryDirectory() as temp_dir:
             # Copy all XSD files to temp directory, applying fixes to all of them
             for schema_file in xsd_path.parent.glob("*.xsd"):
@@ -2210,9 +2210,6 @@ def get_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    import time
-    import warnings
-
     warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
     global logger
