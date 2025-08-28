@@ -152,17 +152,15 @@ def test_checkDataIsPresent(mock_get_single_value, db_conn):  # Added db_conn fr
 @patch("pandas.DataFrame.to_excel")
 @patch("wpp.RunReports.checkDataIsPresent", return_value=True)
 @patch("wpp.RunReports.run_sql_query")
-@patch("wpp.RunReports.pd.ExcelWriter")
+@patch("wpp.RunReports.ExcelOutputHandler") # Patch the ExcelOutputHandler class
 @patch("wpp.RunReports.get_wpp_report_file")
-def test_runReports(mock_get_wpp_report_file, mock_excel_writer, mock_run_sql_query, mock_checkDataIsPresent, mock_to_excel, db_conn):
+def test_runReports(mock_get_wpp_report_file, mock_excel_output_handler_class, mock_run_sql_query, mock_checkDataIsPresent, mock_to_excel, db_conn):
     # Mock the report file path to return a dummy path
     mock_get_wpp_report_file.return_value = "/tmp/test_report.xlsx"
 
-    # Create a proper mock for ExcelWriter that behaves like a context manager
-    mock_writer_instance = MagicMock()
-    mock_writer_instance.__enter__ = MagicMock(return_value=mock_writer_instance)
-    mock_writer_instance.__exit__ = MagicMock(return_value=None)
-    mock_excel_writer.return_value = mock_writer_instance
+    # Create a mock instance for ExcelOutputHandler
+    mock_output_handler_instance = MagicMock()
+    mock_excel_output_handler_class.return_value = mock_output_handler_instance
 
     mock_run_sql_query.side_effect = [
         pd.DataFrame([{"Reference": "050-01", "Name": "Test Block", "Total Paid SC": 100, "Account Number": "12345"}]),
@@ -174,8 +172,13 @@ def test_runReports(mock_get_wpp_report_file, mock_excel_writer, mock_run_sql_qu
     ]
     # Use a fixed date for unit testing instead of trying to get it from an empty database
     test_date = parser.parse("2023-01-01").date()
-    runReports(db_conn, test_date, test_date)
-    assert mock_excel_writer.called
+    
+    runReports(db_conn, test_date, test_date, mock_output_handler_instance) # Pass the mock instance
+
+    # Assert that the add_sheet method was called on the mock instance
+    mock_output_handler_instance.add_sheet.assert_called()
+    mock_output_handler_instance.add_summary.assert_called_once()
+    mock_output_handler_instance.build.assert_called_once()
 
 
 @patch("argparse.ArgumentParser.parse_args")
@@ -234,9 +237,12 @@ def test_checkDataIsPresent_with_missing_data(db_conn):
 def test_runReports_raises_exception_when_no_data(mock_checkDataIsPresent, db_conn):
     """Test that runReports raises exception when data is not present (line 368)"""
     missing_date = parser.parse("1999-01-01").date()
+    
+    # Create mock output handler
+    mock_output_handler = MagicMock()
 
     with pytest.raises(Exception) as exc_info:
-        runReports(db_conn, missing_date, missing_date)
+        runReports(db_conn, missing_date, missing_date, mock_output_handler)
 
     assert "The required data is not in the database" in str(exc_info.value)
 
@@ -260,38 +266,15 @@ def test_get_args_error_handling(mock_parse_args):
             mock_exit.assert_called_with(1)
 
 
-@patch("wpp.RunReports.setup_logger")
-@patch("wpp.RunReports.get_args")
-@patch("wpp.RunReports.get_run_date_args")
-@patch("wpp.RunReports.runReports")
-@patch("sqlite3.connect")
-def test_main_exception_handling(mock_connect, mock_runReports, mock_get_run_date_args, mock_get_args, mock_setup_logger):
-    """Test main function exception handling using log_exceptions decorator"""
-    # Mock the logger
-    mock_logger = MagicMock()
-    mock_setup_logger.return_value = mock_logger
+@patch("wpp.RunReports.run_reports_core")
+def test_main_exception_handling(mock_run_reports_core):
+    """Test main function exception handling"""
+    # Make run_reports_core raise an exception
+    mock_run_reports_core.side_effect = Exception("Test exception")
 
-    # Mock the args
-    mock_args = MagicMock()
-    mock_args.verbose = False
-    mock_get_args.return_value = mock_args
-
-    # Mock database connection
-    mock_db_conn = MagicMock()
-    mock_connect.return_value = mock_db_conn
-
-    # Mock date args - using a fixed date for this unit test
-    mock_get_run_date_args.return_value = (parser.parse("2023-01-01").date(), parser.parse("2023-01-01").date())
-
-    # Make runReports raise an exception
-    mock_runReports.side_effect = Exception("Test exception")
-
-    # The log_exceptions decorator should catch and log the exception without re-raising
-    run_reports_main()
-
-    # Verify that logger.exception was called with the expected message format
-    # Now using logger.exception which includes both message and stack trace
-    mock_logger.exception.assert_any_call("running reports: Test exception")
+    # The main function should allow the exception to propagate
+    with pytest.raises(Exception, match="Test exception"):
+        run_reports_main()
 
 
 def test_main_script_execution():

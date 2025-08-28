@@ -4,11 +4,11 @@ INFO: - Bank Of Scotland Transactions and Account Balances Date: 2022-10-11
 INFO: - 16 Bank Of Scotland transactions found for date 2022-10-11
 INFO: - 134 Bank Of Scotland account balance records found for date 2022-10-11
 INFO: - 911 Qube charge records found for date 2022-10-11
-INFO: - Creating Excel spreadsheet report file /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Reports/WPP_Report_2022-10-11.xlsx
+INFO: - Generating reports...
 INFO: - Running COMREC report for 2022-10-11
 INFO: - Running Transactions report for 2022-10-11
 INFO: - Running DC & PAY Transactions report for 2022-10-11
 INFO: - Running Qube BOS report for 2022-10-11
 INFO: - Running Total SC Paid By Tenant on 2022-10-11 report
-INFO: - Done in 0.2 seconds.
+INFO: - Reports generated successfully: /Users/steve/Development/PycharmProjects/WPP/tests/Data/TestScenarios/scenario_default/Reports/WPP_Report_2022-10-11.xlsx
 INFO: - ----------------------------------------------------------------------------------------

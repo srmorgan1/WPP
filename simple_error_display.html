@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WPP Error Display Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .error { color: #dc3545; background: #f8d7da; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .sheet { margin: 20px 0; padding: 15px; border: 2px solid #dc3545; border-radius: 8px; }
+        .sheet h3 { color: #dc3545; margin-top: 0; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>WPP Data Import Error Display</h1>
+    
+    <button onclick="loadLatestErrors()">Load Latest Database Update Errors</button>
+    
+    <div id="status">Click "Load Latest Database Update Errors" to see validation errors</div>
+    
+    <div id="error-display"></div>
+    
+    <script>
+        async function loadLatestErrors() {
+            document.getElementById('status').innerHTML = 'Loading...';
+            document.getElementById('error-display').innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/test/display-latest-errors');
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('status').innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                    return;
+                }
+                
+                document.getElementById('status').innerHTML = `
+                    <div class="success">
+                        ✅ Found failed database update task<br>
+                        <strong>Task ID:</strong> ${data.task_id}<br>
+                        <strong>Status:</strong> ${data.status}<br>
+                        <strong>Error:</strong> ${data.error}<br>
+                        <strong>Completed:</strong> ${new Date(data.completed_at).toLocaleString()}
+                    </div>
+                `;
+                
+                if (data.web_sheets) {
+                    const errorDisplay = document.getElementById('error-display');
+                    let html = `<h2>📋 Data Import Issues (${Object.keys(data.web_sheets).length} sheets)</h2>`;
+                    
+                    for (const [sheetName, sheet] of Object.entries(data.web_sheets)) {
+                        html += `
+                            <div class="sheet">
+                                <h3>${sheetName} (${sheet.row_count} errors)</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            ${sheet.columns.map(col => `<th>${col}</th>`).join('')}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${sheet.data.map(row => `
+                                            <tr>
+                                                ${sheet.columns.map(col => `<td>${row[col] || ''}</td>`).join('')}
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                                <p><strong>Metadata:</strong> ${JSON.stringify(sheet.metadata)}</p>
+                            </div>
+                        `;
+                    }
+                    
+                    errorDisplay.innerHTML = html;
+                } else {
+                    document.getElementById('error-display').innerHTML = '<div class="error">❌ No error sheets found in task result</div>';
+                }
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = `<div class="error">❌ Error loading data: ${error.message}</div>`;
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

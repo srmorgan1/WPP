@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug UI Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .error { color: #dc3545; background: #f8d7da; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .sheet { margin: 20px 0; padding: 15px; border: 2px solid #dc3545; border-radius: 8px; }
+        .sheet h3 { color: #dc3545; margin-top: 0; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>Debug UI Test - Direct API Verification</h1>
+    
+    <button onclick="testTaskAPI()">Test Task API (Last Failed Task)</button>
+    <button onclick="testDisplayLatest()">Test Display Latest Errors</button>
+    
+    <div id="status">Click buttons to test</div>
+    <div id="results"></div>
+    
+    <script>
+        async function testTaskAPI() {
+            document.getElementById('status').textContent = 'Testing Task API...';
+            document.getElementById('results').innerHTML = '';
+            
+            try {
+                // Get the latest failed task ID first
+                const latestResponse = await fetch('/api/test/display-latest-errors');
+                const latestData = await latestResponse.json();
+                
+                if (latestData.error) {
+                    document.getElementById('status').innerHTML = `<div class="error">❌ ${latestData.error}</div>`;
+                    return;
+                }
+                
+                const taskId = latestData.task_id;
+                document.getElementById('status').textContent = `Testing Task API for task: ${taskId}`;
+                
+                // Now fetch the task data directly
+                const response = await fetch(`/api/tasks/${taskId}`);
+                const taskData = await response.json();
+                
+                document.getElementById('status').innerHTML = `
+                    <div class="success">
+                        ✅ Task API working<br>
+                        <strong>Task ID:</strong> ${taskData.task_id}<br>
+                        <strong>Status:</strong> ${taskData.status}<br>
+                        <strong>Error:</strong> ${taskData.error}<br>
+                        <strong>Has web_sheets:</strong> ${taskData.result_data?.summary?.web_sheets ? 'Yes' : 'No'}
+                    </div>
+                `;
+                
+                if (taskData.result_data?.summary?.web_sheets) {
+                    displayWebSheets(taskData.result_data.summary.web_sheets);
+                } else {
+                    document.getElementById('results').innerHTML = '<div class="error">No web_sheets found in task result</div>';
+                }
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function testDisplayLatest() {
+            document.getElementById('status').textContent = 'Testing Display Latest Errors...';
+            document.getElementById('results').innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/test/display-latest-errors');
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('status').innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                    return;
+                }
+                
+                document.getElementById('status').innerHTML = `
+                    <div class="success">
+                        ✅ Display Latest Errors working<br>
+                        <strong>Task ID:</strong> ${data.task_id}<br>
+                        <strong>Status:</strong> ${data.status}<br>
+                        <strong>Error:</strong> ${data.error}<br>
+                        <strong>Has web_sheets:</strong> ${data.web_sheets ? 'Yes' : 'No'}
+                    </div>
+                `;
+                
+                if (data.web_sheets) {
+                    displayWebSheets(data.web_sheets);
+                } else {
+                    document.getElementById('results').innerHTML = '<div class="error">No web_sheets found in display latest errors</div>';
+                }
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+        
+        function displayWebSheets(webSheets) {
+            let html = `<h2>📋 Data Import Issues (${Object.keys(webSheets).length} sheets)</h2>`;
+            
+            for (const [sheetName, sheet] of Object.entries(webSheets)) {
+                html += `
+                    <div class="sheet">
+                        <h3>${sheetName} (${sheet.row_count} errors)</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    ${sheet.columns.map(col => `<th>${col}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${sheet.data.map(row => `
+                                    <tr>
+                                        ${sheet.columns.map(col => `<td>${row[col] || ''}</td>`).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <p><strong>Metadata:</strong> ${JSON.stringify(sheet.metadata)}</p>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('results').innerHTML = html;
+        }
+    </script>
+</body>
+</html>

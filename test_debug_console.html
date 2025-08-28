@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Console Test</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        .log { margin: 5px 0; padding: 5px; border-left: 4px solid #007bff; background: #f8f9fa; }
+        .error { border-left-color: #dc3545; background: #f8d7da; }
+        .success { border-left-color: #28a745; background: #d4edda; }
+        button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #output { max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>JavaScript Debug Console</h1>
+    <button onclick="testAPI()">Test API Call</button>
+    <button onclick="clearOutput()">Clear</button>
+    <div id="output"></div>
+    
+    <script>
+        function log(message, type = 'log') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+        }
+        
+        // Override console methods to capture logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        
+        console.log = function(...args) {
+            log(args.join(' '), 'log');
+            originalLog.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            log('ERROR: ' + args.join(' '), 'error');
+            originalError.apply(console, args);
+        };
+        
+        // Capture unhandled errors
+        window.onerror = function(message, source, lineno, colno, error) {
+            log(`UNHANDLED ERROR: ${message} at ${source}:${lineno}:${colno}`, 'error');
+            return false;
+        };
+        
+        async function testAPI() {
+            log('=== STARTING API TEST ===');
+            
+            try {
+                log('Step 1: Fetching latest failed task...');
+                const response1 = await fetch('/api/test/display-latest-errors');
+                log('Response 1 status: ' + response1.status);
+                
+                if (!response1.ok) {
+                    throw new Error('Failed to fetch latest errors: ' + response1.statusText);
+                }
+                
+                const data1 = await response1.json();
+                log('Latest task ID: ' + data1.task_id);
+                log('Has web_sheets: ' + !!data1.web_sheets);
+                
+                if (data1.web_sheets) {
+                    const sheetNames = Object.keys(data1.web_sheets);
+                    log('Sheet names: ' + sheetNames.join(', '));
+                    
+                    // Test individual sheet structure
+                    const firstSheet = data1.web_sheets[sheetNames[0]];
+                    log('First sheet structure check:');
+                    log('  - name: ' + firstSheet.name);
+                    log('  - columns: ' + firstSheet.columns?.length);
+                    log('  - data: ' + firstSheet.data?.length);
+                    log('  - row_count: ' + firstSheet.row_count);
+                    
+                    // Try to create HTML
+                    log('Step 2: Testing HTML creation...');
+                    testHTMLCreation(data1.web_sheets);
+                }
+                
+                log('Step 3: Testing task API directly...');
+                const response2 = await fetch('/api/tasks/' + data1.task_id);
+                log('Response 2 status: ' + response2.status);
+                
+                if (!response2.ok) {
+                    throw new Error('Failed to fetch task: ' + response2.statusText);
+                }
+                
+                const data2 = await response2.json();
+                log('Task status: ' + data2.status);
+                log('Has result_data: ' + !!data2.result_data);
+                log('Has summary: ' + !!(data2.result_data?.summary));
+                log('Has web_sheets in summary: ' + !!(data2.result_data?.summary?.web_sheets));
+                
+                if (data2.result_data?.summary?.web_sheets) {
+                    const sheetNames2 = Object.keys(data2.result_data.summary.web_sheets);
+                    log('Task API sheet names: ' + sheetNames2.join(', '));
+                }
+                
+                log('=== API TEST COMPLETED SUCCESSFULLY ===', 'success');
+                
+            } catch (error) {
+                log('API TEST FAILED: ' + error.message, 'error');
+                log('Stack trace: ' + error.stack, 'error');
+            }
+        }
+        
+        function testHTMLCreation(webSheets) {
+            try {
+                log('Creating HTML for ' + Object.keys(webSheets).length + ' sheets...');
+                
+                let html = '<div>TEST HTML CREATION</div>';
+                for (const [sheetName, sheet] of Object.entries(webSheets)) {
+                    log('Processing sheet: ' + sheetName);
+                    
+                    html += '<h3>' + sheetName + '</h3>';
+                    html += '<table border="1"><thead><tr>';
+                    
+                    if (sheet.columns && Array.isArray(sheet.columns)) {
+                        for (const col of sheet.columns) {
+                            html += '<th>' + col + '</th>';
+                        }
+                    } else {
+                        log('WARNING: No columns array for ' + sheetName, 'error');
+                    }
+                    
+                    html += '</tr></thead><tbody>';
+                    
+                    if (sheet.data && Array.isArray(sheet.data)) {
+                        for (const row of sheet.data) {
+                            html += '<tr>';
+                            if (sheet.columns) {
+                                for (const col of sheet.columns) {
+                                    html += '<td>' + (row[col] || '') + '</td>';
+                                }
+                            }
+                            html += '</tr>';
+                        }
+                    } else {
+                        log('WARNING: No data array for ' + sheetName, 'error');
+                    }
+                    
+                    html += '</tbody></table>';
+                }
+                
+                log('HTML created successfully, length: ' + html.length);
+                
+                // Try to actually render it
+                const testDiv = document.createElement('div');
+                testDiv.innerHTML = html;
+                log('HTML rendered successfully to test div');
+                
+            } catch (error) {
+                log('HTML creation failed: ' + error.message, 'error');
+            }
+        }
+        
+        // Test on page load
+        window.onload = function() {
+            log('Page loaded, console debugging ready', 'success');
+        };
+    </script>
+</body>
+</html>

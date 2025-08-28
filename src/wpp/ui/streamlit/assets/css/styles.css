@@ -1,0 +1,246 @@
+/* Modern Flat Design for WPP Management Application */
+
+/* Main container - clean flat background */
+.main > div {
+    padding-top: 1rem;
+}
+
+.stApp > div[data-testid="stAppViewContainer"] > .main,
+.stApp .main,
+div[data-testid="stAppViewContainer"] .main {
+    background: #f8f9fa !important;
+    min-height: 100vh !important;
+}
+
+.main .block-container,
+.main div[data-testid="block-container"],
+section.main .block-container {
+    background: transparent !important;
+    background-color: transparent !important;
+    max-width: 1200px !important;
+}
+
+/* Clean card design */
+.card {
+    background: #ffffff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    margin-bottom: 1.5rem;
+    box-shadow: none;
+    transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* Modern button design */
+.stButton > button {
+    background: #3498db !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 0.75rem 1.5rem !important;
+    font-weight: 500 !important;
+    font-size: 0.95rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: none !important;
+    text-transform: none !important;
+}
+
+.stButton > button:hover {
+    background: #2980b9 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3) !important;
+}
+
+/* Flat sidebar design */
+section[data-testid="stSidebar"] {
+    background: #ffffff !important;
+    border-right: 1px solid #e9ecef !important;
+}
+
+.sidebar-section {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    border: 1px solid #e9ecef;
+}
+
+/* Alert messages - flat design */
+.alert-success {
+    background: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+    border-left: 4px solid #17a2b8;
+}
+
+.alert-error {
+    background: #f8d7da;
+    border: 1px solid #f1aeb5;
+    color: #721c24;
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+    border-left: 4px solid #dc3545;
+}
+
+.alert-warning {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    color: #856404;
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+    border-left: 4px solid #ffc107;
+}
+
+/* Modern status indicators */
+.status-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-success {
+    background-color: #28a745;
+}
+
+.status-warning {
+    background-color: #ffc107;
+}
+
+.status-error {
+    background-color: #dc3545;
+}
+
+/* Clean tab design */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 2px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+.stTabs [data-baseweb="tab"] {
+    height: 44px;
+    background: transparent !important;
+    border-radius: 4px !important;
+    color: #6c757d !important;
+    border: none !important;
+    font-weight: 500 !important;
+}
+
+.stTabs [aria-selected="true"] {
+    background: #ffffff !important;
+    color: #495057 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}
+
+/* Data tables */
+.dataframe {
+    border: 1px solid #e9ecef !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+}
+
+/* Form inputs */
+.stSelectbox > div > div {
+    border-radius: 6px !important;
+    border-color: #ced4da !important;
+}
+
+.stDateInput > div > div > input {
+    border-radius: 6px !important;
+    border-color: #ced4da !important;
+}
+
+.stCheckbox > label {
+    font-size: 0.95rem !important;
+    color: #495057 !important;
+}
+
+/* Typography improvements */
+h1, h2, h3, h4, h5, h6 {
+    color: #2c3e50 !important;
+    font-weight: 600 !important;
+}
+
+h1 { font-size: 1.75rem !important; }
+h2 { font-size: 1.5rem !important; }
+h3 { font-size: 1.25rem !important; }
+
+/* Info boxes */
+.stInfo {
+    background: #e7f3ff !important;
+    border: 1px solid #b3d7ff !important;
+    border-radius: 6px !important;
+    border-left: 4px solid #0066cc !important;
+}
+
+/* Metrics */
+.metric-container {
+    background: #ffffff;
+    padding: 1rem;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+    text-align: center;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 0.25rem;
+}
+
+.metric-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Banner styling - flat design */
+.banner-container {
+    background: #ffffff;
+    padding: 1rem;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.banner-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+}
+
+/* Fixed header - modern flat style */
+.fixed-header {
+    background: #ffffff !important;
+    color: #2c3e50 !important;
+    border-bottom: 1px solid #e9ecef !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}
+
+/* Clean separators */
+hr {
+    border: none !important;
+    height: 1px !important;
+    background: #e9ecef !important;
+    margin: 1.5rem 0 !important;
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-color: #3498db transparent transparent transparent !important;
+}

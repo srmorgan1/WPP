@@ -12,6 +12,7 @@ from pathlib import Path
 from wpp.config import (
     get_alphanumeric_properties,
     get_commercial_properties,
+    get_config,
     get_digit_letter_suffix_properties,
     get_double_zero_letter_properties,
     get_exclude_z_suffix_properties,
@@ -695,11 +696,23 @@ class PropertyBlockTenantRefMatcher:
         self.strategies: list[MatchingStrategy] = []
         self.log_file = None
         self._is_test_environment = self._detect_test_environment()
-        # Only create log files automatically in production (non-test) environments
-        # In test environments, logging must be explicitly enabled to control file location
-        if not self._is_test_environment:
+
+        # Determine if CSV logging should be enabled
+        should_log_csv = self._should_enable_csv_logging()
+
+        if should_log_csv:
             self.log_file = get_wpp_ref_matcher_log_file(datetime.now())
             self._setup_log_file()
+
+    def _should_enable_csv_logging(self) -> bool:
+        """Determine if CSV logging should be enabled based on environment and config."""
+        # Tests always log CSV
+        if self._is_test_environment:
+            return True
+
+        # Production (web and console) follow config setting
+        config = get_config()
+        return config.get("LOGS", {}).get("REF_MATCHER_CSV_ENABLED", True)
 
     def _detect_test_environment(self):
         """Detect if we're running in a test environment."""
@@ -750,7 +763,12 @@ class PropertyBlockTenantRefMatcher:
         return MatchResult.no_match()
 
     def _log_match(self, match_data: MatchLogData):
-        # Only log if we have a log file configured
+        # Always collect data for potential web/output handler use
+        if not hasattr(self, "collected_matches"):
+            self.collected_matches = []
+        self.collected_matches.append(match_data)
+
+        # Only log to CSV file if we have a log file configured (console app behavior)
         if self.log_file is not None:
             # Ensure the file exists with headers before appending
             if not self.log_file.exists():
@@ -758,6 +776,32 @@ class PropertyBlockTenantRefMatcher:
             with open(self.log_file, "a", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow([match_data.description, match_data.property_ref, match_data.block_ref, match_data.tenant_ref, match_data.strategy_name])
+
+    def export_collected_data(self, output_handler):
+        """Export collected ref_matcher data to the provided output handler."""
+        if hasattr(self, "collected_matches") and self.collected_matches:
+            import pandas as pd
+
+            # Convert collected data to DataFrame
+            data_rows = []
+            for match in self.collected_matches:
+                data_rows.append(
+                    {
+                        "Transaction Description": match.description,
+                        "Property Ref": match.property_ref or "",
+                        "Block Ref": match.block_ref or "",
+                        "Tenant Ref": match.tenant_ref or "",
+                        "Strategy Used": match.strategy_name,
+                    }
+                )
+
+            df = pd.DataFrame(data_rows)
+            
+
+    def clear_collected_data(self):
+        """Clear collected data (useful for testing or reset)."""
+        if hasattr(self, "collected_matches"):
+            self.collected_matches = []
 
 
 def checkForIrregularTenantRefInDatabase(reference: str, db_cursor: sqlite3.Cursor | None) -> MatchResult:
