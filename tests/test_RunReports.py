@@ -152,7 +152,7 @@ def test_checkDataIsPresent(mock_get_single_value, db_conn):  # Added db_conn fr
 @patch("pandas.DataFrame.to_excel")
 @patch("wpp.RunReports.checkDataIsPresent", return_value=True)
 @patch("wpp.RunReports.run_sql_query")
-@patch("wpp.RunReports.ExcelOutputHandler") # Patch the ExcelOutputHandler class
+@patch("wpp.RunReports.ExcelOutputHandler")  # Patch the ExcelOutputHandler class
 @patch("wpp.RunReports.get_wpp_report_file")
 def test_runReports(mock_get_wpp_report_file, mock_excel_output_handler_class, mock_run_sql_query, mock_checkDataIsPresent, mock_to_excel, db_conn):
     # Mock the report file path to return a dummy path
@@ -172,8 +172,8 @@ def test_runReports(mock_get_wpp_report_file, mock_excel_output_handler_class, m
     ]
     # Use a fixed date for unit testing instead of trying to get it from an empty database
     test_date = parser.parse("2023-01-01").date()
-    
-    runReports(db_conn, test_date, test_date, mock_output_handler_instance) # Pass the mock instance
+
+    runReports(db_conn, test_date, test_date, mock_output_handler_instance)  # Pass the mock instance
 
     # Assert that the add_sheet method was called on the mock instance
     mock_output_handler_instance.add_sheet.assert_called()
@@ -237,7 +237,7 @@ def test_checkDataIsPresent_with_missing_data(db_conn):
 def test_runReports_raises_exception_when_no_data(mock_checkDataIsPresent, db_conn):
     """Test that runReports raises exception when data is not present (line 368)"""
     missing_date = parser.parse("1999-01-01").date()
-    
+
     # Create mock output handler
     mock_output_handler = MagicMock()
 

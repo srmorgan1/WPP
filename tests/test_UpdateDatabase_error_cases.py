@@ -55,7 +55,7 @@ def test_report_qube_import_errors():
         call_args = mock_output_handler.add_sheet.call_args
         assert call_args[0][0] == "Qube Import Problems"  # sheet name
         assert len(call_args[0][1]) == 2  # DataFrame with 2 errors
-        assert call_args[1]['is_critical'] == True  # is_critical flag
+        assert call_args[1]["is_critical"]  # is_critical flag
 
 
 def test_report_qube_import_errors_empty_list():

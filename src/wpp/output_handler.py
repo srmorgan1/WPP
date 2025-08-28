@@ -58,7 +58,7 @@ class ExcelOutputHandler(OutputHandler):
     def __init__(self, file_path: str):
         """Initialize with target Excel file path."""
         self.file_path = Path(file_path)
-        
+
         # Ensure directory exists
         os.makedirs(self.file_path.parent, exist_ok=True)
 

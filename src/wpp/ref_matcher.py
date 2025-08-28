@@ -795,8 +795,8 @@ class PropertyBlockTenantRefMatcher:
                     }
                 )
 
-            df = pd.DataFrame(data_rows)
-            
+            # Data is already saved to CSV via self.log_file when CSV logging is enabled
+            # No need to export to output_handler as ref_matcher logs can be very large for web interface
 
     def clear_collected_data(self):
         """Clear collected data (useful for testing or reset)."""
