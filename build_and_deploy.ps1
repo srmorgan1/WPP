@@ -247,7 +247,7 @@ try {
     }
     
     $executables = @(
-        "wpp-streamlit.exe",
+        "wpp-web-app.exe",
         "run-reports.exe", 
         "update-database.exe"
     )
@@ -283,7 +283,7 @@ try {
     }
     
     Write-Info "`nUsage:"
-    Write-Info "  Web App:        .\dist\wpp\wpp-streamlit.exe"
+    Write-Info "  Web App:        .\dist\wpp\wpp-web-app.exe"
     Write-Info "  Generate Reports: .\dist\wpp\run-reports.exe"
     Write-Info "  Update Database:  .\dist\wpp\update-database.exe"
     
