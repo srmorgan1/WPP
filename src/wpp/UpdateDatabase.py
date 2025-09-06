@@ -17,14 +17,14 @@ from lxml import etree
 from openpyxl import load_workbook
 
 from .calendars import get_business_day_offset
-from .config import get_config, get_wpp_db_file, get_wpp_excel_log_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
+from .config import get_config, get_wpp_db_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .constants import DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_TENANT_NAME_MATCH_LENGTH, MINIMUM_VALID_PROPERTY_REF
 from .data_classes import ChargeData, TransactionReferences
 from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
 from .db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
-from .excel import format_all_excel_sheets_comprehensive
 from .exceptions import database_transaction, log_database_error
 from .logger import setup_logger
+from .output_handler import ExcelOutputHandler, OutputHandler
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
 from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
 
@@ -212,15 +212,15 @@ def _validate_reference_parsing(references_df: pd.DataFrame, file_path: str, ref
     return validation_issues
 
 
-def _report_reference_parsing_errors(validation_issues: list[dict], file_path: str, file_type: str, excel_writer: pd.ExcelWriter) -> None:
+def _report_reference_parsing_errors(validation_issues: list[dict], file_path: str, file_type: str, output_handler: OutputHandler) -> None:
     """
-    Report reference parsing errors to log and Excel sheet.
+    Report reference parsing errors to log and output handler.
 
     Args:
         validation_issues: List of error dictionaries
         file_path: File path for error messages
         file_type: Type of file for sheet naming
-        excel_writer: Excel writer for outputting errors
+        output_handler: OutputHandler for outputting errors
     """
     if not validation_issues:
         return
@@ -229,20 +229,20 @@ def _report_reference_parsing_errors(validation_issues: list[dict], file_path: s
     for error in validation_issues:
         logger.error(f"Row {error['Row Number']}: {error['Error']} - Name: {error['Name']}")
 
-    # Write errors to Excel with file-type specific sheet name
+    # Write errors to output handler with file-type specific sheet name
     sheet_name = f"{file_type} Import Problems"
     errors_df = pd.DataFrame(validation_issues)
-    errors_df.to_excel(excel_writer, sheet_name=sheet_name, index=False, float_format="%.2f")
+    output_handler.add_sheet(sheet_name, errors_df, {"file_path": file_path, "error_count": len(validation_issues)})
 
 
-def _report_qube_import_errors(qube_import_errors: list[dict], qube_file: str, excel_writer: pd.ExcelWriter) -> None:
+def _report_qube_import_errors(qube_import_errors: list[dict], qube_file: str, output_handler: OutputHandler) -> None:
     """
-    Report Qube import errors to log and Excel sheet.
+    Report Qube import errors to log and output handler.
 
     Args:
         qube_import_errors: List of error dictionaries
         qube_file: File path for error messages
-        excel_writer: Excel writer for outputting errors
+        output_handler: OutputHandler for outputting errors
     """
     if not qube_import_errors:
         return
@@ -251,19 +251,19 @@ def _report_qube_import_errors(qube_import_errors: list[dict], qube_file: str, e
     for error in qube_import_errors:
         logger.error(f"Block {error['Block Reference']}: {error['Error']}")
 
-    # Write errors to Excel
+    # Write errors to output handler
     errors_df = pd.DataFrame(qube_import_errors)
-    errors_df.to_excel(excel_writer, sheet_name="Qube Import Problems", index=False, float_format="%.2f")
+    output_handler.add_sheet("Qube Import Problems", errors_df, {"file_path": qube_file, "error_count": len(qube_import_errors)}, is_critical=True)
 
 
-def _validate_account_designation_consistency(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, excel_writer: pd.ExcelWriter) -> list[dict]:
+def _validate_account_designation_consistency(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, output_handler: OutputHandler) -> list[dict]:
     """
     Validate that manual Property/Block designation matches the reference format for all accounts.
 
     Args:
         bank_accounts_df: DataFrame containing account data
         bank_accounts_file: File path for error messages
-        excel_writer: Excel writer for outputting validation issues
+        output_handler: OutputHandler for outputting validation issues
 
     Returns:
         List of validation issues found
@@ -336,9 +336,9 @@ def _validate_account_designation_consistency(bank_accounts_df: pd.DataFrame, ba
         for issue in validation_issues:
             logger.error(f"Row {issue['Row Number']}: {issue['Issue']} - Account {issue['Sort Code']}-{issue['Account Number']}")
 
-        # Write violations to Excel
+        # Write violations to output handler
         issues_df = pd.DataFrame(validation_issues)
-        issues_df.to_excel(excel_writer, sheet_name="Account Designation Issues", index=False, float_format="%.2f")
+        output_handler.add_sheet("Account Designation Issues", issues_df, {"file_path": bank_accounts_file, "error_count": len(validation_issues)})
 
     return validation_issues
 
@@ -1239,14 +1239,14 @@ def _process_tenant(csr: sqlite3.Cursor, tenant_ref: str, tenant_name: str, bloc
     return 0
 
 
-def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
+def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str, output_handler: OutputHandler | None = None) -> bool:
     """Import properties data from Excel file into database."""
     properties_df = _read_properties_df(properties_xls_file)
 
     # Validate tenant reference parsing before import
-    if excel_writer is not None:
+    if output_handler is not None:
         validation_issues = _validate_reference_parsing(properties_df, properties_xls_file, "Reference", "Name", "Tenants")
-        _report_reference_parsing_errors(validation_issues, properties_xls_file, "Tenants", excel_writer)
+        _report_reference_parsing_errors(validation_issues, properties_xls_file, "Tenants", output_handler)
 
     num_properties_added_to_db = 0
     num_blocks_added_to_db = 0
@@ -1295,16 +1295,16 @@ def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str, 
     return False
 
 
-def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
+def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, output_handler: OutputHandler | None = None) -> bool:
     # Read Excel spreadsheet into dataframe
     estates_df = pd.read_excel(estates_xls_file, dtype={"Reference": str})
     estates_df.fillna("", inplace=True)
 
     # Validate estate reference parsing before import
     has_critical_errors = False
-    if excel_writer is not None:
+    if output_handler is not None:
         validation_issues = _validate_reference_parsing(estates_df, estates_xls_file, "Reference", "Name", "Estates")
-        _report_reference_parsing_errors(validation_issues, estates_xls_file, "Estates", excel_writer)
+        _report_reference_parsing_errors(validation_issues, estates_xls_file, "Estates", output_handler)
         has_critical_errors = len(validation_issues) > 0
 
     num_estates_added_to_db = 0
@@ -1517,7 +1517,7 @@ def addTenantToDB(
 #         # charges = {}
 
 
-def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, excel_writer: pd.ExcelWriter) -> None:
+def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_file: str, output_handler: OutputHandler) -> None:
     """
     Validate that there are no duplicate CL (Client) accounts per block reference.
     Ignores accounts with blank/empty references.
@@ -1558,9 +1558,9 @@ def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_f
     for violation in violations:
         logger.error(f"Row {violation['Row Number']}: Block {violation['Block Reference']} has multiple CL accounts - Account {violation['Sort Code']}-{violation['Account Number']}")
 
-    # Write violations to the existing Excel writer
+    # Write violations to the output handler
     violations_df = pd.DataFrame(violations)
-    violations_df.to_excel(excel_writer, sheet_name="Account Validation Problems", index=False, float_format="%.2f")
+    output_handler.add_sheet("Account Validation Problems", violations_df, {"error_count": len(violations)}, is_critical=True)
 
     # Raise exception to stop the import process
     # The Excel file will be saved by the finally block in importAllData()
@@ -1572,7 +1572,7 @@ def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_f
     )
 
 
-def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
+def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, output_handler: OutputHandler | None = None) -> bool:
     # Read Excel spreadsheet into dataframe
     bank_accounts_df = pd.read_excel(bank_accounts_file, "Accounts", dtype={"Reference": str, "Sort Code": str, "Account Number": str})
     bank_accounts_df.replace("nan", "", inplace=True)
@@ -1580,15 +1580,15 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, exc
 
     # Validate for duplicate CL accounts per block and Property/Block designation consistency before inserting any data
     has_critical_errors = False
-    if excel_writer is not None:
+    if output_handler is not None:
         try:
-            _validate_account_uniqueness(bank_accounts_df, bank_accounts_file, excel_writer)
+            _validate_account_uniqueness(bank_accounts_df, bank_accounts_file, output_handler)
         except ValueError:
             # Account uniqueness validation failed - this is critical
             has_critical_errors = True
 
         # Validate Property/Block designation consistency (doesn't stop import, just reports issues)
-        designation_issues = _validate_account_designation_consistency(bank_accounts_df, bank_accounts_file, excel_writer)
+        designation_issues = _validate_account_designation_consistency(bank_accounts_df, bank_accounts_file, output_handler)
         if designation_issues:
             logger.warning(f"Found {len(designation_issues)} Property/Block designation issues - see Excel file for details")
 
@@ -1672,16 +1672,16 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, exc
     return has_critical_errors
 
 
-def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_refs_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
+def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_refs_file: str, output_handler: OutputHandler | None = None) -> bool:
     # Read Excel spreadsheet into dataframe
     anomalous_refs_df = pd.read_excel(anomalous_refs_file, "Sheet1", dtype=str)
     anomalous_refs_df.replace("nan", "", inplace=True)
     anomalous_refs_df.fillna("", inplace=True)
 
     # Validate tenant reference parsing before import
-    if excel_writer is not None:
+    if output_handler is not None:
         validation_issues = _validate_reference_parsing(anomalous_refs_df, anomalous_refs_file, "Tenant Reference", "Payment Reference Pattern", "General Idents")
-        _report_reference_parsing_errors(validation_issues, anomalous_refs_file, "General Idents", excel_writer)
+        _report_reference_parsing_errors(validation_issues, anomalous_refs_file, "General Idents", output_handler)
 
     num_anomalous_refs_added_to_db = 0
     tenant_reference = ""
@@ -1893,7 +1893,7 @@ def _process_qube_data(
     return num_charges_added, None  # No error for successful processing
 
 
-def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str, excel_writer: pd.ExcelWriter | None = None) -> bool:
+def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balances_xls_file: str, output_handler: OutputHandler | None = None) -> bool:
     """Import Qube End of Day balances from Excel file into database."""
     num_charges_added_to_db = 0
     qube_import_errors = []  # Collect import errors for Excel reporting
@@ -1969,8 +1969,8 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         logger.info(f"{num_charges_added_to_db} charges added to the database.")
 
         # Report any Qube import errors to Excel
-        if excel_writer is not None:
-            _report_qube_import_errors(qube_import_errors, qube_eod_balances_xls_file, excel_writer)
+        if output_handler is not None:
+            _report_qube_import_errors(qube_import_errors, qube_eod_balances_xls_file, output_handler)
 
     except db_conn.Error as err:
         logger.error(str(err))
@@ -2020,11 +2020,8 @@ def add_misc_data_to_db(db_conn: sqlite3.Connection) -> None:
         csr.execute("rollback")
 
 
-def importAllData(db_conn: sqlite3.Connection) -> None:
-    # Create a Pandas Excel writer using openpyxl as the engine.
-    excel_log_file = get_wpp_excel_log_file(dt.date.today())
-    logger.debug(f"Creating Excel spreadsheet report file {excel_log_file}")
-    excel_writer = pd.ExcelWriter(excel_log_file, engine="openpyxl")
+def importAllData(db_conn: sqlite3.Connection, output_handler: OutputHandler) -> None:
+    """Import all data with flexible output handling via OutputHandler interface."""
 
     # Track critical validation errors that should stop processing
     has_critical_validation_errors = False
@@ -2037,7 +2034,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     irregular_transaction_refs_file = getLatestMatchingFileName(irregular_transaction_refs_file_pattern)
     if irregular_transaction_refs_file:
         logger.info(f"Importing irregular transaction references from file {irregular_transaction_refs_file}")
-        has_critical_validation_errors |= importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file, excel_writer)
+        has_critical_validation_errors |= importIrregularTransactionReferences(db_conn, irregular_transaction_refs_file, output_handler)
     else:
         logger.error(f"Cannot find irregular transaction references file matching {irregular_transaction_refs_file_pattern}")
     logger.info("")
@@ -2048,7 +2045,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     properties_xls_file = getLatestMatchingFileName(properties_file_pattern) or getLatestMatchingFileName(tenants_file_pattern)
     if properties_xls_file:
         logger.info(f"Importing Properties from file {properties_xls_file}")
-        has_critical_validation_errors |= importPropertiesFile(db_conn, properties_xls_file, excel_writer)
+        has_critical_validation_errors |= importPropertiesFile(db_conn, properties_xls_file, output_handler)
     else:
         logger.error(f"Cannot find Properties file matching {properties_file_pattern}")
     logger.info("")
@@ -2057,7 +2054,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     estates_xls_file = getLatestMatchingFileName(estates_file_pattern)
     if estates_xls_file:
         logger.info(f"Importing Estates from file {estates_xls_file}")
-        has_critical_validation_errors |= importEstatesFile(db_conn, estates_xls_file, excel_writer)
+        has_critical_validation_errors |= importEstatesFile(db_conn, estates_xls_file, output_handler)
     else:
         logger.error(f"Cannot find Estates file matching {estates_file_pattern}")
     logger.info("")
@@ -2067,7 +2064,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     if qube_eod_balances_files:
         for qube_eod_balances_file in qube_eod_balances_files:
             logger.info(f"Importing Qube balances from file {qube_eod_balances_file}")
-            has_critical_validation_errors |= importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file, excel_writer)
+            has_critical_validation_errors |= importQubeEndOfDayBalancesFile(db_conn, qube_eod_balances_file, output_handler)
     else:
         logger.error(f"Cannot find Qube EOD Balances file matching {qube_eod_balances_file_pattern}")
     logger.info("")
@@ -2076,7 +2073,7 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
     accounts_file = getLatestMatchingFileName(accounts_file_pattern)
     if accounts_file:
         logger.info(f"Importing bank accounts from file {accounts_file}")
-        has_critical_validation_errors |= importBankAccounts(db_conn, accounts_file, excel_writer)
+        has_critical_validation_errors |= importBankAccounts(db_conn, accounts_file, output_handler)
     else:
         logger.error(f"ERROR: Cannot find account numbers file matching {accounts_file_pattern}")
     logger.info("")
@@ -2133,30 +2130,15 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
         # Only create Excel sheets that have data rows (not just headers)
         if unrecognised_transactions:
             errors_df = pd.DataFrame(unrecognised_transactions, columns=errors_columns)
-            errors_df.to_excel(
-                excel_writer,
-                sheet_name="Unrecognised Transactions",
-                index=False,
-                float_format="%.2f",
-            )
+            output_handler.add_sheet("Unrecognised Transactions", errors_df, {"error_count": len(unrecognised_transactions)})
 
         if duplicate_transactions:
             duplicates_df = pd.DataFrame(duplicate_transactions, columns=duplicates_columns)
-            duplicates_df.to_excel(
-                excel_writer,
-                sheet_name="Duplicate Transactions",
-                index=False,
-                float_format="%.2f",
-            )
+            output_handler.add_sheet("Duplicate Transactions", duplicates_df, {"error_count": len(duplicate_transactions)})
 
         if missing_tenant_transactions:
             missing_tenant_df = pd.DataFrame(missing_tenant_transactions, columns=missing_tenant_columns)
-            missing_tenant_df.to_excel(
-                excel_writer,
-                sheet_name="Missing Tenants",
-                index=False,
-                float_format="%.2f",
-            )
+            output_handler.add_sheet("Missing Tenants", missing_tenant_df, {"error_count": len(missing_tenant_transactions)})
     else:
         logger.error(f"Cannot find bank account transactions file matching {bos_statement_file_pattern}")
     logger.info("")
@@ -2181,25 +2163,33 @@ def importAllData(db_conn: sqlite3.Connection) -> None:
             importBankOfScotlandBalancesXMLFile(db_conn, eod_balances_xml_file)
     else:
         logger.error("Cannot find bank account balances file matching one of {}".format(",".join(eod_balances_file_patterns)))
+    # Add separator line for log formatting
     logger.info("")
 
+    print("DEBUG: About to call add_misc_data_to_db")
     add_misc_data_to_db(db_conn)
+    print("DEBUG: add_misc_data_to_db completed")
+
+    # Export ref_matcher data to output handler (web display + console CSV as configured)
+    from .ref_matcher import _get_matcher
+
+    matcher = _get_matcher()
+    matcher.export_collected_data(output_handler)
 
     # Check if any critical validation errors occurred and raise exception to stop processing
+    # Add summary data
+    output_handler.add_summary("import_status", {"has_critical_errors": has_critical_validation_errors, "completed_successfully": not has_critical_validation_errors})
+
+    # Finalize output
+    result = output_handler.build()
+
     if has_critical_validation_errors:
-        # Format all Excel sheets before closing when there are errors
-        format_all_excel_sheets_comprehensive(excel_writer)
-        excel_writer.close()
-        logger.error(f"Data Import Issues Excel file saved with validation errors: {excel_log_file}")
+        logger.error(f"Data Import Issues saved with validation errors: {result}")
         raise ValueError(
             "Data validation failed: Critical validation errors were found in estates, qube, or accounts data. "
-            "Please check the Data Import Issues Excel file for details and correct the input files before "
+            "Please check the Data Import Issues file for details and correct the input files before "
             "running the import again."
         )
-
-    # Format all Excel sheets before closing (no errors case)
-    format_all_excel_sheets_comprehensive(excel_writer)
-    excel_writer.close()
 
 
 def get_args() -> argparse.Namespace:
@@ -2209,22 +2199,37 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def main() -> None:
+def update_database_core(injected_logger=None, output_handler=None) -> None:
+    """Core database update functionality that can be called from CLI or API.
+
+    Args:
+        injected_logger: Logger instance to use. If None, creates default file logger.
+        output_handler: OutputHandler instance to use. If None, creates default Excel handler.
+    """
     warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
     global logger
-    log_file = get_wpp_update_database_log_file(dt.datetime.today())
-    logger = setup_logger(__name__, log_file)
+
+    if injected_logger:
+        # Use the injected logger (could be web logger or any other logger)
+        logger = injected_logger
+    else:
+        # Create default file logger for CLI usage
+        log_file = get_wpp_update_database_log_file(dt.datetime.today())
+        logger = setup_logger(__name__, log_file)
 
     global BUSINESS_DAY
     BUSINESS_DAY = get_business_day_offset(logger)
 
-    start_time = time.time()
+    # Set up output handler
+    if not output_handler:
+        # Create default Excel output handler for CLI usage
+        from .config import get_wpp_excel_log_file
 
-    # Get command line arguments
-    args = get_args() if not is_running_via_pytest() else argparse.Namespace()
-    if not args:
-        return
+        excel_log_file = get_wpp_excel_log_file(dt.date.today())
+        output_handler = ExcelOutputHandler(str(excel_log_file))
+
+    start_time = time.time()
 
     os.makedirs(get_wpp_input_dir(), exist_ok=True)
     os.makedirs(get_wpp_static_input_dir(), exist_ok=True)
@@ -2233,12 +2238,30 @@ def main() -> None:
     logger.info("Beginning Import of data into the database")
 
     db_conn = get_or_create_db(get_wpp_db_file(), logger)
-    importAllData(db_conn)
+    result = importAllData(db_conn, output_handler)
 
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
     logger.info("Import completed")
+
+    print("DEBUG: About to close database connection")
+    # Close database connection
+    db_conn.close()
+    print("DEBUG: Database connection closed")
+
+    return result
+
+
+def main() -> None:
+    """Command-line entry point for database update."""
+    # Get command line arguments
+    args = get_args() if not is_running_via_pytest() else argparse.Namespace()
+    if not args:
+        return
+
+    # Call the core function
+    update_database_core()
     logger.info("----------------------------------------------------------------------------------------")
     # input("Press enter to end.")
 

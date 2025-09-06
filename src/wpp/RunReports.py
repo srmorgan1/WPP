@@ -15,9 +15,9 @@ from wpp.calendars import get_business_day_offset
 from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
 from wpp.data_classes import RunConfiguration
 from wpp.db import get_db_connection, get_single_value, join_sql_queries, run_sql_query, union_sql_queries
-from wpp.excel import format_all_excel_sheets_comprehensive
 from wpp.exceptions import safe_pandas_operation
 from wpp.logger import setup_logger
+from wpp.output_handler import ExcelOutputHandler, OutputHandler
 from wpp.sql_queries import (
     BLOCKS_NOT_IN_COMREC_REPORT,
     BOS_ACCOUNT_BALANCES_BY_BLOCK_SQL,
@@ -105,7 +105,7 @@ def checkDataIsPresent(db_conn: sqlite3.Connection, qube_date: str, bos_date: st
     return is_data_present
 
 
-def _generate_comrec_report(db_conn: sqlite3.Connection, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+def _generate_comrec_report(db_conn: sqlite3.Connection, bos_date: dt.date, output_handler: OutputHandler) -> None:
     """Generate COMREC report showing total paid SC by property and block."""
     logger.info(f"Running COMREC report for {bos_date}")
     sql = union_sql_queries(
@@ -116,12 +116,7 @@ def _generate_comrec_report(db_conn: sqlite3.Connection, bos_date: dt.date, exce
     logger.debug(sql)
     df = run_sql_query(db_conn, sql, (bos_date.isoformat(),) * 4, logger)
     df = add_column_totals(df)
-    df.to_excel(
-        excel_writer,
-        sheet_name=f"COMREC {bos_date}",
-        index=False,
-        float_format="%.2f",
-    )
+    output_handler.add_sheet(f"COMREC {bos_date}", df, {"report_type": "COMREC", "date": bos_date.isoformat(), "row_count": len(df)})
 
     # Check for blocks missing from COMREC report
     df = run_sql_query(db_conn, BLOCKS_NOT_IN_COMREC_REPORT, (bos_date.isoformat(),) * 2, logger)
@@ -130,29 +125,24 @@ def _generate_comrec_report(db_conn: sqlite3.Connection, bos_date: dt.date, exce
         logger.info("Blocks which have transactions but are missing from the COMREC report because there is no bank account for that block: {}".format(", ".join(blocks)))
 
 
-def _generate_transactions_reports(db_conn: sqlite3.Connection, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+def _generate_transactions_reports(db_conn: sqlite3.Connection, bos_date: dt.date, output_handler: OutputHandler) -> None:
     """Generate both non-PAY and PAY transaction reports."""
     # Non-DC/PAY type transactions
     logger.info(f"Running Transactions report for {bos_date}")
     logger.debug(SELECT_NON_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(db_conn, SELECT_NON_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
-    df.to_excel(excel_writer, sheet_name="Transactions", index=False, float_format="%.2f")
+    output_handler.add_sheet("Transactions", df, {"report_type": "Transactions", "transaction_type": "Non-PAY", "date": bos_date.isoformat(), "row_count": len(df)})
 
     # DC/PAY type transactions
     logger.info(f"Running DC & PAY Transactions report for {bos_date}")
     logger.debug(SELECT_PAY_TYPE_TRANSACTIONS)
     df = run_sql_query(db_conn, SELECT_PAY_TYPE_TRANSACTIONS, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
-    df.to_excel(
-        excel_writer,
-        sheet_name="DC & PAY Transactions",
-        index=False,
-        float_format="%.2f",
-    )
+    output_handler.add_sheet("DC & PAY Transactions", df, {"report_type": "Transactions", "transaction_type": "DC & PAY", "date": bos_date.isoformat(), "row_count": len(df)})
 
 
-def _generate_qube_bos_report(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+def _generate_qube_bos_report(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date, output_handler: OutputHandler) -> None:
     """Generate Qube BOS reconciliation report."""
     logger.info(f"Running Qube BOS report for {qube_date}")
 
@@ -180,51 +170,41 @@ def _generate_qube_bos_report(db_conn: sqlite3.Connection, qube_date: dt.date, b
     df = df.sort_values(by="Property / Block")
     df = add_column_totals(df)
     df.drop(["BOS GR", "Discrepancy GR"], axis=1, inplace=True)
-    df.to_excel(
-        excel_writer,
-        sheet_name=f"Qube BOS {qube_date}",
-        index=False,
-        float_format="%.2f",
-    )
+    output_handler.add_sheet(f"Qube BOS {qube_date}", df, {"report_type": "Qube BOS", "qube_date": qube_date.isoformat(), "bos_date": bos_date.isoformat(), "row_count": len(df)})
 
 
-def _generate_tenant_report(db_conn: sqlite3.Connection, bos_date: dt.date, excel_writer: pd.ExcelWriter) -> None:
+def _generate_tenant_report(db_conn: sqlite3.Connection, bos_date: dt.date, output_handler: OutputHandler) -> None:
     """Generate total SC paid by tenant report."""
     logger.info(f"Running Total SC Paid By Tenant on {bos_date} report")
     logger.debug(SELECT_TOTAL_PAID_SC_BY_TENANT_SQL)
     df = run_sql_query(db_conn, SELECT_TOTAL_PAID_SC_BY_TENANT_SQL, (bos_date.isoformat(),) * 2, logger)
     df = add_column_totals(df)
-    df.to_excel(
-        excel_writer,
-        sheet_name=f"Total SC By Tenant {bos_date}",
-        index=False,
-        float_format="%.2f",
-    )
+    output_handler.add_sheet(f"Total SC By Tenant {bos_date}", df, {"report_type": "Tenant Report", "date": bos_date.isoformat(), "row_count": len(df)})
 
 
-def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date) -> None:
-    """Generate all WPP reports for the given dates."""
+def runReports(db_conn: sqlite3.Connection, qube_date: dt.date, bos_date: dt.date, output_handler: OutputHandler) -> None:
+    """Generate all WPP reports for the given dates with flexible output handling."""
     logger.info(f"Qube Date: {qube_date}")
     logger.info(f"Bank Of Scotland Transactions and Account Balances Date: {bos_date}")
 
     if not checkDataIsPresent(db_conn, qube_date.isoformat(), bos_date.isoformat()):
         raise RuntimeError(f"The required data is not in the database. Unable to run the reports for Qube date {qube_date} and BoS transactions date {bos_date}")
 
-    # Create a Pandas Excel writer using openpyxl as the engine.
-    excel_report_file = get_wpp_report_file(qube_date)
-    logger.info(f"Creating Excel spreadsheet report file {excel_report_file}")
-    excel_writer = pd.ExcelWriter(excel_report_file, engine="openpyxl")
+    logger.info("Generating reports...")
 
-    try:
-        _generate_comrec_report(db_conn, bos_date, excel_writer)
-        _generate_transactions_reports(db_conn, bos_date, excel_writer)
-        _generate_qube_bos_report(db_conn, qube_date, bos_date, excel_writer)
-        _generate_tenant_report(db_conn, bos_date, excel_writer)
+    # Generate all reports using the output handler
+    _generate_comrec_report(db_conn, bos_date, output_handler)
+    _generate_transactions_reports(db_conn, bos_date, output_handler)
+    _generate_qube_bos_report(db_conn, qube_date, bos_date, output_handler)
+    _generate_tenant_report(db_conn, bos_date, output_handler)
 
-        # Apply consistent formatting to all sheets
-        format_all_excel_sheets_comprehensive(excel_writer)
-    finally:
-        excel_writer.close()
+    # Add summary data
+    output_handler.add_summary("report_generation", {"qube_date": qube_date.isoformat(), "bos_date": bos_date.isoformat(), "reports_generated": 4, "completed_successfully": True})
+
+    # Finalize output
+    result = output_handler.build()
+    logger.info(f"Reports generated successfully: {result}")
+    return result
 
 
 def get_args() -> argparse.Namespace:
@@ -250,18 +230,35 @@ def get_run_date_args(args: argparse.Namespace, config: RunConfiguration) -> tup
     return qube_date, bos_date
 
 
-def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> None:
+def run_reports_core(qube_date: dt.date | None = None, bos_date: dt.date | None = None, injected_logger=None, output_handler=None) -> None:
+    """Core report generation functionality that can be called from CLI or API.
+
+    Args:
+        qube_date: Date for Qube data
+        bos_date: Date for Bank of Scotland data
+        injected_logger: Logger instance to use. If None, creates default file logger.
+        output_handler: OutputHandler instance to use. If None, creates default Excel handler.
+    """
     start_time = time.time()
 
     global logger
-    log_file = get_wpp_run_reports_log_file(dt.datetime.today())
-    logger = setup_logger(__name__, log_file)
+    if injected_logger:
+        # Use the injected logger (could be web logger or any other logger)
+        logger = injected_logger
+    else:
+        # Create default file logger for CLI usage
+        log_file = get_wpp_run_reports_log_file(dt.datetime.today())
+        logger = setup_logger(__name__, log_file)
+
+    # Set up output handler
+    if not output_handler:
+        # Create default Excel output handler for CLI usage
+        qube_date_for_file = qube_date or dt.date.today() - dt.timedelta(days=1)
+        excel_report_file = get_wpp_report_file(qube_date_for_file)
+        output_handler = ExcelOutputHandler(str(excel_report_file))
 
     global BUSINESS_DAY
     BUSINESS_DAY = get_business_day_offset(logger)
-
-    # Get command line arguments
-    args = get_args() if not is_running_via_pytest() else argparse.Namespace()
 
     os.makedirs(get_wpp_report_dir(), exist_ok=True)
 
@@ -269,17 +266,39 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
     try:
         db_conn = get_db_connection(get_wpp_db_file())
         config = RunConfiguration(qube_date, bos_date, business_day_offset=BUSINESS_DAY)
-        qube_date, bos_date = get_run_date_args(args, config)
-        runReports(db_conn, qube_date, bos_date)
+
+        # Use provided dates directly, no command line parsing
+        if qube_date is None or bos_date is None:
+            # Use default dates from config if not provided
+            qube_date = config.qube_date
+            bos_date = config.bos_date
+
+        result = runReports(db_conn, qube_date, bos_date, output_handler)
     except Exception as ex:
         logger.exception(f"running reports: {ex}")
+        raise
 
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
-    logger.info(f"Done in {round(elapsed_time, 1)} seconds.")
+    # logger.info(f"Done in {round(elapsed_time, 1)} seconds.")
     logger.info("----------------------------------------------------------------------------------------")
-    # input("Press enter to end.")
+    return result
+
+
+def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> None:
+    """Command-line entry point for report generation."""
+    # Get command line arguments for date override
+    args = get_args() if not is_running_via_pytest() else argparse.Namespace()
+
+    # If command line dates provided, use those; otherwise use function parameters
+    if hasattr(args, "qube_date") and args.qube_date:
+        qube_date = args.qube_date
+    if hasattr(args, "bos_date") and args.bos_date:
+        bos_date = args.bos_date
+
+    # Call the core function
+    run_reports_core(qube_date, bos_date)
 
 
 if __name__ == "__main__":

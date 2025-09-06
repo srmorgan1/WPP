@@ -25,7 +25,7 @@ echo "Found uv: $(uv --version)"
 echo "Running build script with uv..."
 
 # Run the build script using uv
-uv run build_executable.py
+uv run build_web_app.py
 
 echo ""
 echo "Build completed successfully!"
@@ -33,18 +33,18 @@ echo ""
 echo "Executable files created in: dist/wpp/"
 echo ""
 echo "Available executables:"
-echo "  wpp-streamlit        - Streamlit web application"
+echo "  wpp-web-app          - React web application"
 echo "  run-reports          - Command-line reports generator"
 echo "  update-database      - Database update utility"
 echo ""
 echo "Usage:"
-echo "  To run the web app: ./dist/wpp/wpp-streamlit"
+echo "  To run the web app: ./dist/wpp/wpp-web-app"
 echo "  To run reports: ./dist/wpp/run-reports"
 echo "  To update database: ./dist/wpp/update-database"
 echo ""
 
 # Make executables executable on Unix systems
-chmod +x dist/wpp/wpp-streamlit 2>/dev/null || true
+chmod +x dist/wpp/wpp-web-app 2>/dev/null || true
 chmod +x dist/wpp/run-reports 2>/dev/null || true
 chmod +x dist/wpp/update-database 2>/dev/null || true
 

@@ -37,12 +37,16 @@ block_cipher = None
 
 # Main application analysis
 a = Analysis(
-    ['src/wpp/app.py'],
+    ['src/wpp/ui/streamlit/app.py'],
     pathex=['.'],
     binaries=[],
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/ui/streamlit/assets/css/*', 'src/wpp/ui/streamlit/assets/css/'),
+        ('src/wpp/ui/streamlit/assets/images/*', 'src/wpp/ui/streamlit/assets/images/'),
+        ('src/wpp/ui/streamlit/assets/js/*', 'src/wpp/ui/streamlit/assets/js/'),
+        ('.streamlit/*', '.streamlit/'),
     ],
     hiddenimports=[
         'streamlit',
@@ -58,6 +62,7 @@ a = Analysis(
         'wpp.db',
         'wpp.logger',
         'wpp.ref_matcher',
+        'wpp.simple_shutdown',
         'wpp.utils',
     ],
     hookspath=[],
@@ -228,9 +233,14 @@ def build_executable():
         print("Build completed successfully!")
         print("Executable created in: dist/wpp/")
         print("Available executables:")
-        print("  - wpp-streamlit (Streamlit web app)")
+        print("  - wpp-streamlit (Streamlit web app with assets)")
         print("  - run-reports (Reports CLI)")
         print("  - update-database (Database update CLI)")
+        print("\nIncluded assets:")
+        print("  - CSS styling (src/wpp/ui/streamlit/assets/css/)")
+        print("  - Banner images (src/wpp/ui/streamlit/assets/images/)")
+        print("  - JavaScript functionality (src/wpp/ui/streamlit/assets/js/)")
+        print("  - Streamlit config (.streamlit/)")
     except subprocess.CalledProcessError as e:
         print(f"Build failed with error: {e}")
         sys.exit(1)
