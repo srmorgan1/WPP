@@ -62,7 +62,7 @@ cleanup() {
 # Set up trap to cleanup on script exit
 trap cleanup INT TERM EXIT
 
-print_section "🎯 WPP Management Development Startup"
+print_section "[WPP] WPP Management Development Startup"
 
 # Check if we're in the right directory
 if [[ ! -f "pyproject.toml" ]]; then
@@ -70,10 +70,10 @@ if [[ ! -f "pyproject.toml" ]]; then
     exit 1
 fi
 
-print_success "✓ Project root directory confirmed"
+print_success "[OK] Project root directory confirmed"
 
 # Check prerequisites
-print_section "🔍 Checking Prerequisites"
+print_section "[CHECK] Checking Prerequisites"
 
 # Check Python/uv
 if ! command_exists uv; then
@@ -81,24 +81,24 @@ if ! command_exists uv; then
     print_info "  curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
-print_success "✓ uv found: $(uv --version)"
+print_success "[OK] uv found: $(uv --version)"
 
 # Check Node.js
 NODE_AVAILABLE=false
 if command_exists node; then
     NODE_VERSION=$(node --version)
     NPM_VERSION=$(npm --version)
-    print_success "✓ Node.js found: $NODE_VERSION"
-    print_success "✓ npm found: $NPM_VERSION"
+    print_success "[OK] Node.js found: $NODE_VERSION"
+    print_success "[OK] npm found: $NPM_VERSION"
     NODE_AVAILABLE=true
 else
-    print_warning "⚠ Node.js not found. React frontend will not be available."
+    print_warning "[WARN] Node.js not found. React frontend will not be available."
     print_info "  Install Node.js from: https://nodejs.org/"
     print_info "  Or use API-only mode at http://localhost:8000/docs"
 fi
 
 # Setup Python environment
-print_section "🐍 Setting Up Python Environment"
+print_section "[PYTHON] Setting Up Python Environment"
 
 print_info "Syncing Python dependencies..."
 if ! uv sync --dev; then
@@ -110,11 +110,11 @@ fi
 print_info "Ensuring FastAPI dependencies are available..."
 uv add fastapi uvicorn websockets --quiet 2>/dev/null || true
 
-print_success "✓ Python environment ready"
+print_success "[OK] Python environment ready"
 
 # Setup React environment (if Node.js available)
 if $NODE_AVAILABLE; then
-    print_section "⚛️  Setting Up React Environment"
+    print_section "[REACT]  Setting Up React Environment"
     
     if [[ ! -d "web" ]]; then
         print_warning "Web directory not found. React frontend will not be available."
@@ -133,33 +133,33 @@ if $NODE_AVAILABLE; then
         fi
         
         cd ..
-        print_success "✓ React environment ready"
+        print_success "[OK] React environment ready"
     fi
 fi
 
 # Display startup information
-print_section "🚀 Starting Development Servers"
+print_section "[START] Starting Development Servers"
 
-print_info "📋 Instructions:"
-print_info "   • Both servers will start automatically"
-print_info "   • Make changes to code - servers auto-reload"
-print_info "   • Press Ctrl+C to stop all servers"
+print_info "[INFO] Instructions:"
+print_info "   - Both servers will start automatically"
+print_info "   - Make changes to code - servers auto-reload"
+print_info "   - Press Ctrl+C to stop all servers"
 
 if $NODE_AVAILABLE; then
     print_info ""
-    print_info "🌐 Available interfaces:"
-    print_info "   • React UI: http://localhost:3000 (recommended)"
-    print_info "   • API docs: http://localhost:8000/docs"
+    print_info "[WEB] Available interfaces:"
+    print_info "   - React UI: http://localhost:3000 (recommended)"
+    print_info "   - API docs: http://localhost:8000/docs"
 else
     print_info ""
-    print_info "🔧 Available interfaces:"
-    print_info "   • API docs: http://localhost:8000/docs (Node.js not available)"
+    print_info "[CONFIG] Available interfaces:"
+    print_info "   - API docs: http://localhost:8000/docs (Node.js not available)"
 fi
 
 echo -e "\n=================================================="
 
 # Start FastAPI backend
-print_info "🚀 Starting FastAPI backend server..."
+print_info "[START] Starting FastAPI backend server..."
 export PYTHONPATH="$(pwd)/src"
 
 # Start FastAPI in background
@@ -175,7 +175,7 @@ sleep 3
 
 # Start React frontend (if available)
 if $NODE_AVAILABLE; then
-    print_info "⚛️  Starting React frontend server..."
+    print_info "[REACT]  Starting React frontend server..."
     
     # Start React in background
     (
@@ -189,7 +189,7 @@ if $NODE_AVAILABLE; then
     
     # Wait for React to start, then open browser
     sleep 8
-    print_info "🌐 Opening browser..."
+    print_info "[WEB] Opening browser..."
     if command_exists open; then
         open http://localhost:3000 2>/dev/null || true
     elif command_exists xdg-open; then
@@ -202,7 +202,7 @@ if $NODE_AVAILABLE; then
         print_info "Please open your browser to: http://localhost:3000"
     fi
 else
-    print_info "🔧 API-only mode - visit http://localhost:8000/docs for API documentation"
+    print_info "[CONFIG] API-only mode - visit http://localhost:8000/docs for API documentation"
     
     # Open API docs if React not available
     sleep 3
@@ -213,7 +213,7 @@ else
     fi
 fi
 
-print_success "✅ Development servers started!"
+print_success "[SUCCESS] Development servers started!"
 print_info "Press Ctrl+C to stop all servers..."
 
 # Wait for background processes

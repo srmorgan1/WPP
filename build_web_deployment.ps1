@@ -104,7 +104,7 @@ function Install-NodeJS {
         # Verify installation
         if (Test-Command "node") {
             $nodeVersion = node --version
-            Write-Success "✓ Node.js installed: $nodeVersion"
+            Write-Success "[OK] Node.js installed: $nodeVersion"
             return $true
         } else {
             throw "Node.js installation failed - command not found after installation"
@@ -125,9 +125,9 @@ try {
     Write-Section "WPP Web Application CI/CD Build Pipeline Starting"
     
     if ($ApiOnly) {
-        Write-Info "🔧 API-Only Mode: Building without React frontend"
+        Write-Info "[CONFIG] API-Only Mode: Building without React frontend"
     } else {
-        Write-Info "🌐 Full Web Mode: Building with React frontend + API backend"
+        Write-Info "[WEB] Full Web Mode: Building with React frontend + API backend"
     }
     
     # Check prerequisites
@@ -137,7 +137,7 @@ try {
     if (-not (Test-Command "git")) {
         throw "Git is not installed or not in PATH. Please install Git for Windows."
     }
-    Write-Success "✓ Git found: $(git --version)"
+    Write-Success "[OK] Git found: $(git --version)"
     
     # Setup uv package manager
     if (-not (Test-Command "uv")) {
@@ -157,14 +157,14 @@ try {
         }
     }
     $uvVersion = uv --version 2>&1
-    Write-Success "✓ uv found: $uvVersion"
+    Write-Success "[OK] uv found: $uvVersion"
     
     # Check/Install Node.js (unless API-only or explicitly skipped)
     if (-not $ApiOnly -and -not $SkipNodeInstall) {
         if (-not (Test-Command "node")) {
-            Write-Warning "⚠ Node.js not found. Installing Node.js for React frontend build..."
+            Write-Warning "[WARN] Node.js not found. Installing Node.js for React frontend build..."
             if (-not (Install-NodeJS)) {
-                Write-Error "❌ Failed to install Node.js automatically."
+                Write-Error "[ERROR] Failed to install Node.js automatically."
                 Write-Info "Options:"
                 Write-Info "  1. Install Node.js manually from https://nodejs.org/"
                 Write-Info "  2. Use -ApiOnly flag to build without React frontend"
@@ -174,13 +174,13 @@ try {
         } else {
             $nodeVersion = node --version
             $npmVersion = npm --version
-            Write-Success "✓ Node.js found: $nodeVersion"
-            Write-Success "✓ npm found: $npmVersion"
+            Write-Success "[OK] Node.js found: $nodeVersion"
+            Write-Success "[OK] npm found: $npmVersion"
         }
     } elseif ($ApiOnly) {
-        Write-Info "🔧 Skipping Node.js check (API-only mode)"
+        Write-Info "[CONFIG] Skipping Node.js check (API-only mode)"
     } else {
-        Write-Info "🔧 Skipping Node.js installation (SkipNodeInstall flag set)"
+        Write-Info "[CONFIG] Skipping Node.js installation (SkipNodeInstall flag set)"
     }
     
     # Setup working directory
@@ -197,7 +197,7 @@ try {
     }
     
     Set-Location $WorkDir
-    Write-Success "✓ Working directory ready: $WorkDir"
+    Write-Success "[OK] Working directory ready: $WorkDir"
     
     # Clone or update repository
     Write-Section "Checking Out Source Code"
@@ -221,20 +221,20 @@ try {
             git fetch origin
             git checkout $Branch
             git pull origin $Branch
-            Write-Success "✓ Repository updated to latest $Branch"
+            Write-Success "[OK] Repository updated to latest $Branch"
         } else {
-            Write-Warning "⚠ Directory exists but is not a git repository. Removing and cloning fresh."
+            Write-Warning "[WARN] Directory exists but is not a git repository. Removing and cloning fresh."
             Set-Location $WorkDir
             Remove-Item -Path $repoDir -Recurse -Force
             git clone -b $Branch $CloneUrl
             Set-Location $repoDir
-            Write-Success "✓ Repository cloned fresh"
+            Write-Success "[OK] Repository cloned fresh"
         }
     } else {
         Write-Info "Cloning repository..."
         git clone -b $Branch $CloneUrl
         Set-Location $repoDir
-        Write-Success "✓ Repository cloned: $RepoUrl (branch: $Branch)"
+        Write-Success "[OK] Repository cloned: $RepoUrl (branch: $Branch)"
     }
     
     # Verify we're in the right directory
@@ -253,14 +253,14 @@ try {
     Write-Info "Adding FastAPI and web dependencies..."
     uv add fastapi uvicorn websockets --quiet
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "⚠ Some web dependencies may already be present"
+        Write-Warning "[WARN] Some web dependencies may already be present"
     }
     
     uv sync --dev
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to sync Python environment"
     }
-    Write-Success "✓ Python environment ready with web dependencies"
+    Write-Success "[OK] Python environment ready with web dependencies"
     
     # Run tests (unless skipped)
     if (-not $SkipTests) {
@@ -270,20 +270,20 @@ try {
         try {
             $env:GPG_PASSPHRASE = $env:GPG_PASSPHRASE
             if (-not $env:GPG_PASSPHRASE) {
-                Write-Warning "⚠ GPG_PASSPHRASE not set. Some tests may fail."
+                Write-Warning "[WARN] GPG_PASSPHRASE not set. Some tests may fail."
             }
             
             uv run pytest tests/ -v --tb=short
             if ($LASTEXITCODE -ne 0) {
                 throw "Tests failed"
             }
-            Write-Success "✓ All tests passed"
+            Write-Success "[OK] All tests passed"
         } catch {
             Write-Error "Tests failed: $($_.Exception.Message)"
             throw "Test execution failed"
         }
     } else {
-        Write-Warning "⚠ Tests skipped (SkipTests flag set)"
+        Write-Warning "[WARN] Tests skipped (SkipTests flag set)"
     }
     
     # Run linting
@@ -292,20 +292,20 @@ try {
     Write-Info "Running ruff linting..."
     uv run ruff check src/
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "⚠ Linting issues found, but continuing with build"
+        Write-Warning "[WARN] Linting issues found, but continuing with build"
     } else {
-        Write-Success "✓ Code quality checks passed"
+        Write-Success "[OK] Code quality checks passed"
     }
     
     # Build executables
     Write-Section "Building Windows Executables"
     
     if ($ApiOnly) {
-        Write-Info "🔧 Building API-only executables (no React frontend)..."
+        Write-Info "[CONFIG] Building API-only executables (no React frontend)..."
         $buildScript = "build_simple_exe.py"
         $expectedExe = "wpp-web-api.exe"
     } else {
-        Write-Info "🌐 Building full web application (React + FastAPI)..."
+        Write-Info "[WEB] Building full web application (React + FastAPI)..."
         $buildScript = "build_web_app.py"
         $expectedExe = "wpp-web-app.exe"
     }
@@ -343,7 +343,7 @@ try {
         $exePath = Join-Path $distDir $exe
         if (Test-Path $exePath) {
             $fileSize = (Get-Item $exePath).Length
-            Write-Success "✓ $exe created (Size: $([math]::Round($fileSize/1MB, 2)) MB)"
+            Write-Success "[OK] $exe created (Size: $([math]::Round($fileSize/1MB, 2)) MB)"
         } else {
             $missingExes += $exe
         }
@@ -357,16 +357,16 @@ try {
     # Success summary
     Write-Section "Build Complete!"
     
-    Write-Success "✓ Repository: $RepoUrl ($Branch)"
-    Write-Success "✓ Commit: $currentCommit"
-    Write-Success "✓ Tests: $(if ($SkipTests) { 'Skipped' } else { 'Passed' })"
-    Write-Success "✓ Build Type: $(if ($ApiOnly) { 'API-Only' } else { 'Full Web Application' })"
-    Write-Success "✓ Build: Success"
-    Write-Success "✓ Output: $distDir"
+    Write-Success "[OK] Repository: $RepoUrl ($Branch)"
+    Write-Success "[OK] Commit: $currentCommit"
+    Write-Success "[OK] Tests: $(if ($SkipTests) { 'Skipped' } else { 'Passed' })"
+    Write-Success "[OK] Build Type: $(if ($ApiOnly) { 'API-Only' } else { 'Full Web Application' })"
+    Write-Success "[OK] Build: Success"
+    Write-Success "[OK] Output: $distDir"
     
     Write-Info "`nAvailable executables:"
     foreach ($exe in $executables) {
-        Write-Info "  • $exe"
+        Write-Info "  - $exe"
     }
     
     Write-Info "`nUsage:"
@@ -383,15 +383,15 @@ try {
     
     Write-Info "`nCustomer Experience:"
     if ($ApiOnly) {
-        Write-Info "  • API server with Swagger documentation"
-        Write-Info "  • REST endpoints for all operations"
-        Write-Info "  • No additional installation required"
+        Write-Info "  - API server with Swagger documentation"
+        Write-Info "  - REST endpoints for all operations"
+        Write-Info "  - No additional installation required"
     } else {
-        Write-Info "  • Complete web application with modern UI"
-        Write-Info "  • Real-time progress bars and updates"
-        Write-Info "  • Interactive data tables and log viewers"
-        Write-Info "  • Mobile-friendly responsive design"
-        Write-Info "  • No additional installation required (Python/Node.js bundled)"
+        Write-Info "  - Complete web application with modern UI"
+        Write-Info "  - Real-time progress bars and updates"
+        Write-Info "  - Interactive data tables and log viewers"
+        Write-Info "  - Mobile-friendly responsive design"
+        Write-Info "  - No additional installation required (Python/Node.js bundled)"
     }
     
     if (-not $KeepRepo) {
@@ -400,19 +400,19 @@ try {
         Write-Info "Repository location: $repoDir"
     }
     
-    Write-Success "`n🎉 Web Application Build Pipeline Completed Successfully!"
+    Write-Success "`n[SUCCESS] Web Application Build Pipeline Completed Successfully!"
     
 } catch {
-    Write-Error "`n💥 Build pipeline failed!"
+    Write-Error "`n[FAILED] Build pipeline failed!"
     Write-Error "Error: $($_.Exception.Message)"
     Write-Error "Location: $($_.InvocationInfo.PositionMessage)"
     
     Write-Info "`nTroubleshooting:"
-    Write-Info "• Ensure all prerequisites are installed"
-    Write-Info "• Check network connectivity for repository access"
-    Write-Info "• For Node.js issues, try -ApiOnly flag"
-    Write-Info "• Verify PowerShell execution policy: Set-ExecutionPolicy RemoteSigned"
-    Write-Info "• Check that uv can access the internet for dependencies"
+    Write-Info "- Ensure all prerequisites are installed"
+    Write-Info "- Check network connectivity for repository access"
+    Write-Info "- For Node.js issues, try -ApiOnly flag"
+    Write-Info "- Verify PowerShell execution policy: Set-ExecutionPolicy RemoteSigned"
+    Write-Info "- Check that uv can access the internet for dependencies"
     
     exit 1
 } finally {
