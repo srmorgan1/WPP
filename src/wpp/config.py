@@ -197,13 +197,29 @@ def _get_cwd_config_path() -> Path:
 
 def _get_default_config_path() -> Path:
     """Get the path to the default config.toml in the src directory."""
-    return Path(__file__).resolve().parent / "config.toml"
+    if _is_running_as_executable():
+        # In PyInstaller executable, use the bundled config location
+        import sys
+        base_path = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent
+        config_path = base_path / "wpp" / "config.toml"
+        print(f"DEBUG: Executable mode - looking for config at: {config_path}")
+        return config_path
+    else:
+        # In development mode, use the source directory
+        config_path = Path(__file__).resolve().parent / "config.toml"
+        print(f"DEBUG: Development mode - looking for config at: {config_path}")
+        return config_path
 
 
 def _copy_default_config_to_home() -> Path:
     """Copy the default config.toml to user's home directory as .wpp-config.toml."""
     default_config = _get_default_config_path()
     home_config = Path.home() / ".wpp-config.toml"
+    
+    print(f"DEBUG: Default config path: {default_config}")
+    print(f"DEBUG: Default config exists: {default_config.exists()}")
+    print(f"DEBUG: Home config path: {home_config}")
+    print(f"DEBUG: Home config exists: {home_config.exists()}")
 
     if default_config.exists() and not home_config.exists():
         try:
@@ -211,6 +227,11 @@ def _copy_default_config_to_home() -> Path:
             print(f"Configuration file copied to: {home_config}")
         except Exception as e:
             print(f"Warning: Could not copy config file to home directory: {e}")
+    else:
+        if not default_config.exists():
+            print(f"DEBUG: Default config file not found at: {default_config}")
+        if home_config.exists():
+            print(f"DEBUG: Home config already exists at: {home_config}")
 
     return home_config
 
