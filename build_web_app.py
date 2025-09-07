@@ -59,15 +59,15 @@ def build_react_app():
         return False
 
 
-def install_pyinstaller():
-    """Install PyInstaller using uv."""
+def check_pyinstaller():
+    """Check PyInstaller availability via uv (should be in pyproject.toml)."""
     try:
-        subprocess.run(["uv", "run", "--", "python", "-m", "pip", "show", "pyinstaller"], check=True, capture_output=True)
-        print("✅ PyInstaller already installed")
+        subprocess.run(["uv", "run", "pyinstaller", "--version"], check=True, capture_output=True)
+        print("✅ PyInstaller available via uv")
+        return True
     except subprocess.CalledProcessError:
-        print("📦 Installing PyInstaller...")
-        subprocess.run(["uv", "add", "--dev", "pyinstaller"], check=True)
-        print("✅ PyInstaller installed")
+        print("❌ PyInstaller not available via uv - should be in pyproject.toml")
+        return False
 
 
 def clean_build_dirs():
@@ -76,7 +76,12 @@ def clean_build_dirs():
     for dir_name in dirs_to_clean:
         if os.path.exists(dir_name):
             print(f"🧹 Cleaning {dir_name} directory...")
-            shutil.rmtree(dir_name)
+            try:
+                shutil.rmtree(dir_name)
+            except PermissionError as e:
+                print(f"⚠️  Warning: Could not clean {dir_name} - {e}")
+                print(f"   This is usually safe to ignore - PyInstaller will overwrite files")
+                continue
 
 
 def create_web_app_spec():
@@ -88,49 +93,55 @@ block_cipher = None
 # Web application analysis
 a = Analysis(
     ['src/wpp/ui/react/web_app.py'],
-    pathex=['.'],
+    pathex=['.', 'src'],
     binaries=[],
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/api/', 'wpp/api/'),
+        ('src/wpp/ui/', 'wpp/ui/'),
         ('web/build/', 'web/build/'),
     ],
     hiddenimports=[
+        # Web framework essentials
         'fastapi',
         'uvicorn',
         'uvicorn.lifespan.on',
         'uvicorn.lifespan.off',
         'uvicorn.protocols.websockets.auto',
-        'uvicorn.protocols.websockets.websockets_impl',
         'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.http.h11_impl',
         'uvicorn.logging',
         'websockets',
         'websockets.server',
         'websockets.client',
-        'websockets.legacy.server',
-        'websockets.legacy.client',
         'pydantic',
-        'pandas',
-        'openpyxl',
-        'numpy',
-        'dateutils',
-        'wpp.RunReports',
-        'wpp.UpdateDatabase',
-        'wpp.calendars',
-        'wpp.config',
-        'wpp.db',
-        'wpp.logger',
-        'wpp.ref_matcher',
-        'wpp.utils',
+        # Core WPP modules
+        'wpp.api',
         'wpp.api.main',
-        'wpp.api.models',
+        'wpp.api.models', 
         'wpp.api.services',
+        'wpp.ui',
+        'wpp.ui.react',
+        'wpp.ui.react.web_app',
+        'wpp.config',
+        'wpp.logger',
+    ],
+    excludes=[
+        # Exclude heavy packages not needed for web app
+        'matplotlib',
+        'scipy',
+        'IPython',
+        'jupyter',
+        'notebook',
+        'tkinter',
+        'PyQt5',
+        'PyQt6', 
+        'PySide2',
+        'PySide6',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -162,11 +173,13 @@ exe = EXE(
 # RunReports analysis
 run_reports_a = Analysis(
     ['src/wpp/RunReports.py'],
-    pathex=['.'],
+    pathex=['.', 'src'],
     binaries=[],
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/api/', 'wpp/api/'),
+        ('src/wpp/ui/', 'wpp/ui/'),
     ],
     hiddenimports=[
         'pandas',
@@ -179,10 +192,12 @@ run_reports_a = Analysis(
         'wpp.logger',
         'wpp.ref_matcher',
         'wpp.utils',
+        'wpp.api',
+        'wpp.ui',
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_wpp_package.py'],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -213,11 +228,13 @@ run_reports_exe = EXE(
 # UpdateDatabase analysis
 update_db_a = Analysis(
     ['src/wpp/UpdateDatabase.py'],
-    pathex=['.'],
+    pathex=['.', 'src'],
     binaries=[],
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/api/', 'wpp/api/'),
+        ('src/wpp/ui/', 'wpp/ui/'),
     ],
     hiddenimports=[
         'pandas',
@@ -230,10 +247,12 @@ update_db_a = Analysis(
         'wpp.logger',
         'wpp.ref_matcher',
         'wpp.utils',
+        'wpp.api',
+        'wpp.ui',
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_wpp_package.py'],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -291,7 +310,7 @@ def build_executable():
     """Build the executable using PyInstaller."""
     print("🔨 Building executable with PyInstaller...")
     try:
-        subprocess.run(["uv", "run", "--", "pyinstaller", "wpp_web.spec"], check=True)
+        subprocess.run(["uv", "run", "pyinstaller", "wpp_web.spec"], check=True)
         print("✅ Build completed successfully!")
         print("📁 Executable created in: dist/wpp/")
         print("🎯 Available executables:")
@@ -315,23 +334,44 @@ def main():
         print("❌ Error: Must run from project root directory")
         sys.exit(1)
 
-    # Check if Node.js is available for building React app
-    if not check_node_installed():
-        print("⚠️  Node.js not found. You have options:")
-        print("   1. Install Node.js and run this script again")
-        print("   2. Get a pre-built React bundle from another machine")
-        print("   3. Use the original Streamlit version (build_executable.py)")
-        sys.exit(1)
+    # Check if React frontend was already built by PowerShell script
+    react_already_built = os.environ.get("REACT_BUILD_DONE") == "true"
+    skip_npm = os.environ.get("SKIP_NPM_INSTALL") == "true"
+    
+    if react_already_built and skip_npm:
+        print("✅ React frontend already built by PowerShell script - skipping npm operations")
+        # Verify the React build directory exists
+        web_build_dir = Path("web/build")
+        if web_build_dir.exists():
+            print("✅ Verified React build directory exists")
+        else:
+            print("⚠️  React build directory not found, will attempt to build")
+            react_already_built = False
+    else:
+        print("📦 React not pre-built - will handle npm operations")
 
-    # Install React dependencies and build
-    if not install_react_dependencies():
-        sys.exit(1)
+    # Only run Node.js and npm operations if React wasn't already built
+    if not react_already_built:
+        # Check if Node.js is available for building React app
+        if not check_node_installed():
+            print("⚠️  Node.js not found. You have options:")
+            print("   1. Install Node.js and run this script again")
+            print("   2. Get a pre-built React bundle from another machine")
+            print("   3. Use the original Streamlit version (build_executable.py)")
+            sys.exit(1)
 
-    if not build_react_app():
-        sys.exit(1)
+        # Install React dependencies and build
+        if not install_react_dependencies():
+            sys.exit(1)
+
+        if not build_react_app():
+            sys.exit(1)
 
     # Build Python executable
-    install_pyinstaller()
+    if not check_pyinstaller():
+        print("❌ PyInstaller not available - ensure it's in pyproject.toml dependencies")
+        sys.exit(1)
+    
     clean_build_dirs()
     create_web_app_spec()
     build_executable()

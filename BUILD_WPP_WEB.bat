@@ -45,15 +45,12 @@ if errorlevel 1 (
 )
 
 REM Check if the PowerShell script exists
-if not exist "build_web_deployment.ps1" (
-    echo ERROR: build_web_deployment.ps1 not found!
-    echo Please ensure this batch file is in the same directory as build_web_deployment.ps1
+if not exist "web_build_simple.ps1" (
+    echo ERROR: web_build_simple.ps1 not found!
+    echo Please ensure this batch file is in the same directory as web_build_simple.ps1
     pause
     exit /b 1
 )
-
-echo Press any key to start the web application build process, or Ctrl+C to cancel...
-pause >nul
 
 echo.
 echo ================================================================================
@@ -66,7 +63,7 @@ echo Launching PowerShell build script for React + FastAPI web app...
 echo.
 
 REM First attempt: Try with RemoteSigned policy (most permissive while still secure)
-powershell.exe -ExecutionPolicy RemoteSigned -File "build_web_deployment.ps1" %*
+powershell.exe -ExecutionPolicy RemoteSigned -File "web_build_simple.ps1" %*
 
 REM Check if the PowerShell script succeeded
 if %errorlevel% equ 0 (
@@ -102,7 +99,7 @@ echo First attempt failed. Trying with Bypass execution policy...
 echo (This is safe for local scripts but less secure)
 echo.
 
-powershell.exe -ExecutionPolicy Bypass -File "build_web_deployment.ps1" %*
+powershell.exe -ExecutionPolicy Bypass -File "web_build_simple.ps1" %*
 
 if %errorlevel% equ 0 (
     echo.
@@ -147,10 +144,10 @@ echo 6. GPG PASSPHRASE (if tests fail):
 echo    Set environment variable: set GPG_PASSPHRASE=your_passphrase
 echo.
 echo For detailed logging, run this command in PowerShell:
-echo .\build_web_deployment.ps1 -Verbose
+echo .\web_build_simple.ps1 -Verbose
 echo.
 echo For API-only build (no React frontend):
-echo .\build_web_deployment.ps1 -ApiOnly
+echo .\web_build_simple.ps1 -ApiOnly
 echo.
 
 :error_end

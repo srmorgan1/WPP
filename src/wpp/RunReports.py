@@ -270,8 +270,7 @@ def run_reports_core(qube_date: dt.date | None = None, bos_date: dt.date | None 
         # Use provided dates directly, no command line parsing
         if qube_date is None or bos_date is None:
             # Use default dates from config if not provided
-            qube_date = config.qube_date
-            bos_date = config.bos_date
+            qube_date, bos_date = config.get_dates()
 
         result = runReports(db_conn, qube_date, bos_date, output_handler)
     except Exception as ex:

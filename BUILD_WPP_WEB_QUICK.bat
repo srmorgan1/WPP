@@ -27,14 +27,10 @@ if not exist "build_web_deployment.ps1" (
     exit /b 1
 )
 
-echo Press any key to start quick web application build...
-pause >nul
-
-echo.
 echo Starting quick web application build (skipping tests)...
 echo.
 
-powershell.exe -ExecutionPolicy RemoteSigned -File "build_web_deployment.ps1" -SkipTests
+powershell.exe -ExecutionPolicy RemoteSigned -File "web_build_simple.ps1" -SkipTests
 
 if %errorlevel% equ 0 (
     echo.
