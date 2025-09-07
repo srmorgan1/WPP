@@ -1,7 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Database, BarChart3, Home, Settings } from 'lucide-react';
+import { Database, BarChart3, Home } from 'lucide-react';
 
+import { DatabaseProvider } from './contexts/DatabaseContext';
 import Dashboard from './pages/Dashboard';
 import DatabasePage from './pages/DatabasePage';
 import ReportsPage from './pages/ReportsPage';
@@ -85,15 +86,17 @@ const Layout = ({ children }) => {
 
 function App() {
   return (
-    <Router>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/database" element={<DatabasePage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-        </Routes>
-      </Layout>
-    </Router>
+    <DatabaseProvider>
+      <Router>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/database" element={<DatabasePage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+          </Routes>
+        </Layout>
+      </Router>
+    </DatabaseProvider>
   );
 }
 

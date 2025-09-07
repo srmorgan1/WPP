@@ -21,8 +21,8 @@ echo   - Mobile-friendly responsive design
 echo   - No installation required on target machines
 echo.
 
-if not exist "build_web_deployment.ps1" (
-    echo ERROR: build_web_deployment.ps1 not found!
+if not exist "web_build_simple.ps1" (
+    echo ERROR: web_build_simple.ps1 not found!
     pause
     exit /b 1
 )

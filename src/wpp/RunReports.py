@@ -14,7 +14,7 @@ from dateutil import parser
 from wpp.calendars import get_business_day_offset
 from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
 from wpp.data_classes import RunConfiguration
-from wpp.db import get_db_connection, get_single_value, join_sql_queries, run_sql_query, union_sql_queries
+from wpp.db import get_db_connection, get_or_create_db, get_single_value, get_unique_date_from_charges, join_sql_queries, run_sql_query, union_sql_queries
 from wpp.exceptions import safe_pandas_operation
 from wpp.logger import setup_logger
 from wpp.output_handler import ExcelOutputHandler, OutputHandler
@@ -264,13 +264,24 @@ def run_reports_core(qube_date: dt.date | None = None, bos_date: dt.date | None 
 
     logger.info("Running Reports")
     try:
-        db_conn = get_db_connection(get_wpp_db_file())
+        db_conn = get_or_create_db(get_wpp_db_file(), logger)
         config = RunConfiguration(qube_date, bos_date, business_day_offset=BUSINESS_DAY)
 
         # Use provided dates directly, no command line parsing
         if qube_date is None or bos_date is None:
-            # Use default dates from config if not provided
-            qube_date, bos_date = config.get_dates()
+            # Try to get unique date from charges table first
+            unique_date_str = get_unique_date_from_charges(db_conn, logger)
+            if unique_date_str:
+                # Parse the date string to date objects
+                from dateutil import parser
+                unique_date = parser.parse(unique_date_str, dayfirst=False).date()
+                qube_date = unique_date
+                bos_date = unique_date
+                logger.info(f"Using unique date from charges table: {unique_date}")
+            else:
+                # Fall back to config default dates if no unique date found
+                qube_date, bos_date = config.get_dates()
+                logger.info(f"Using default dates from config: QUBE={qube_date}, BOS={bos_date}")
 
         result = runReports(db_conn, qube_date, bos_date, output_handler)
     except Exception as ex:

@@ -25,10 +25,18 @@ def get_wpp_data_dir() -> Path:
 
 
 def get_wpp_input_dir() -> Path:
+    """Get the input directory, using override if specified in config."""
+    override_dir = get_wpp_input_dir_override()
+    if override_dir:
+        return override_dir
     return get_wpp_data_dir() / "Inputs"
 
 
 def get_wpp_static_input_dir() -> Path:
+    """Get the static input directory, using override if specified in config."""
+    override_dir = get_wpp_static_input_dir_override()
+    if override_dir:
+        return override_dir
     return get_wpp_data_dir() / "Inputs"  # Assuming static inputs are also in Inputs for now
 
 
@@ -164,6 +172,50 @@ def get_no_connection_shutdown_delay() -> int:
     """Get the delay before shutdown when no connections detected (minutes)."""
     config = get_config()
     return config.get("SERVER", {}).get("NO_CONNECTION_SHUTDOWN_DELAY", 20)
+
+
+def get_web_app_use_memory_db() -> bool:
+    """Get whether the web app should use an in-memory database."""
+    config = get_config()
+    return config.get("SERVER", {}).get("WPP_WEB_APP_USE_MEMORY_DB", False)
+
+
+def get_enable_network_restrictions() -> bool:
+    """Get whether network restrictions are enabled."""
+    config = get_config()
+    return config.get("SERVER", {}).get("ENABLE_NETWORK_RESTRICTIONS", True)
+
+
+def get_allowed_networks() -> list[str]:
+    """Get the list of allowed IP networks in CIDR notation."""
+    config = get_config()
+    return config.get("SERVER", {}).get("ALLOWED_NETWORKS", ["127.0.0.1/32", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"])
+
+
+def get_server_bind_address() -> str:
+    """Get the server bind address."""
+    config = get_config()
+    return config.get("SERVER", {}).get("SERVER_BIND_ADDRESS", "0.0.0.0")
+
+
+def get_server_port() -> int:
+    """Get the server port."""
+    config = get_config()
+    return config.get("SERVER", {}).get("SERVER_PORT", 8000)
+
+
+def get_wpp_input_dir_override() -> Path | None:
+    """Get the custom input directory path if specified in config."""
+    config = get_config()
+    input_dir = config.get("DIRECTORIES", {}).get("WPP_INPUT_DIR")
+    return Path(input_dir) if input_dir else None
+
+
+def get_wpp_static_input_dir_override() -> Path | None:
+    """Get the custom static input directory path if specified in config."""
+    config = get_config()
+    static_input_dir = config.get("DIRECTORIES", {}).get("WPP_STATIC_INPUT_DIR")
+    return Path(static_input_dir) if static_input_dir else None
 
 
 def _is_running_as_executable() -> bool:

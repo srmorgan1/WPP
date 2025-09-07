@@ -19,7 +19,7 @@ export const apiService = {
   },
 
   async getChargesDate() {
-    const response = await api.get('/api/system/charges-date');
+    const response = await api.get('/api/database/unique-charges-date');
     return response.data;
   },
 
@@ -53,6 +53,21 @@ export const apiService = {
 
   async getLogContent(filePath) {
     const response = await api.get(`/api/files/log/${encodeURIComponent(filePath)}`);
+    return response.data;
+  },
+
+  // Directory management
+  async updateInputDirectory(directoryPath) {
+    const response = await api.post('/api/system/update-input-directory', {
+      directory_path: directoryPath,
+    });
+    return response.data;
+  },
+
+  async updateStaticInputDirectory(directoryPath) {
+    const response = await api.post('/api/system/update-static-input-directory', {
+      directory_path: directoryPath,
+    });
     return response.data;
   },
 };

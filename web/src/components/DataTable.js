@@ -67,10 +67,16 @@ const DataTable = ({ data, maxHeight = '400px' }) => {
   // Excel SVG Icon
   const ExcelIcon = () => (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M2 2h12v12H2V2z" stroke="currentColor" strokeWidth="0.5" fill="none"/>
-      <path d="M2 4h12M2 6h12M2 8h12M2 10h12M2 12h12" stroke="currentColor" strokeWidth="0.5"/>
-      <path d="M4 2v12M6 2v12M8 2v12M10 2v12M12 2v12" stroke="currentColor" strokeWidth="0.5"/>
-      <rect x="1" y="1" width="14" height="2" fill="currentColor" fillOpacity="0.1"/>
+      <rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/>
+      <rect x="3" y="3" width="10" height="2" fill="currentColor" opacity="0.3"/>
+      <line x1="3" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="3" y1="9" x2="13" y2="9" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="3" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="3" y1="13" x2="13" y2="13" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="5" y1="6" x2="5" y2="14" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="7" y1="6" x2="7" y2="14" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="9" y1="6" x2="9" y2="14" stroke="currentColor" strokeWidth="0.5"/>
+      <line x1="11" y1="6" x2="11" y2="14" stroke="currentColor" strokeWidth="0.5"/>
     </svg>
   );
 

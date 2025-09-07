@@ -2,10 +2,12 @@
 
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .models import GenerateReportsRequest, GenerateReportsResponse, ProgressUpdate, SystemStatus, TaskResult, UpdateDatabaseRequest, UpdateDatabaseResponse, WebSocketMessage
+from wpp.network_security import get_client_ip_from_request, log_security_event, validate_client_ip
+
+from .models import GenerateReportsRequest, GenerateReportsResponse, ProgressUpdate, SystemStatus, TaskResult, UpdateDatabaseRequest, UpdateDatabaseResponse, UpdateDirectoryRequest, UpdateDirectoryResponse, WebSocketMessage
 from .services import DatabaseService, FileService, ReportsService, SystemService, task_manager
 
 app = FastAPI(title="WPP Management API", description="API for WPP data management and reporting", version="1.0.0")
@@ -18,6 +20,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Network security middleware
+@app.middleware("http")
+async def network_security_middleware(request: Request, call_next):
+    """Middleware to enforce network-based access control."""
+    client_ip = get_client_ip_from_request(request)
+
+    if not validate_client_ip(client_ip):
+        log_security_event("access_denied", client_ip, f"Blocked request to {request.url.path}")
+        return Response(
+            content='{"detail": "Access denied: IP address not in allowed networks"}',
+            status_code=403,
+            media_type="application/json"
+        )
+
+    log_security_event("access_allowed", client_ip, f"Allowed request to {request.url.path}")
+    response = await call_next(request)
+    return response
+
+
+# WebSocket network security
+@app.middleware("websocket")
+async def websocket_network_security_middleware(websocket: WebSocket, call_next):
+    """Middleware to enforce network-based access control for WebSocket connections."""
+    client_ip = websocket.client.host if websocket.client else "unknown"
+
+    if not validate_client_ip(client_ip):
+        log_security_event("websocket_denied", client_ip, "Blocked WebSocket connection")
+        await websocket.close(code=1008)  # Policy violation
+        return
+
+    log_security_event("websocket_allowed", client_ip, "Allowed WebSocket connection")
+    return await call_next(websocket)
 
 
 # WebSocket connections manager
@@ -136,6 +172,60 @@ async def get_log_content(filename: str):
     return {"content": content, "filename": filename}
 
 
+@app.post("/api/system/update-input-directory", response_model=UpdateDirectoryResponse)
+async def update_input_directory(request: UpdateDirectoryRequest):
+    """Update the input directory path."""
+    try:
+        success = await SystemService.update_input_directory(request.directory_path)
+        if success:
+            return UpdateDirectoryResponse(
+                success=True,
+                message=f"Input directory updated to: {request.directory_path}",
+                directory_type="input"
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update input directory")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating input directory: {str(e)}")
+
+
+@app.post("/api/system/update-static-input-directory", response_model=UpdateDirectoryResponse)
+async def update_static_input_directory(request: UpdateDirectoryRequest):
+    """Update the static input directory path."""
+    try:
+        success = await SystemService.update_static_input_directory(request.directory_path)
+        if success:
+            return UpdateDirectoryResponse(
+                success=True,
+                message=f"Static input directory updated to: {request.directory_path}",
+                directory_type="static_input"
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update static input directory")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating static input directory: {str(e)}")
+
+
+@app.get("/api/database/unique-charges-date")
+async def get_unique_charges_date():
+    """Get the unique date from the charges table for auto-populating the reports date picker."""
+    from wpp.db import get_or_create_db, get_unique_date_from_charges
+    import logging
+
+    try:
+        db_conn = get_or_create_db()  # This will use memory DB if configured
+        logger = logging.getLogger(__name__)
+        unique_date = get_unique_date_from_charges(db_conn, logger)
+        db_conn.close()
+
+        if unique_date:
+            return {"date": unique_date}
+        else:
+            raise HTTPException(status_code=404, detail="No unique date found in charges table")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting unique charges date: {str(e)}")
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates."""
@@ -157,4 +247,11 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    from wpp.config import get_server_bind_address, get_server_port
+
+    host = get_server_bind_address()
+    port = get_server_port()
+
+    print(f"Starting WPP Web Server on {host}:{port}")
+    print("Network restrictions are enabled - only local network connections allowed")
+    uvicorn.run(app, host=host, port=port, reload=True)

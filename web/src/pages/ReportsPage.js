@@ -64,8 +64,8 @@ const ReportsPage = () => {
   const fetchChargesDate = async () => {
     try {
       const response = await apiService.getChargesDate();
-      if (response.charges_date) {
-        setReportDate(response.charges_date);
+      if (response.date) {
+        setReportDate(response.date);
       }
       // If no charges date (database not updated yet), keep today's date as fallback
     } catch (error) {

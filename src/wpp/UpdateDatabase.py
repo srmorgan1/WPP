@@ -2237,7 +2237,7 @@ def update_database_core(injected_logger=None, output_handler=None) -> None:
 
     logger.info("Beginning Import of data into the database")
 
-    db_conn = get_or_create_db(get_wpp_db_file(), logger)
+    db_conn = get_or_create_db(get_wpp_db_file(), logger)  # Will use memory DB if configured
     result = importAllData(db_conn, output_handler)
 
     elapsed_time = time.time() - start_time

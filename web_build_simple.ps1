@@ -165,25 +165,20 @@ try {
     # Set encoding to handle Unicode characters in Python scripts
     $env:PYTHONIOENCODING = "utf-8"
     
-    # Get repo top level directory (parent of current WPP checkout directory)
-    $topLevelDir = Split-Path -Parent (Get-Location)
-    
-    if (Test-Path "$topLevelDir\build_executable.ps1") {
-        Set-Location $topLevelDir
+    # Look for build scripts in the checked-out repo directory (wpp-build/WPP)
+    if (Test-Path "build_executable.ps1") {
         & .\build_executable.ps1
         if ($LASTEXITCODE -ne 0) {
             throw "Build failed"
         }
-    } elseif (Test-Path "$topLevelDir\build_web_app.py") {
-        Write-Host "Using build_web_app.py from repo top level" -ForegroundColor Yellow
-        Set-Location $topLevelDir
+    } elseif (Test-Path "build_web_app.py") {
+        Write-Host "Using build_web_app.py from checked-out repo" -ForegroundColor Yellow
         uv run python build_web_app.py
         if ($LASTEXITCODE -ne 0) {
             throw "build_web_app.py failed"
         }
-    } elseif (Test-Path "$topLevelDir\build_executable.py") {
-        Write-Host "Using build_executable.py from repo top level" -ForegroundColor Yellow
-        Set-Location $topLevelDir
+    } elseif (Test-Path "build_executable.py") {
+        Write-Host "Using build_executable.py from checked-out repo" -ForegroundColor Yellow
         uv run python build_executable.py
         if ($LASTEXITCODE -ne 0) {
             throw "build_executable.py failed"
