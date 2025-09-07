@@ -1,5 +1,7 @@
 import datetime as dt
 import os
+import shutil
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -146,15 +148,107 @@ def get_alphanumeric_properties() -> list[str]:
     return config["TENANT_REFERENCE_PARSING"]["ALPHANUMERIC_PROPERTIES"]
 
 
+def get_max_runtime_minutes() -> int:
+    """Get the maximum runtime in minutes before auto-shutdown (0 = disabled)."""
+    config = get_config()
+    return config.get("SERVER", {}).get("MAX_RUNTIME_MINUTES", 60)
+
+
+def get_connection_check_interval() -> int:
+    """Get the connection check interval in seconds (ping interval)."""
+    config = get_config()
+    return config.get("SERVER", {}).get("CONNECTION_CHECK_INTERVAL", 10)
+
+
+def get_no_connection_shutdown_delay() -> int:
+    """Get the delay before shutdown when no connections detected (minutes)."""
+    config = get_config()
+    return config.get("SERVER", {}).get("NO_CONNECTION_SHUTDOWN_DELAY", 20)
+
+
+def _is_running_as_executable() -> bool:
+    """Check if running as a PyInstaller executable."""
+    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+
+
+def _get_user_home_config_path() -> Path:
+    """Get the path to the user's home directory config file."""
+    home = Path.home()
+    # Check for both .wpp-config.toml and wpp-config.toml
+    for filename in [".wpp-config.toml", "wpp-config.toml"]:
+        config_path = home / filename
+        if config_path.exists():
+            return config_path
+    # Return the preferred filename if neither exists
+    return home / ".wpp-config.toml"
+
+
+def _get_cwd_config_path() -> Path:
+    """Get the path to the current working directory config file."""
+    cwd = Path.cwd()
+    # Check for both .wpp-config.toml and wpp-config.toml
+    for filename in [".wpp-config.toml", "wpp-config.toml"]:
+        config_path = cwd / filename
+        if config_path.exists():
+            return config_path
+    # Return None if neither exists
+    return None
+
+
+def _get_default_config_path() -> Path:
+    """Get the path to the default config.toml in the src directory."""
+    if _is_running_as_executable():
+        # In PyInstaller executable, use the bundled config location
+        import sys
+        base_path = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent
+        config_path = base_path / "wpp" / "config.toml"
+        print(f"DEBUG: Executable mode - looking for config at: {config_path}")
+        return config_path
+    else:
+        # In development mode, use the source directory
+        config_path = Path(__file__).resolve().parent / "config.toml"
+        print(f"DEBUG: Development mode - looking for config at: {config_path}")
+        return config_path
+
+
+def _copy_default_config_to_home() -> Path:
+    """Copy the default config.toml to user's home directory as .wpp-config.toml."""
+    default_config = _get_default_config_path()
+    home_config = Path.home() / ".wpp-config.toml"
+    
+    print(f"DEBUG: Default config path: {default_config}")
+    print(f"DEBUG: Default config exists: {default_config.exists()}")
+    print(f"DEBUG: Home config path: {home_config}")
+    print(f"DEBUG: Home config exists: {home_config.exists()}")
+
+    if default_config.exists() and not home_config.exists():
+        try:
+            shutil.copy2(default_config, home_config)
+            print(f"Configuration file copied to: {home_config}")
+        except Exception as e:
+            print(f"Warning: Could not copy config file to home directory: {e}")
+    else:
+        if not default_config.exists():
+            print(f"DEBUG: Default config file not found at: {default_config}")
+        if home_config.exists():
+            print(f"DEBUG: Home config already exists at: {home_config}")
+
+    return home_config
+
+
 @cache
 def get_config(file_path: str | None = None) -> dict:
     """
     Load configuration values from a TOML file.
 
-    Searches for config.toml in the following order:
+    Searches for config files in the following order:
     1. Provided file_path (if given)
-    2. Current working directory
-    3. Same directory as this module (default location)
+    2. User's home directory (.wpp-config.toml or wpp-config.toml)
+    3. Current working directory (.wpp-config.toml or wpp-config.toml)
+    4. Source directory (config.toml)
+
+    If running as a Windows executable and no home config exists, copies
+    the default config to the user's home directory as .wpp-config.toml.
 
     :return: A dictionary containing the configuration values.
     """
@@ -162,21 +256,37 @@ def get_config(file_path: str | None = None) -> dict:
         config_file_path = Path(file_path)
     else:
         # Search locations in order of priority
-        search_locations = [
-            Path.cwd() / "config.toml",  # Current working directory
-            Path(__file__).resolve().parent / "config.toml",  # Module directory (original location)
-        ]
+        search_locations = []
+
+        # 1. User's home directory
+        home_config = _get_user_home_config_path()
+        search_locations.append(home_config)
+
+        # 2. Current working directory
+        cwd_config = _get_cwd_config_path()
+        if cwd_config:
+            search_locations.append(cwd_config)
+
+        # 3. Source directory (default)
+        default_config = _get_default_config_path()
+        search_locations.append(default_config)
 
         config_file_path = None
         for location in search_locations:
-            if location.exists():
+            if location and location.exists():
                 config_file_path = location
                 break
 
+        # If running as executable and no home config exists, copy default to home
+        if _is_running_as_executable() and not home_config.exists() and default_config.exists():
+            home_config = _copy_default_config_to_home()
+            if home_config.exists():
+                config_file_path = home_config
+
         if config_file_path is None:
             # If no config file found, provide helpful error message
-            searched_locations = "\n  ".join(str(loc) for loc in search_locations)
-            raise FileNotFoundError(f"Configuration file 'config.toml' not found in any of the following locations:\n  {searched_locations}")
+            searched_locations = "\n  ".join(str(loc) for loc in search_locations if loc)
+            raise FileNotFoundError(f"Configuration file not found in any of the following locations:\n  {searched_locations}")
 
     try:
         with open(config_file_path) as config_file:

@@ -87,7 +87,7 @@ try {
     if (-not (Test-Command "git")) {
         throw "Git is not installed or not in PATH. Please install Git for Windows."
     }
-    Write-Success "✓ Git found: $(git --version)"
+    Write-Success "[OK] Git found: $(git --version)"
     
     # Setup uv package manager (will handle Python automatically)
     if (-not (Test-Command "uv")) {
@@ -107,7 +107,7 @@ try {
         }
     }
     $uvVersion = uv --version 2>&1
-    Write-Success "✓ uv found: $uvVersion"
+    Write-Success "[OK] uv found: $uvVersion"
     Write-Info "uv will automatically manage Python 3.13+ based on pyproject.toml requirements"
     
     # Setup working directory
@@ -124,7 +124,7 @@ try {
     }
     
     Set-Location $WorkDir
-    Write-Success "✓ Working directory ready: $WorkDir"
+    Write-Success "[OK] Working directory ready: $WorkDir"
     
     # Clone or update repository
     Write-Section "Checking Out Source Code"
@@ -149,20 +149,20 @@ try {
             git fetch origin
             git checkout $Branch
             git pull origin $Branch
-            Write-Success "✓ Repository updated to latest $Branch"
+            Write-Success "[OK] Repository updated to latest $Branch"
         } else {
-            Write-Warning "⚠ Directory exists but is not a git repository. Removing and cloning fresh."
+            Write-Warning "[WARN] Directory exists but is not a git repository. Removing and cloning fresh."
             Set-Location $WorkDir
             Remove-Item -Path $repoDir -Recurse -Force
             git clone -b $Branch $CloneUrl
             Set-Location $repoDir
-            Write-Success "✓ Repository cloned fresh"
+            Write-Success "[OK] Repository cloned fresh"
         }
     } else {
         Write-Info "Cloning repository..."
         git clone -b $Branch $CloneUrl
         Set-Location $repoDir
-        Write-Success "✓ Repository cloned: $RepoUrl (branch: $Branch)"
+        Write-Success "[OK] Repository cloned: $RepoUrl (branch: $Branch)"
     }
     
     # Verify we're in the right directory
@@ -181,7 +181,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to sync Python environment"
     }
-    Write-Success "✓ Python environment ready"
+    Write-Success "[OK] Python environment ready"
     
     # Run tests (unless skipped)
     if (-not $SkipTests) {
@@ -192,7 +192,7 @@ try {
             # Set GPG_PASSPHRASE for tests (you may need to set this appropriately)
             $env:GPG_PASSPHRASE = $env:GPG_PASSPHRASE
             if (-not $env:GPG_PASSPHRASE) {
-                Write-Warning "⚠ GPG_PASSPHRASE not set. Some tests may fail."
+                Write-Warning "[WARN] GPG_PASSPHRASE not set. Some tests may fail."
                 Write-Info "Please set the GPG_PASSPHRASE environment variable if needed."
             }
             
@@ -200,13 +200,13 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "Tests failed"
             }
-            Write-Success "✓ All tests passed"
+            Write-Success "[OK] All tests passed"
         } catch {
             Write-Error "Tests failed: $($_.Exception.Message)"
             throw "Test execution failed"
         }
     } else {
-        Write-Warning "⚠ Tests skipped (SkipTests flag set)"
+        Write-Warning "[WARN] Tests skipped (SkipTests flag set)"
     }
     
     # Run linting
@@ -215,9 +215,9 @@ try {
     Write-Info "Running ruff linting..."
     uv run ruff check src/
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "⚠ Linting issues found, but continuing with build"
+        Write-Warning "[WARN] Linting issues found, but continuing with build"
     } else {
-        Write-Success "✓ Code quality checks passed"
+        Write-Success "[OK] Code quality checks passed"
     }
     
     # Build executables
@@ -247,7 +247,7 @@ try {
     }
     
     $executables = @(
-        "wpp-streamlit.exe",
+        "wpp-web-app.exe",
         "run-reports.exe", 
         "update-database.exe"
     )
@@ -257,7 +257,7 @@ try {
         $exePath = Join-Path $distDir $exe
         if (Test-Path $exePath) {
             $fileSize = (Get-Item $exePath).Length
-            Write-Success "✓ $exe created (Size: $([math]::Round($fileSize/1MB, 2)) MB)"
+            Write-Success "[OK] $exe created (Size: $([math]::Round($fileSize/1MB, 2)) MB)"
         } else {
             $missingExes += $exe
         }
@@ -271,19 +271,19 @@ try {
     # Success summary
     Write-Section "Build Complete!"
     
-    Write-Success "✓ Repository: $RepoUrl ($Branch)"
-    Write-Success "✓ Commit: $currentCommit"
-    Write-Success "✓ Tests: $(if ($SkipTests) { 'Skipped' } else { 'Passed' })"
-    Write-Success "✓ Build: Success"
-    Write-Success "✓ Output: $distDir"
+    Write-Success "[OK] Repository: $RepoUrl ($Branch)"
+    Write-Success "[OK] Commit: $currentCommit"
+    Write-Success "[OK] Tests: $(if ($SkipTests) { 'Skipped' } else { 'Passed' })"
+    Write-Success "[OK] Build: Success"
+    Write-Success "[OK] Output: $distDir"
     
     Write-Info "`nAvailable executables:"
     foreach ($exe in $executables) {
-        Write-Info "  • $exe"
+        Write-Info "  - $exe"
     }
     
     Write-Info "`nUsage:"
-    Write-Info "  Web App:        .\dist\wpp\wpp-streamlit.exe"
+    Write-Info "  Web App:        .\dist\wpp\wpp-web-app.exe"
     Write-Info "  Generate Reports: .\dist\wpp\run-reports.exe"
     Write-Info "  Update Database:  .\dist\wpp\update-database.exe"
     
@@ -293,18 +293,18 @@ try {
         Write-Info "Repository location: $repoDir"
     }
     
-    Write-Success "`n🎉 Build pipeline completed successfully!"
+    Write-Success "`n[SUCCESS] Build pipeline completed successfully!"
     
 } catch {
-    Write-Error "`n💥 Build pipeline failed!"
+    Write-Error "`n[FAILED] Build pipeline failed!"
     Write-Error "Error: $($_.Exception.Message)"
     Write-Error "Location: $($_.InvocationInfo.PositionMessage)"
     
     Write-Info "`nTroubleshooting:"
-    Write-Info "• Ensure all prerequisites are installed"
-    Write-Info "• Check network connectivity for repository access"
-    Write-Info "• Verify GPG_PASSPHRASE is set if tests require encrypted data"
-    Write-Info "• Check PowerShell execution policy: Set-ExecutionPolicy RemoteSigned"
+    Write-Info "- Ensure all prerequisites are installed"
+    Write-Info "- Check network connectivity for repository access"
+    Write-Info "- Verify GPG_PASSPHRASE is set if tests require encrypted data"
+    Write-Info "- Check PowerShell execution policy: Set-ExecutionPolicy RemoteSigned"
     
     exit 1
 } finally {

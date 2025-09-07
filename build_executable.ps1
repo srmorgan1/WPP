@@ -25,7 +25,7 @@ try {
 Write-Host "Running build script with uv..." -ForegroundColor Yellow
 
 try {
-    uv run build_executable.py
+    uv run build_web_app.py
     if ($LASTEXITCODE -ne 0) {
         throw "Build script failed with exit code $LASTEXITCODE"
     }
@@ -41,12 +41,12 @@ Write-Host ""
 Write-Host "Executable files created in: dist\wpp\" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Available executables:" -ForegroundColor White
-Write-Host "  wpp-streamlit.exe    - Streamlit web application" -ForegroundColor Gray
+Write-Host "  wpp-web-app.exe      - React web application" -ForegroundColor Gray
 Write-Host "  run-reports.exe      - Command-line reports generator" -ForegroundColor Gray
 Write-Host "  update-database.exe  - Database update utility" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Usage:" -ForegroundColor White
-Write-Host "  To run the web app: .\dist\wpp\wpp-streamlit.exe" -ForegroundColor Gray
+Write-Host "  To run the web app: .\dist\wpp\wpp-web-app.exe" -ForegroundColor Gray
 Write-Host "  To run reports: .\dist\wpp\run-reports.exe" -ForegroundColor Gray
 Write-Host "  To update database: .\dist\wpp\update-database.exe" -ForegroundColor Gray
 Write-Host ""

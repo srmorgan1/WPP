@@ -39,19 +39,23 @@ def test_report_qube_import_errors():
     """Test Qube import error reporting."""
     qube_errors = [{"Block Reference": "123-01", "Error": "Invalid fund amount"}, {"Block Reference": "456-02", "Error": "Missing category"}]
 
-    # Create mock Excel writer
-    mock_excel_writer = Mock()
+    # Create mock output handler
+    mock_output_handler = Mock()
 
-    with patch("wpp.UpdateDatabase.logger") as mock_logger, patch("pandas.DataFrame.to_excel") as mock_to_excel:
-        _report_qube_import_errors(qube_errors, "/path/to/qube.xlsx", mock_excel_writer)
+    with patch("wpp.UpdateDatabase.logger") as mock_logger:
+        _report_qube_import_errors(qube_errors, "/path/to/qube.xlsx", mock_output_handler)
 
         # Verify logging
         mock_logger.error.assert_any_call("Found 2 Qube import issues in /path/to/qube.xlsx")
         mock_logger.error.assert_any_call("Block 123-01: Invalid fund amount")
         mock_logger.error.assert_any_call("Block 456-02: Missing category")
 
-        # Verify Excel writing
-        mock_to_excel.assert_called_once_with(mock_excel_writer, sheet_name="Qube Import Problems", index=False, float_format="%.2f")
+        # Verify output handler add_sheet call
+        mock_output_handler.add_sheet.assert_called_once()
+        call_args = mock_output_handler.add_sheet.call_args
+        assert call_args[0][0] == "Qube Import Problems"  # sheet name
+        assert len(call_args[0][1]) == 2  # DataFrame with 2 errors
+        assert call_args[1]["is_critical"]  # is_critical flag
 
 
 def test_report_qube_import_errors_empty_list():
@@ -76,16 +80,16 @@ def test_validate_account_designation_consistency_violations():
     }
     df = pd.DataFrame(test_data)
 
-    mock_excel_writer = Mock()
+    mock_output_handler = Mock()
 
-    with patch("wpp.UpdateDatabase.logger") as mock_logger, patch("pandas.DataFrame.to_excel") as mock_to_excel, patch("wpp.UpdateDatabase.getPropertyBlockAndTenantRefs") as mock_get_refs:
+    with patch("wpp.UpdateDatabase.logger") as mock_logger, patch("wpp.UpdateDatabase.getPropertyBlockAndTenantRefs") as mock_get_refs:
         # Mock the reference parsing to trigger validation errors
         mock_get_refs.side_effect = [
             (None, "123-00", None),  # Estate reference
             ("456", "456-01", None),  # Block reference
         ]
 
-        violations = _validate_account_designation_consistency(df, "/path/to/accounts.xlsx", mock_excel_writer)
+        violations = _validate_account_designation_consistency(df, "/path/to/accounts.xlsx", mock_output_handler)
 
         # Should find violations
         assert len(violations) == 2
@@ -93,8 +97,15 @@ def test_validate_account_designation_consistency_violations():
         # Verify logging
         mock_logger.error.assert_called()
 
-        # Verify Excel writing
-        mock_to_excel.assert_called_once()
+        # Verify output handler add_sheet call
+        mock_output_handler.add_sheet.assert_called_once()
+        call_args = mock_output_handler.add_sheet.call_args
+        assert call_args[0][0] == "Account Designation Issues"  # sheet name
+        assert len(call_args[0][1]) == 2  # DataFrame with 2 violations
+        # Check that metadata was passed
+        metadata = call_args[0][2]
+        assert "error_count" in metadata
+        assert metadata["error_count"] == 2
 
 
 def test_validate_account_uniqueness_violations():

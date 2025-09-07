@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WPP Data Export Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .data-display {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .export-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #28a745;
+            border: none;
+            border-radius: 4px;
+            padding: 8px;
+            cursor: pointer;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+            width: 32px;
+            height: 32px;
+        }
+        
+        .export-button:hover {
+            background: #218838;
+        }
+        
+        .excel-icon {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+        
+        h2 {
+            margin-top: 0;
+            color: #333;
+            padding-right: 100px;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #dee2e6;
+            margin-bottom: 15px;
+        }
+        
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 14px;
+            color: #6c757d;
+            border-bottom: 2px solid transparent;
+        }
+        
+        .tab.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+            font-weight: 500;
+        }
+        
+        .tab:hover {
+            color: #007bff;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border: 1px solid #dee2e6;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .status {
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .status.loading {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <h1>WPP Data Export Test</h1>
+    <div id="status" class="status">Ready to test Excel export functionality</div>
+    
+    <div id="loading" class="loading" style="display: none;">
+        Loading data...
+    </div>
+    
+    <div id="data-displays"></div>
+    
+    <script>
+        let currentData = {};
+        let websocket = null;
+        let currentTaskId = null;
+        
+        // WebSocket connection for real-time updates
+        function connectWebSocket() {
+            try {
+                websocket = new WebSocket('ws://127.0.0.1:8000/ws');
+                
+                websocket.onopen = function(event) {
+                    console.log('WebSocket connected');
+                    document.getElementById('status').textContent = 'Connected to server - WebSocket active';
+                };
+                
+                websocket.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        console.log('WebSocket message:', message);
+                        
+                        if (message.type === 'progress' && message.task_id === currentTaskId) {
+                            const statusEl = document.getElementById('status');
+                            statusEl.textContent = `Task ${message.task_id}: ${message.data.status} - ${message.data.message}`;
+                            
+                            // If task is completed or failed, fetch the final result
+                            // But only if we're using WebSocket as primary method (not fallback)
+                            if (message.data.status === 'completed' || message.data.status === 'failed') {
+                                console.log('WebSocket completion detected, fetching result');
+                                setTimeout(() => fetchTaskResult(message.task_id), 1000);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing WebSocket message:', e);
+                    }
+                };
+                
+                websocket.onclose = function(event) {
+                    console.log('WebSocket closed:', event.code, event.reason);
+                    document.getElementById('status').textContent = 'WebSocket connection closed - using polling fallback';
+                    websocket = null;
+                };
+                
+                websocket.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    document.getElementById('status').textContent = 'WebSocket error - using polling fallback';
+                };
+            } catch (e) {
+                console.error('Failed to create WebSocket:', e);
+            }
+        }
+        
+        // Fetch final task result (used by WebSocket when NOT using waitForWebSocketCompletion)
+        async function fetchTaskResult(taskId) {
+            try {
+                console.log('fetchTaskResult called for:', taskId);
+                console.log('currentTaskId:', currentTaskId);
+                
+                // If this is being called for the current task that's handled by main flow, skip it
+                if (taskId === currentTaskId && websocket) {
+                    console.log('Skipping fetchTaskResult - main flow will handle this task');
+                    return;
+                }
+                
+                const response = await fetch(`/api/tasks/${taskId}`);
+                const taskData = await response.json();
+                
+                console.log('Task result data:', taskData);
+                
+                const statusEl = document.getElementById('status');
+                if (taskData.status === 'failed') {
+                    statusEl.textContent = `Database update failed: ${taskData.error}`;
+                    statusEl.className = 'status error';
+                    await displayTaskResults('Database Update - Error', taskData);
+                } else {
+                    statusEl.textContent = 'Database update completed successfully';
+                    statusEl.className = 'status';
+                    if (taskData.result_data && (
+                        (taskData.result_data.files && taskData.result_data.files.length > 0) ||
+                        (taskData.result_data.summary && taskData.result_data.summary.web_sheets)
+                    )) {
+                        await displayTaskResults('Database Update - Success', taskData);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching task result:', error);
+            }
+        }
+        
+        // Wait for WebSocket completion notification
+        async function waitForWebSocketCompletion(taskId) {
+            return new Promise((resolve) => {
+                // Set up a timeout fallback to polling
+                const timeout = setTimeout(() => {
+                    console.log('WebSocket timeout, falling back to polling');
+                    pollTaskCompletion(taskId).then(resolve);
+                }, 30000); // 30 second timeout
+                
+                // Listen for task completion via WebSocket
+                const originalOnMessage = websocket.onmessage;
+                websocket.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'progress' && message.task_id === taskId) {
+                            if (message.data.status === 'completed' || message.data.status === 'failed') {
+                                clearTimeout(timeout);
+                                // Fetch final task data
+                                fetch(`/api/tasks/${taskId}`)
+                                    .then(response => response.json())
+                                    .then(taskData => {
+                                        websocket.onmessage = originalOnMessage; // Restore original handler
+                                        resolve(taskData);
+                                    })
+                                    .catch(() => {
+                                        // Fallback to polling if fetch fails
+                                        pollTaskCompletion(taskId).then(resolve);
+                                    });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing WebSocket message:', e);
+                    }
+                    
+                    // Also call original handler
+                    if (originalOnMessage) originalOnMessage(event);
+                };
+            });
+        }
+        
+        // Simulate getting data from WPP API
+        async function loadTestData() {
+            document.getElementById('loading').style.display = 'block';
+            
+            try {
+                // Connect WebSocket for real-time updates
+                connectWebSocket();
+                
+                // First run a database update to get fresh data
+                const updateResponse = await fetch('/api/database/update', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({delete_existing: false})
+                });
+                
+                if (!updateResponse.ok) {
+                    throw new Error('Failed to start database update');
+                }
+                
+                const updateResult = await updateResponse.json();
+                currentTaskId = updateResult.task_id;
+                document.getElementById('status').textContent = `Database update started: ${updateResult.task_id}`;
+                
+                // Use WebSocket for real-time updates, with polling fallback
+                const updateData = websocket ? 
+                    await waitForWebSocketCompletion(updateResult.task_id) : 
+                    await pollTaskCompletion(updateResult.task_id);
+                
+                // Handle database update results (success or failure)
+                if (updateData) {
+                    const statusEl = document.getElementById('status');
+                    if (updateData.status === 'failed') {
+                        console.log('Database update failed, displaying error results...');
+                        statusEl.textContent = `Database update failed: ${updateData.error}`;
+                        statusEl.className = 'status error';
+                        
+                        // Always display error results (even if no files, show the error info)
+                        console.log('Calling displayTaskResults for failed task:', updateData.task_id);
+                        console.log('updateData.result_data:', updateData.result_data);
+                        console.log('Has web_sheets:', !!(updateData.result_data?.summary?.web_sheets));
+                        
+                        await displayTaskResults('Database Update - Error', updateData);
+                        console.log('displayTaskResults completed for failed task');
+                        return; // Don't proceed to reports if database update failed
+                    } else {
+                        console.log('Database update succeeded');
+                        statusEl.textContent = 'Database update completed successfully';
+                        statusEl.className = 'status';
+                        // Display database update results if available
+                        if (updateData.result_data && (
+                            (updateData.result_data.files && updateData.result_data.files.length > 0) ||
+                            (updateData.result_data.summary && updateData.result_data.summary.web_sheets)
+                        )) {
+                            console.log('Displaying success results for database update');
+                            await displayTaskResults('Database Update - Success', updateData);
+                        }
+                    }
+                }
+                
+                // Now generate reports
+                const reportsResponse = await fetch('/api/reports/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({report_date: '2022-10-11'})
+                });
+                
+                if (!reportsResponse.ok) {
+                    throw new Error('Failed to start report generation');
+                }
+                
+                const reportsResult = await reportsResponse.json();
+                document.getElementById('status').textContent = `Reports generation started: ${reportsResult.task_id}`;
+                
+                // Poll for completion and get data
+                const reportData = await pollTaskCompletion(reportsResult.task_id);
+                
+                if (reportData) {
+                    const statusEl = document.getElementById('status');
+                    if (reportData.status === 'failed') {
+                        statusEl.textContent = `Report generation failed: ${reportData.error}`;
+                        statusEl.className = 'status error';
+                        // Display error results
+                        await displayTaskResults('Report Generation - Error', reportData);
+                    } else if (reportData.result_data) {
+                        statusEl.textContent = 'Report generation completed successfully';
+                        statusEl.className = 'status';
+                        // Check if we have web sheets directly or need to use the old displayData method
+                        if (reportData.result_data.summary && reportData.result_data.summary.web_sheets) {
+                            await displayTaskResults('WPP Reports', reportData);
+                        } else {
+                            displayData('WPP Reports', reportData);
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = `Error: ${error.message}`;
+                statusEl.className = 'status error';
+                console.error('Error loading data:', error);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        async function pollTaskCompletion(taskId) {
+            return new Promise((resolve) => {
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch(`/api/tasks/${taskId}`);
+                        const task = await response.json();
+                        
+                        document.getElementById('status').textContent = 
+                            `Task ${taskId}: ${task.status} - ${task.completed_at ? 'Completed' : 'Processing...'}`;
+                        
+                        if (task.status === 'completed' || task.status === 'failed') {
+                            clearInterval(pollInterval);
+                            resolve(task);
+                        }
+                    } catch (error) {
+                        clearInterval(pollInterval);
+                        resolve(null);
+                    }
+                }, 1000);
+            });
+        }
+        
+        async function displayTaskResults(title, taskData) {
+            // Handle task results that may include Excel files, logs, etc.
+            const container = document.getElementById('data-displays');
+            if (!container) {
+                console.error('CRITICAL ERROR: data-displays container not found!');
+                return;
+            }
+            
+            const displayDiv = document.createElement('div');
+            displayDiv.className = 'data-display';
+            displayDiv.style.border = taskData.status === 'failed' ? '2px solid #dc3545' : '2px solid #28a745';
+            displayDiv.style.borderRadius = '8px';
+            
+            let content = `
+                <h2>${title}</h2>
+                <div class="task-info" style="margin-bottom: 15px; padding: 10px; background: ${taskData.status === 'failed' ? '#f8d7da' : '#d4edda'}; border-radius: 4px;">
+                    <strong>Status:</strong> ${taskData.status}<br>
+                    <strong>Task ID:</strong> ${taskData.task_id}<br>
+                    <strong>Started:</strong> ${new Date(taskData.started_at).toLocaleString()}<br>
+                    <strong>Completed:</strong> ${taskData.completed_at ? new Date(taskData.completed_at).toLocaleString() : 'N/A'}<br>
+                    ${taskData.error ? `<strong style="color: #dc3545;">Error:</strong> ${taskData.error}<br>` : ''}
+                </div>
+            `;
+            
+            // Check for direct web sheet data in summary
+            const hasWebSheets = taskData.result_data?.summary?.web_sheets;
+            if (hasWebSheets) {
+                content += '<h3>Data Import Issues:</h3>';
+                content += '<div id="file-content-' + title.replace(/\s+/g, '_') + '"></div>';
+            }
+            
+            // Also check for files (for Excel-based results)
+            if (taskData.result_data && taskData.result_data.files && taskData.result_data.files.length > 0) {
+                content += '<h3>Available Files:</h3>';
+                content += '<div class="files-list" style="margin-bottom: 15px;">';
+                
+                for (const file of taskData.result_data.files) {
+                    const buttonId = `btn-${file.filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                    content += `
+                        <div style="margin: 5px 0; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <strong>${file.display_name || file.filename}</strong> (${file.file_type})
+                            <button id="${buttonId}" onclick="loadFileContent('${file.filename}', '${file.file_type}', '${title}')" 
+                                    style="margin-left: 10px; padding: 4px 8px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                View ${file.file_type === 'excel' ? 'Data' : 'Content'}
+                            </button>
+                        </div>
+                    `;
+                }
+                content += '</div>';
+                
+                if (!hasWebSheets) {
+                    content += '<div id="file-content-' + title.replace(/\s+/g, '_') + '"></div>';
+                }
+            }
+            
+            // If no web sheets and no files, still add content div for consistency
+            if (!hasWebSheets && (!taskData.result_data?.files || taskData.result_data.files.length === 0)) {
+                content += '<div id="file-content-' + title.replace(/\s+/g, '_') + '"></div>';
+            }
+            
+            displayDiv.innerHTML = content;
+            container.appendChild(displayDiv);
+            
+            // If we have web sheets, display them immediately AFTER the HTML is set
+            if (hasWebSheets) {
+                displayWebSheets(title.replace(/\s+/g, '_'), hasWebSheets);
+            }
+        }
+        
+        function displayWebSheets(titleId, webSheets) {
+            const contentDiv = document.getElementById('file-content-' + titleId);
+            
+            if (!contentDiv) {
+                console.error(`CRITICAL ERROR: Content div not found: file-content-${titleId}`);
+                // Try to show error in status instead
+                const statusEl = document.getElementById('status');
+                if (statusEl) {
+                    statusEl.textContent += ' [ERROR: Could not find display container]';
+                }
+                return;
+            }
+            
+            if (!webSheets || Object.keys(webSheets).length === 0) {
+                contentDiv.innerHTML = '<div style="color: #6c757d; padding: 10px;">No data sheets available.</div>';
+                return;
+            }
+            
+            // Create tabs for multiple sheets
+            let tabsHtml = '<div class="tabs" style="display: flex; border-bottom: 2px solid #dee2e6; margin: 15px 0 10px 0;">';
+            let contentHtml = '<div class="tab-contents">';
+            
+            // Declare sheets variable outside try block for later use
+            const sheets = Object.values(webSheets);
+            
+            try {
+                sheets.forEach((sheet, index) => {
+                    const isActive = index === 0;
+                    const sheetId = `sheet-${titleId}-${index}`;
+                    
+                    tabsHtml += `
+                        <button class="tab ${isActive ? 'active' : ''}" onclick="switchWebSheetTab('${titleId}', ${index})"
+                                style="padding: 10px 15px; border: none; background: none; cursor: pointer; ${isActive ? 'color: #007bff; border-bottom: 2px solid #007bff; font-weight: 500;' : 'color: #6c757d;'}">
+                            ${sheet.name}
+                        </button>
+                    `;
+                    
+                    // Convert array of objects back to array of arrays for table display
+                    if (sheet.columns && sheet.data) {
+                        const tableData = sheet.data.map(row => sheet.columns.map(col => row[col] ?? ''));
+                        
+                        contentHtml += `
+                            <div id="${sheetId}" class="tab-content ${isActive ? 'active' : ''}" style="display: ${isActive ? 'block' : 'none'};">
+                                ${createTable(sheet.columns, tableData)}
+                                <div style="margin-top: 10px; font-size: 12px; color: #6c757d;">
+                                    ${sheet.row_count} rows | ${sheet.metadata ? Object.entries(sheet.metadata).map(([k,v]) => `${k}: ${v}`).join(' | ') : ''}
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        console.error(`Sheet ${sheet.name} missing columns or data:`, {columns: sheet.columns, data: sheet.data});
+                        contentHtml += `
+                            <div id="${sheetId}" class="tab-content ${isActive ? 'active' : ''}" style="display: ${isActive ? 'block' : 'none'};">
+                                <div style="color: red; padding: 10px;">Error: Sheet data is malformed</div>
+                            </div>
+                        `;
+                    }
+                });
+                
+                tabsHtml += '</div>';
+                contentHtml += '</div>';
+                
+                contentDiv.innerHTML = tabsHtml + contentHtml;
+                
+            } catch (error) {
+                console.error('Error creating sheet HTML:', error);
+                contentDiv.innerHTML = `<div style="color: red; padding: 10px;">Error displaying sheets: ${error.message}</div>`;
+                return; // Don't continue to Excel export data storage if there's an error
+            }
+            
+            // Store data for Excel export
+            currentData[titleId.replace(/_/g, ' ')] = {
+                sheets: {},
+                summary: {},
+                reportName: titleId
+            };
+            
+            sheets.forEach(sheet => {
+                // Convert back to the format expected by Excel export
+                const tableData = sheet.data.map(row => sheet.columns.map(col => row[col] ?? ''));
+                currentData[titleId.replace(/_/g, ' ')].sheets[sheet.name] = {
+                    columns: sheet.columns,
+                    data: tableData,
+                    metadata: sheet.metadata || {}
+                };
+            });
+        }
+        
+        function switchWebSheetTab(titleId, tabIndex) {
+            // Update active tab
+            document.querySelectorAll(`button[onclick*="switchWebSheetTab('${titleId}'"]`).forEach((tab, index) => {
+                if (index === tabIndex) {
+                    tab.style.color = '#007bff';
+                    tab.style.borderBottom = '2px solid #007bff';
+                    tab.style.fontWeight = '500';
+                } else {
+                    tab.style.color = '#6c757d';
+                    tab.style.borderBottom = 'none';
+                    tab.style.fontWeight = 'normal';
+                }
+            });
+            
+            // Update active content
+            document.querySelectorAll(`div[id*="sheet-${titleId}-"]`).forEach((content, index) => {
+                content.style.display = index === tabIndex ? 'block' : 'none';
+            });
+        }
+        
+        async function loadFileContent(filename, fileType, title) {
+            const contentDiv = document.getElementById('file-content-' + title.replace(/\s+/g, '_'));
+            
+            try {
+                if (fileType === 'excel') {
+                    // Load Excel file data
+                    const response = await fetch(`/api/files/excel/${filename}`);
+                    if (!response.ok) {
+                        throw new Error('Failed to load Excel file');
+                    }
+                    const excelData = await response.json();
+                    
+                    // Display Excel data with tabs
+                    let tabsHtml = '<div class="tabs" style="display: flex; border-bottom: 2px solid #dee2e6; margin: 15px 0 10px 0;">';
+                    let contentHtml = '<div class="tab-contents">';
+                    
+                    excelData.sheets.forEach((sheet, index) => {
+                        const tabId = `tab-${filename}-${index}`;
+                        const contentId = `content-${filename}-${index}`;
+                        
+                        tabsHtml += `
+                            <button class="tab ${index === 0 ? 'active' : ''}" onclick="switchFileTab('${filename}', ${index})"
+                                    style="padding: 10px 15px; border: none; background: none; cursor: pointer; ${index === 0 ? 'color: #007bff; border-bottom: 2px solid #007bff;' : 'color: #6c757d;'}">
+                                ${sheet.sheet_name}
+                            </button>
+                        `;
+                        
+                        contentHtml += `
+                            <div id="${contentId}" class="tab-content ${index === 0 ? 'active' : ''}" style="display: ${index === 0 ? 'block' : 'none'};">
+                                ${createTable(sheet.columns, sheet.data)}
+                            </div>
+                        `;
+                    });
+                    
+                    tabsHtml += '</div>';
+                    contentHtml += '</div>';
+                    
+                    contentDiv.innerHTML = tabsHtml + contentHtml;
+                    
+                } else if (fileType === 'log') {
+                    // Load log file content
+                    const response = await fetch(`/api/files/log/${filename}`);
+                    if (!response.ok) {
+                        throw new Error('Failed to load log file');
+                    }
+                    const logData = await response.json();
+                    
+                    contentDiv.innerHTML = `
+                        <h4>Log: ${filename}</h4>
+                        <pre style="background: #f8f9fa; padding: 15px; border: 1px solid #dee2e6; border-radius: 4px; max-height: 400px; overflow-y: auto; font-size: 12px; line-height: 1.4;">${logData.content}</pre>
+                    `;
+                }
+                
+            } catch (error) {
+                contentDiv.innerHTML = `<div style="color: #dc3545; padding: 10px;">Error loading ${fileType}: ${error.message}</div>`;
+            }
+        }
+        
+        function switchFileTab(filename, tabIndex) {
+            // Update active tab
+            document.querySelectorAll(`button[onclick*="${filename}"]`).forEach((tab, index) => {
+                if (index === tabIndex) {
+                    tab.style.color = '#007bff';
+                    tab.style.borderBottom = '2px solid #007bff';
+                    tab.style.fontWeight = '500';
+                } else {
+                    tab.style.color = '#6c757d';
+                    tab.style.borderBottom = 'none';
+                    tab.style.fontWeight = 'normal';
+                }
+            });
+            
+            // Update active content
+            document.querySelectorAll(`div[id*="content-${filename}"]`).forEach((content, index) => {
+                content.style.display = index === tabIndex ? 'block' : 'none';
+            });
+        }
+
+        function displayData(title, taskData) {
+            // Store the actual sheets data for export
+            currentData[title] = {
+                sheets: {}, // Will be populated from the actual web output
+                summary: taskData.result_data?.summary || {},
+                reportName: title.replace(/\s+/g, '_')
+            };
+            
+            const container = document.getElementById('data-displays');
+            const displayDiv = document.createElement('div');
+            displayDiv.className = 'data-display';
+            displayDiv.innerHTML = `
+                <button class="export-button" onclick="exportToExcel('${title}')" title="Export to Excel">
+                    <svg class="excel-icon" viewBox="0 0 24 24">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                    </svg>
+                </button>
+                <h2>${title}</h2>
+                <div class="tabs" id="tabs-${title}"></div>
+                <div class="tab-contents" id="content-${title}"></div>
+            `;
+            container.appendChild(displayDiv);
+            
+            // Create mock sheet data for demonstration
+            const mockSheets = {
+                'COMREC 2022-10-11': {
+                    columns: ['Reference', 'Name', 'Total Paid SC', 'Account Number'],
+                    data: [
+                        ['047-01', 'Park Court', 99.24, '00134167'],
+                        ['053-01', 'Glyn Coediog', 104.59, '00164868'],
+                        ['061-01', 'Newport Road Maintenance Ltd', 210.0, '10066666'],
+                        ['TOTAL', '', 413.83, '']
+                    ],
+                    metadata: {report_type: 'COMREC', date: '2022-10-11', row_count: 4}
+                },
+                'Transactions': {
+                    columns: ['Block', 'Block Name', 'Tenant Reference', 'Tenant Name', 'Amount', 'Payment Type'],
+                    data: [
+                        ['047-01', 'Park Court', '047-01-014', 'Ms S Deacon', 99.24, 'FPI'],
+                        ['053-01', 'Glyn Coediog', '053-01-064A', 'Mr & Mrs A Bates', 16.28, 'FPI'],
+                        ['053-01', 'Glyn Coediog', '053-01-010', 'Mr & Mrs N Wright', 88.31, 'FPI'],
+                        ['TOTAL', '', '', '', 203.83, '']
+                    ],
+                    metadata: {report_type: 'Transactions', date: '2022-10-11', row_count: 4}
+                }
+            };
+            
+            currentData[title].sheets = mockSheets;
+            
+            // Create tabs and content
+            createTabs(title, mockSheets);
+        }
+        
+        function createTabs(title, sheets) {
+            const tabsContainer = document.getElementById(`tabs-${title}`);
+            const contentContainer = document.getElementById(`content-${title}`);
+            
+            let firstTab = true;
+            Object.entries(sheets).forEach(([sheetName, sheetData]) => {
+                // Create tab
+                const tab = document.createElement('button');
+                tab.className = firstTab ? 'tab active' : 'tab';
+                tab.textContent = sheetName;
+                tab.onclick = () => switchTab(title, sheetName);
+                tabsContainer.appendChild(tab);
+                
+                // Create content
+                const content = document.createElement('div');
+                content.className = firstTab ? 'tab-content active' : 'tab-content';
+                content.id = `${title}-${sheetName}`;
+                content.innerHTML = createTable(sheetData.columns, sheetData.data);
+                contentContainer.appendChild(content);
+                
+                firstTab = false;
+            });
+        }
+        
+        function switchTab(title, sheetName) {
+            // Update active tab
+            document.querySelectorAll(`#tabs-${title} .tab`).forEach(tab => {
+                tab.classList.toggle('active', tab.textContent === sheetName);
+            });
+            
+            // Update active content
+            document.querySelectorAll(`#content-${title} .tab-content`).forEach(content => {
+                content.classList.toggle('active', content.id === `${title}-${sheetName}`);
+            });
+        }
+        
+        function createTable(columns, data) {
+            let html = '<table><thead><tr>';
+            columns.forEach(col => {
+                html += `<th>${col}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => {
+                    html += `<td>${cell === null || cell === undefined ? '' : cell}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            return html;
+        }
+        
+        async function exportToExcel(title) {
+            try {
+                document.getElementById('status').textContent = 'Generating Excel file...';
+                
+                const exportData = currentData[title];
+                
+                const response = await fetch('/api/export/excel', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(exportData)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Export failed: ${response.statusText}`);
+                }
+                
+                // Create download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${exportData.reportName}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                document.getElementById('status').textContent = `Excel file downloaded: ${exportData.reportName}.xlsx`;
+                
+            } catch (error) {
+                document.getElementById('status').textContent = `Export error: ${error.message}`;
+                console.error('Export error:', error);
+            }
+        }
+        
+        // Load test data when page loads
+        window.onload = loadTestData;
+    </script>
+</body>
+</html>

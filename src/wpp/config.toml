@@ -27,6 +27,8 @@ WPP_REPORT_TEMPLATE = "WPP_Report_{date}.xlsx"
 REF_MATCHER_LOG = "ref_matcher.csv"
 UPDATE_DATABASE_LOG = "update_database_{timestamp}.txt"
 RUN_REPORTS_LOG = "run_reports_{timestamp}.txt"
+# Enable/disable ref_matcher CSV logging (console apps and tests default to true, web apps default to false)
+REF_MATCHER_CSV_ENABLED = false
 
 [TENANT_REFERENCE_PARSING]
 # Properties that require special handling for tenant references (4-digit patterns)
@@ -49,3 +51,12 @@ THREE_LETTER_CODE_PROPERTIES = ["094", "166"]
 TWO_LETTER_CODE_PROPERTIES = ["161"]
 # Properties that use alphanumeric property references (059A format)
 ALPHANUMERIC_PROPERTIES = ["059A"]
+
+[SERVER]
+# Server monitoring and auto-shutdown settings
+# Maximum runtime in minutes (set to 0 to disable auto-shutdown) - 2 hours
+MAX_RUNTIME_MINUTES = 120
+# Check interval for connection monitoring in seconds (ping interval)
+CONNECTION_CHECK_INTERVAL = 10
+# Delay before shutdown when no connections detected (minutes) - 20 minutes
+NO_CONNECTION_SHUTDOWN_DELAY = 20
