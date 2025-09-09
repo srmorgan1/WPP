@@ -3,8 +3,13 @@
 
 [DIRECTORIES]
 # Root directories for different operating systems
-WPP_ROOT_DIR_POSIX = "/Users/steve/Work/WPP"
+WPP_ROOT_DIR_POSIX = "/Users/steve/Documents/Work/WPP/WPP-DATA"
 WPP_ROOT_DIR_WINDOWS = "\\\\SBS\\public\\qube\\iSite\\AutoBOSShelleyAngeAndSandra"
+
+# Optional: Override specific directory paths (uncomment and modify as needed)
+# If these are not set, directories will be derived from WPP_ROOT_DIR as before
+# WPP_INPUT_DIR = "/custom/path/to/inputs"
+# WPP_STATIC_INPUT_DIR = "/custom/path/to/static/inputs"
 
 [INPUTS]
 # Input file patterns and names
@@ -60,3 +65,17 @@ MAX_RUNTIME_MINUTES = 120
 CONNECTION_CHECK_INTERVAL = 10
 # Delay before shutdown when no connections detected (minutes) - 20 minutes
 NO_CONNECTION_SHUTDOWN_DELAY = 20
+# User interaction timeout in minutes (no API activity) - 60 minutes  
+USER_INTERACTION_TIMEOUT = 60
+# Use in-memory SQLite database for web app (data lost on restart)
+WPP_WEB_APP_USE_MEMORY_DB = true
+
+# Network security settings
+# Enable network restrictions (only allow local network connections)
+ENABLE_NETWORK_RESTRICTIONS = true
+# Allowed IP networks (CIDR notation) - localhost and local network
+ALLOWED_NETWORKS = ["127.0.0.1/32", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
+# Server bind address (0.0.0.0 for all interfaces, 127.0.0.1 for localhost only)
+SERVER_BIND_ADDRESS = "0.0.0.0"
+# Server port
+SERVER_PORT = 8000

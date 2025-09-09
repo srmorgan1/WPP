@@ -25,10 +25,18 @@ def get_wpp_data_dir() -> Path:
 
 
 def get_wpp_input_dir() -> Path:
+    """Get the input directory, using override if specified in config."""
+    override_dir = get_wpp_input_dir_override()
+    if override_dir:
+        return override_dir
     return get_wpp_data_dir() / "Inputs"
 
 
 def get_wpp_static_input_dir() -> Path:
+    """Get the static input directory, using override if specified in config."""
+    override_dir = get_wpp_static_input_dir_override()
+    if override_dir:
+        return override_dir
     return get_wpp_data_dir() / "Inputs"  # Assuming static inputs are also in Inputs for now
 
 
@@ -166,6 +174,56 @@ def get_no_connection_shutdown_delay() -> int:
     return config.get("SERVER", {}).get("NO_CONNECTION_SHUTDOWN_DELAY", 20)
 
 
+def get_user_interaction_timeout() -> int:
+    """Get the user interaction timeout in minutes (no API activity)."""
+    config = get_config()
+    return config.get("SERVER", {}).get("USER_INTERACTION_TIMEOUT", 60)
+
+
+def get_web_app_use_memory_db() -> bool:
+    """Get whether the web app should use an in-memory database."""
+    config = get_config()
+    return config.get("SERVER", {}).get("WPP_WEB_APP_USE_MEMORY_DB", False)
+
+
+def get_enable_network_restrictions() -> bool:
+    """Get whether network restrictions are enabled."""
+    config = get_config()
+    return config.get("SERVER", {}).get("ENABLE_NETWORK_RESTRICTIONS", True)
+
+
+def get_allowed_networks() -> list[str]:
+    """Get the list of allowed IP networks in CIDR notation."""
+    config = get_config()
+    return config.get("SERVER", {}).get("ALLOWED_NETWORKS", ["127.0.0.1/32", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"])
+
+
+def get_server_bind_address() -> str:
+    """Get the server bind address."""
+    config = get_config()
+    return config.get("SERVER", {}).get("SERVER_BIND_ADDRESS", "0.0.0.0")
+
+
+def get_server_port() -> int:
+    """Get the server port."""
+    config = get_config()
+    return config.get("SERVER", {}).get("SERVER_PORT", 8000)
+
+
+def get_wpp_input_dir_override() -> Path | None:
+    """Get the custom input directory path if specified in config."""
+    config = get_config()
+    input_dir = config.get("DIRECTORIES", {}).get("WPP_INPUT_DIR")
+    return Path(input_dir) if input_dir else None
+
+
+def get_wpp_static_input_dir_override() -> Path | None:
+    """Get the custom static input directory path if specified in config."""
+    config = get_config()
+    static_input_dir = config.get("DIRECTORIES", {}).get("WPP_STATIC_INPUT_DIR")
+    return Path(static_input_dir) if static_input_dir else None
+
+
 def _is_running_as_executable() -> bool:
     """Check if running as a PyInstaller executable."""
     return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
@@ -200,7 +258,8 @@ def _get_default_config_path() -> Path:
     if _is_running_as_executable():
         # In PyInstaller executable, use the bundled config location
         import sys
-        base_path = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent
+
+        base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).resolve().parent
         config_path = base_path / "wpp" / "config.toml"
         print(f"DEBUG: Executable mode - looking for config at: {config_path}")
         return config_path
@@ -212,26 +271,52 @@ def _get_default_config_path() -> Path:
 
 
 def _copy_default_config_to_home() -> Path:
-    """Copy the default config.toml to user's home directory as .wpp-config.toml."""
+    """Copy the default config.toml to user's home directory as .wpp-config.toml.
+
+    If an existing config exists but differs from the bundled config, backs it up
+    with install date timestamp before copying the new one. Only updates when
+    configs are actually different.
+    """
     default_config = _get_default_config_path()
     home_config = Path.home() / ".wpp-config.toml"
-    
+
     print(f"DEBUG: Default config path: {default_config}")
     print(f"DEBUG: Default config exists: {default_config.exists()}")
     print(f"DEBUG: Home config path: {home_config}")
     print(f"DEBUG: Home config exists: {home_config.exists()}")
 
-    if default_config.exists() and not home_config.exists():
-        try:
+    if not default_config.exists():
+        print(f"DEBUG: Default config file not found at: {default_config}")
+        return home_config
+
+    try:
+        # If home config doesn't exist, just copy it
+        if not home_config.exists():
             shutil.copy2(default_config, home_config)
-            print(f"Configuration file copied to: {home_config}")
-        except Exception as e:
-            print(f"Warning: Could not copy config file to home directory: {e}")
-    else:
-        if not default_config.exists():
-            print(f"DEBUG: Default config file not found at: {default_config}")
-        if home_config.exists():
-            print(f"DEBUG: Home config already exists at: {home_config}")
+            print(f"✅ Configuration file copied to: {home_config}")
+            return home_config
+
+        # Both configs exist - check if they're different
+        default_content = default_config.read_text(encoding="utf-8")
+        home_content = home_config.read_text(encoding="utf-8")
+
+        if default_content != home_content:
+            # Configs are different - backup old one and copy new one
+            timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_config = Path.home() / f".wpp-config_{timestamp}.toml"
+
+            # Create backup of existing config
+            shutil.copy2(home_config, backup_config)
+            print(f"📋 Existing config backed up to: {backup_config}")
+
+            # Copy new config
+            shutil.copy2(default_config, home_config)
+            print(f"✅ Configuration file updated: {home_config}")
+        else:
+            print(f"ℹ️  Configuration file is already up to date: {home_config}")
+
+    except Exception as e:
+        print(f"Warning: Could not copy config file to home directory: {e}")
 
     return home_config
 
@@ -277,8 +362,8 @@ def get_config(file_path: str | None = None) -> dict:
                 config_file_path = location
                 break
 
-        # If running as executable and no home config exists, copy default to home
-        if _is_running_as_executable() and not home_config.exists() and default_config.exists():
+        # If running as executable, ensure home config is up to date
+        if _is_running_as_executable() and default_config.exists():
             home_config = _copy_default_config_to_home()
             if home_config.exists():
                 config_file_path = home_config

@@ -21,15 +21,14 @@ from fastapi.staticfiles import StaticFiles
 
 # Add src to Python path for imports
 if hasattr(sys, "_MEIPASS"):
-    # Running in PyInstaller bundle
+    # Running in PyInstaller bundle - path should already be set by runtime hook
     bundle_dir = Path(sys._MEIPASS)
     src_dir = bundle_dir
 else:
     # Running in development
     bundle_dir = Path(__file__).parent.parent.parent.parent.parent
     src_dir = bundle_dir / "src"
-
-sys.path.insert(0, str(src_dir))
+    sys.path.insert(0, str(src_dir))
 
 from wpp.api.models import GenerateReportsRequest, GenerateReportsResponse, ProgressUpdate, SystemStatus, TaskResult, UpdateDatabaseRequest, UpdateDatabaseResponse, WebSocketMessage
 from wpp.api.services import DatabaseService, FileService, ReportsService, SystemService, task_manager
@@ -45,7 +44,7 @@ def get_static_files_dir():
         return Path(__file__).parent.parent.parent.parent.parent / "web" / "build"
 
 
-def create_app():
+def create_app(api_only=False):
     """Create the FastAPI application with both API and static file serving."""
     app = FastAPI(title="WPP Management", description="WPP data management and reporting application", version="2.0.0")
 
@@ -102,12 +101,11 @@ def create_app():
         def _monitor_inactivity(self):
             """Monitor for inactivity and shutdown if timeout exceeded."""
             # Get config values
-            from wpp.config import get_config
+            from wpp.config import get_max_runtime_minutes, get_no_connection_shutdown_delay, get_user_interaction_timeout
 
-            config = get_config()
-            max_runtime_minutes = config.get("SERVER", {}).get("MAX_RUNTIME_MINUTES", 120)  # 2 hours default
-            heartbeat_timeout_minutes = config.get("SERVER", {}).get("NO_CONNECTION_SHUTDOWN_DELAY", 20)  # 20 minutes default for connection loss
-            interaction_timeout_minutes = 60  # 1 hour timeout for user interactions
+            max_runtime_minutes = get_max_runtime_minutes()
+            heartbeat_timeout_minutes = get_no_connection_shutdown_delay()
+            interaction_timeout_minutes = get_user_interaction_timeout()
 
             print(f"📊 Monitoring: max_runtime={max_runtime_minutes}m, heartbeat_timeout={heartbeat_timeout_minutes}m, interaction_timeout={interaction_timeout_minutes}m")
 
@@ -370,9 +368,6 @@ def create_app():
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
 
-        # Start monitoring when first connection is made
-        manager.start_monitoring()
-
         try:
             while True:
                 # Receive messages from client (including heartbeats)
@@ -390,8 +385,12 @@ def create_app():
         except WebSocketDisconnect:
             manager.disconnect(websocket)
 
-    # Serve React static files
-    static_dir = get_static_files_dir()
+    # Serve React static files (unless in API-only mode)
+    if not api_only:
+        static_dir = get_static_files_dir()
+    else:
+        static_dir = Path("/nonexistent")  # Force API-only mode
+
     if static_dir.exists():
         # Mount static files
         app.mount("/static", StaticFiles(directory=static_dir / "static"), name="static")
@@ -474,6 +473,11 @@ def create_app():
             else:
                 return {"error": f"Console debug file not found at {test_file}"}
 
+    # Start monitoring immediately when app is created
+    print("🔍 Starting auto-shutdown monitoring...")
+    manager.start_monitoring()
+    print("✅ Auto-shutdown monitoring active")
+
     return app
 
 
@@ -491,17 +495,38 @@ def open_browser(url: str, delay: float = 2.0):
 
 def main():
     """Main entry point."""
-    print("🚀 Starting WPP Management Web Application...")
+    import sys
 
-    # Check if React build exists
-    static_dir = get_static_files_dir()
-    if static_dir.exists():
-        print(f"✅ React frontend found: {static_dir}")
+    # Check for API-only mode flag
+    api_only_mode = "--api-only" in sys.argv or os.getenv("WPP_API_ONLY", "").lower() == "true"
+
+    if api_only_mode:
+        print("🔧 Starting WPP API Server (API-Only Mode)...")
+        print("   Mode: Pure API (No Web Interface)")
     else:
-        print(f"⚠️  React frontend not found: {static_dir}")
-        print("   API will still work, but no web interface available.")
+        print("🚀 Starting WPP Management Web Application...")
 
-    app = create_app()
+    # Initialize config (triggers copy to home directory if needed)
+    from wpp.config import get_config
+
+    get_config()
+    print("✅ Configuration loaded")
+
+    # Check if React build exists (unless in API-only mode)
+    if api_only_mode:
+        print("🚫 React frontend disabled (API-only mode)")
+        static_dir = Path("/nonexistent")  # Will not exist
+    else:
+        static_dir = get_static_files_dir()
+        if static_dir.exists():
+            print(f"✅ React frontend found: {static_dir}")
+        else:
+            print(f"⚠️  React frontend not found: {static_dir}")
+            print("   API will still work, but no web interface available.")
+
+    app = create_app(api_only=api_only_mode)
+
+    # We'll start monitoring after the app is created
 
     # Set up server configuration
     host = "127.0.0.1"
@@ -510,10 +535,12 @@ def main():
     print(f"🔗 API Server: http://{host}:{port}")
     print(f"📚 API Documentation: http://{host}:{port}/docs")
 
-    if static_dir.exists():
+    if static_dir.exists() and not api_only_mode:
         print(f"🌐 Web Application: http://{host}:{port}")
         # Auto-open browser
         open_browser(f"http://{host}:{port}")
+    elif api_only_mode:
+        print("📡 Mode: API-Only (No Web Interface)")
 
     print("💡 Press Ctrl+C to stop the server")
 

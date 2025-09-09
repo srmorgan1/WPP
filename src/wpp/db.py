@@ -1,12 +1,69 @@
 import logging
 import sqlite3
 import sys
+from abc import abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import pandas as pd
 
-from wpp.config import get_wpp_db_dir
+from .config import get_wpp_db_dir
+
+# ============================================================================
+# Database Provider Pattern
+# ============================================================================
+
+
+class DatabaseProvider(Protocol):
+    """Protocol for database connection providers."""
+
+    @abstractmethod
+    def get_connection(self) -> sqlite3.Connection:
+        """Get database connection."""
+        ...
+
+    @abstractmethod
+    def should_close_connection(self) -> bool:
+        """Whether this provider manages connection lifecycle."""
+        ...
+
+
+class CliDatabaseProvider:
+    """Database provider for CLI applications that manages its own connections."""
+
+    def __init__(self, db_file: Path | str | None = None, logger: logging.Logger | None = None):
+        self.db_file = db_file
+        self.logger = logger or logging.getLogger(__name__)
+        self._connection: sqlite3.Connection | None = None
+
+    def get_connection(self) -> sqlite3.Connection:
+        """Get or create database connection."""
+        if self._connection is None:
+            self._connection = get_or_create_db(self.db_file, self.logger)
+        return self._connection
+
+    def should_close_connection(self) -> bool:
+        """CLI provider manages its own connections."""
+        return True
+
+
+class WebDatabaseProvider:
+    """Database provider for web applications that uses shared in-memory connections."""
+
+    def __init__(self, shared_connection: sqlite3.Connection | None = None):
+        """Initialize with shared connection, creating it if not provided."""
+        if shared_connection is None:
+            shared_connection = get_shared_web_db_connection()
+        self.shared_connection = shared_connection
+
+    def get_connection(self) -> sqlite3.Connection:
+        """Get the shared database connection."""
+        return self.shared_connection
+
+    def should_close_connection(self) -> bool:
+        """Web provider does not manage connection lifecycle."""
+        return False
+
 
 #
 # SQL
@@ -251,14 +308,104 @@ def _create_and_index_tables(db_conn: sqlite3.Connection, logger: logging.Logger
         sys.exit(1)
 
 
-def get_or_create_db(db_file: Path, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
-    init_db = not db_file.exists()
-    get_wpp_db_dir().mkdir(parents=True, exist_ok=True)
-    # Disable deprecated date adapters to prevent Python 3.12+ warnings
-    conn = sqlite3.connect(db_file, detect_types=0)
-    if init_db:
+def _is_running_in_web_app() -> bool:
+    """Detect if we're running in a web app context (FastAPI server)."""
+    import inspect
+    import sys
+
+    # Check if FastAPI is loaded (more reliable than stack inspection)
+    if "fastapi" in sys.modules:
+        return True
+
+    # Check the call stack for FastAPI-related modules
+    for frame_info in inspect.stack():
+        frame = frame_info.frame
+        if "fastapi" in str(frame.f_code.co_filename).lower():
+            return True
+
+        # Check if any of the loaded modules indicate web app context
+        if hasattr(frame, "f_globals") and "fastapi" in frame.f_globals:
+            return True
+
+    # Check if we're being called from the API services
+    current_module = inspect.currentframe()
+    if current_module:
+        caller_frame = current_module.f_back
+        if caller_frame and "api" in str(caller_frame.f_code.co_filename).lower():
+            return True
+
+    return False
+
+
+# Thread-safe singleton for shared web app database connection
+def get_shared_web_db_connection():
+    """Get the shared web app database connection (thread-safe singleton).
+
+    This function ensures that only one in-memory database connection is created
+    for the web app, even when called from multiple threads simultaneously.
+
+    Note: Uses check_same_thread=False to allow cross-thread access, which is safe
+    for our read-heavy workload with careful write coordination.
+    """
+    if not hasattr(get_shared_web_db_connection, "_connection"):
+        logger = logging.getLogger(__name__)
+        logger.info("Initializing shared in-memory SQLite database for web app")
+        # Enable cross-thread access for web app shared connection
+        get_shared_web_db_connection._connection = sqlite3.connect(
+            ":memory:",
+            detect_types=0,
+            check_same_thread=False,  # Allow access from multiple threads
+        )
+        _create_and_index_tables(get_shared_web_db_connection._connection, logger)
+    return get_shared_web_db_connection._connection
+
+
+def get_or_create_db(db_file: Path | str | None = None, logger: logging.Logger = logging.getLogger()) -> sqlite3.Connection:
+    """Get or create database connection.
+
+    Args:
+        db_file: Path to database file, or None to use default, or ":memory:" for in-memory
+        logger: Logger instance
+
+    Returns:
+        SQLite database connection
+    """
+    from wpp.config import get_web_app_use_memory_db, get_wpp_db_file
+
+    # No longer needed - using thread-safe function instead
+
+    # Check if explicit :memory: is requested
+    if db_file == ":memory:":
+        logger.info("Using in-memory SQLite database (explicitly requested)")
+        conn = sqlite3.connect(":memory:", detect_types=0, check_same_thread=False)
+        # Always initialize schema for in-memory database
         _create_and_index_tables(conn, logger)
-    return conn
+        return conn
+
+    # For web apps, check if memory database is configured
+    # Apply web app config when running in web app context, regardless of db_file parameter
+    use_memory = False
+    if _is_running_in_web_app():
+        use_memory = get_web_app_use_memory_db()
+        logger.debug(f"Web app detected, memory database setting: {use_memory}")
+
+    if use_memory:
+        # Use shared in-memory database for web app to ensure consistency
+        return get_shared_web_db_connection()
+    else:
+        # Use file-based database for CLI tools
+        if db_file is None:
+            db_file = get_wpp_db_file()
+
+        init_db = not Path(db_file).exists()
+        get_wpp_db_dir().mkdir(parents=True, exist_ok=True)
+        # Disable deprecated date adapters to prevent Python 3.12+ warnings
+        # For web apps, enable cross-thread access to prevent threading issues
+        check_same_thread = not _is_running_in_web_app()
+        conn = sqlite3.connect(db_file, detect_types=0, check_same_thread=check_same_thread)
+        if init_db:
+            _create_and_index_tables(conn, logger)
+        return conn
 
 
 def get_last_insert_id(db_cursor: sqlite3.Cursor, table_name: str) -> int:
@@ -299,7 +446,9 @@ def get_data(db_cursor: sqlite3.Cursor, sql: str, args_tuple: tuple = ()) -> lis
 
 def get_db_connection(db_file: str | Path) -> sqlite3.Connection:
     # Disable deprecated date adapters to prevent Python 3.12+ warnings
-    conn = sqlite3.connect(db_file, detect_types=0)
+    # For web apps, enable cross-thread access to prevent threading issues
+    check_same_thread = not _is_running_in_web_app()
+    conn = sqlite3.connect(db_file, detect_types=0, check_same_thread=check_same_thread)
     return conn
 
 
@@ -345,3 +494,54 @@ def run_sql_query(
         # traceback.print_tb(ex.__traceback__)
         logger.exception(ex)
         raise
+
+
+def get_unique_date_from_charges(db_conn: sqlite3.Connection, logger: logging.Logger = logging.getLogger()) -> str | None:
+    """Get the single unique date from the charges table at_date column.
+
+    Returns the unique date as a string if exactly one unique date exists,
+    otherwise returns None and logs a warning.
+
+    Args:
+        db_conn: Database connection
+        logger: Logger instance for warnings
+
+    Returns:
+        str | None: The unique date string or None if not exactly one unique date
+    """
+    try:
+        cursor = db_conn.cursor()
+
+        # First check if Charges table exists and has data
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Charges'")
+        if not cursor.fetchone():
+            logger.warning("Charges table does not exist")
+            return None
+
+        # Check total count of records in Charges table
+        cursor.execute("SELECT COUNT(*) FROM Charges")
+        total_count = cursor.fetchone()[0]
+        logger.info(f"Charges table has {total_count} total records")
+
+        # Get all distinct dates
+        cursor.execute("SELECT DISTINCT at_date FROM Charges ORDER BY at_date")
+        unique_dates = cursor.fetchall()
+        logger.info(f"Found {len(unique_dates)} distinct dates in Charges table")
+
+        if len(unique_dates) == 0:
+            logger.warning("No dates found in Charges table")
+            return None
+        elif len(unique_dates) == 1:
+            date_str = unique_dates[0][0]
+            logger.info(f"Found unique date in Charges table: {date_str}")
+            return date_str
+        else:
+            dates_list = [row[0] for row in unique_dates]
+            logger.warning(f"Expected exactly one unique date in Charges table, found {len(unique_dates)}: {dates_list}")
+            # Return the most recent date as fallback
+            most_recent = max(dates_list)
+            logger.info(f"Returning most recent date as fallback: {most_recent}")
+            return most_recent
+    except Exception as e:
+        logger.error(f"Error getting unique date from charges: {e}")
+        return None

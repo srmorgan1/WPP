@@ -1,9 +1,14 @@
+"""
+Backward compatibility module for the old logging interface.
+This module now uses the new WPPLogger interface internally.
+"""
+
 import logging
 import os
 import sys
 from pathlib import Path
 
-from wpp.config import get_wpp_log_dir
+from .config import get_wpp_log_dir
 
 
 #
@@ -33,6 +38,9 @@ def setup_logger(module_name: str, log_file_path: Path, include_timestamp: bool 
         module_name: Name of the module for the logger
         log_file_path: Path where log file will be written
         include_timestamp: Whether to include timestamp in log messages (default: False)
+
+    Returns:
+        logging.Logger: Standard Python logger (for backward compatibility)
     """
     os.makedirs(get_wpp_log_dir(), exist_ok=True)
 

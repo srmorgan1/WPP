@@ -7,12 +7,16 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
-WPP_ROOT=/Users/Steve/Development/PycharmProjects/WPP
+# Get the directory where this script is located (project root)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WPP_ROOT="$SCRIPT_DIR"
 
 pushd .
 cd $WPP_ROOT
-export PYTHONPATH=src
-rm Database/*.db
-uv run src/wpp/UpdateDatabase.py
-uv run src/wpp/RunReports.py --qube_date $1 --bos_date $1
+export PYTHONPATH="$WPP_ROOT/src"
+rm Database/*.db 2>/dev/null || true
+echo "Running UpdateDatabase..."
+uv run python -m wpp.UpdateDatabase
+echo "Running RunReports..."
+uv run python -m wpp.RunReports --qube_date $1 --bos_date $1
 popd

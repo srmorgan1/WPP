@@ -64,13 +64,16 @@ const DataTable = ({ data, maxHeight = '400px' }) => {
     }
   };
 
-  // Excel SVG Icon
+  // Excel SVG Icon - Microsoft Excel style
   const ExcelIcon = () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M2 2h12v12H2V2z" stroke="currentColor" strokeWidth="0.5" fill="none"/>
-      <path d="M2 4h12M2 6h12M2 8h12M2 10h12M2 12h12" stroke="currentColor" strokeWidth="0.5"/>
-      <path d="M4 2v12M6 2v12M8 2v12M10 2v12M12 2v12" stroke="currentColor" strokeWidth="0.5"/>
-      <rect x="1" y="1" width="14" height="2" fill="currentColor" fillOpacity="0.1"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Excel logo background */}
+      <rect x="1" y="1" width="14" height="14" rx="2" fill="#217346"/>
+      {/* Excel "X" with proper proportions */}
+      <path d="M5 5L11 11M11 5L5 11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      {/* Subtle grid lines to suggest spreadsheet */}
+      <path d="M3 7h10M3 9h10" stroke="white" strokeWidth="0.5" opacity="0.6"/>
+      <path d="M7 3v10M9 3v10" stroke="white" strokeWidth="0.5" opacity="0.6"/>
     </svg>
   );
 

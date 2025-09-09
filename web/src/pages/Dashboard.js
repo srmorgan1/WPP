@@ -6,6 +6,10 @@ const Dashboard = () => {
   const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [inputDirValue, setInputDirValue] = useState('');
+  const [staticInputDirValue, setStaticInputDirValue] = useState('');
+  const [updatingInputDir, setUpdatingInputDir] = useState(false);
+  const [updatingStaticInputDir, setUpdatingStaticInputDir] = useState(false);
 
   useEffect(() => {
     loadSystemStatus();
@@ -19,9 +23,12 @@ const Dashboard = () => {
       setError(null);
       const status = await apiService.getSystemStatus();
       setSystemStatus(status);
+      // Set initial values for input fields
+      setInputDirValue(status.input_directory || '');
+      setStaticInputDirValue(status.static_input_directory || '');
     } catch (err) {
       console.error('Error loading system status:', err);
-      
+
       // Provide more specific error messages
       let errorMessage = 'Failed to load system status';
       if (err.code === 'ECONNREFUSED' || err.message.includes('Network Error')) {
@@ -31,10 +38,42 @@ const Dashboard = () => {
       } else {
         errorMessage = err.message || errorMessage;
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateInputDirectory = async () => {
+    if (!inputDirValue.trim()) return;
+
+    setUpdatingInputDir(true);
+    try {
+      await apiService.updateInputDirectory(inputDirValue.trim());
+      // Reload system status to reflect changes
+      await loadSystemStatus();
+    } catch (err) {
+      console.error('Error updating input directory:', err);
+      setError('Failed to update input directory');
+    } finally {
+      setUpdatingInputDir(false);
+    }
+  };
+
+  const handleUpdateStaticInputDirectory = async () => {
+    if (!staticInputDirValue.trim()) return;
+
+    setUpdatingStaticInputDir(true);
+    try {
+      await apiService.updateStaticInputDirectory(staticInputDirValue.trim());
+      // Reload system status to reflect changes
+      await loadSystemStatus();
+    } catch (err) {
+      console.error('Error updating static input directory:', err);
+      setError('Failed to update static input directory');
+    } finally {
+      setUpdatingStaticInputDir(false);
     }
   };
 

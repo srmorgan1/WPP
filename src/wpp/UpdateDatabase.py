@@ -17,11 +17,11 @@ from lxml import etree
 from openpyxl import load_workbook
 
 from .calendars import get_business_day_offset
-from .config import get_config, get_wpp_db_file, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
+from .config import get_config, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .constants import DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_TENANT_NAME_MATCH_LENGTH, MINIMUM_VALID_PROPERTY_REF
 from .data_classes import ChargeData, TransactionReferences
 from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
-from .db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
+from .db import checkTenantExists, get_last_insert_id, get_single_value, getTenantName
 from .exceptions import database_transaction, log_database_error
 from .logger import setup_logger
 from .output_handler import ExcelOutputHandler, OutputHandler
@@ -945,6 +945,7 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
     num_import_errors = 0
     tenant_id = None
     transaction_data = {}
+    csr = None
 
     try:
         csr = db_conn.cursor()
@@ -984,7 +985,11 @@ def importBankOfScotlandTransactionsXMLFile(db_conn: sqlite3.Connection, transac
         return unrecognised_transactions, duplicate_transactions, missing_tenant_transactions
 
     except (db_conn.Error, Exception) as error:
-        _handle_transaction_processing_error(csr, error, transaction_data, tenant_id)
+        if csr is not None:
+            _handle_transaction_processing_error(csr, error, transaction_data, tenant_id)
+        else:
+            logger.error(f"Failed to create database cursor: {error}")
+            logger.error("No Bank Of Scotland transactions have been added to the database.")
         return [], [], []
 
 
@@ -1155,6 +1160,9 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
     # Variables for error handling context
     last_balance_data = {}
     last_at_date = ""
+    csr = None
+
+    csr = None
 
     try:
         csr = db_conn.cursor()
@@ -1177,11 +1185,19 @@ def importBankOfScotlandBalancesXMLFile(db_conn: sqlite3.Connection, balances_xm
         logger.info(f"{num_balances_added_to_db} Bank Of Scotland account balances added to the database.")
 
     except db_conn.Error as err:
-        _log_balance_import_error(err, last_balance_data, last_at_date)
-        csr.execute("rollback")
+        if csr is not None:
+            _log_balance_import_error(err, last_balance_data, last_at_date)
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
+            logger.error("No Bank Of Scotland account balances have been added to the database.")
     except Exception as ex:
-        _log_balance_import_error(ex, last_balance_data, last_at_date)
-        csr.execute("rollback")
+        if csr is not None:
+            _log_balance_import_error(ex, last_balance_data, last_at_date)
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
+            logger.error("No Bank Of Scotland account balances have been added to the database.")
 
 
 def _read_properties_df(properties_xls_file: str) -> pd.DataFrame:
@@ -1309,6 +1325,7 @@ def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, output
 
     num_estates_added_to_db = 0
     num_blocks_added_to_db = 0
+    csr = None
 
     # Import into DB
     try:
@@ -1347,13 +1364,19 @@ def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, output
         logger.error(str(err))
         logger.error("The data which caused the failure is: " + str((reference, estate_name)))
         logger.error("No estates or estate blocks have been added to the database")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
         raise
     except Exception as ex:
         logger.error(str(ex))
         logger.error("The data which caused the failure is: " + str((reference, estate_name)))
         logger.error("No estates or estate blocks have been added to the database.")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
         raise
 
     # Return whether critical validation errors were found
@@ -1362,6 +1385,7 @@ def importEstatesFile(db_conn: sqlite3.Connection, estates_xls_file: str, output
 
 def addPropertyToDB(db_conn: sqlite3.Connection, property_ref: str, rethrow_exception: bool = False) -> int | None:
     property_id = None
+    csr = None
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
@@ -1380,14 +1404,20 @@ def addPropertyToDB(db_conn: sqlite3.Connection, property_ref: str, rethrow_exce
         logger.error(f"The data which caused the failure is: {property_ref}")
         logger.error(f"Unable to add property {property_ref} to the database")
         logger.exception(err)
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
         if rethrow_exception:
             raise
     except Exception as ex:
         logger.error(str(ex))
         logger.exception(ex)
         logger.error(f"Unable to add property {property_ref} to the database")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
         if rethrow_exception:
             raise
     return property_id
@@ -1400,6 +1430,7 @@ def addBlockToDB(
     rethrow_exception: bool = False,
 ) -> int | None:
     block_id = None
+    csr = None
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
@@ -1423,7 +1454,10 @@ def addBlockToDB(
         logger.error("The data which caused the failure is: " + str((property_ref, block_ref)))
         logger.error("Unable to add property or block to the database")
         logger.exception(err)
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
         if rethrow_exception:
             raise
     except Exception as ex:
@@ -1431,7 +1465,10 @@ def addBlockToDB(
         logger.exception(ex)
         logger.error("The data which caused the failure is: " + str((property_ref, block_ref)))
         logger.error("Unable to add property or block to the database")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
         if rethrow_exception:
             raise
     return block_id
@@ -1445,6 +1482,7 @@ def addTenantToDB(
     rethrow_exception: bool = False,
 ) -> int | None:
     tenant_id = None
+    csr = None
     try:
         csr = db_conn.cursor()
         csr.execute("begin")
@@ -1465,7 +1503,10 @@ def addTenantToDB(
         logger.error("The data which caused the failure is: " + str((block_ref, tenant_ref)))
         logger.error("Unable to add tenant to the database")
         logger.exception(err)
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
         if rethrow_exception:
             raise
     except Exception as ex:
@@ -1473,7 +1514,10 @@ def addTenantToDB(
         logger.exception(ex)
         logger.error("The data which caused the failure is: " + str((block_ref, tenant_ref)))
         logger.error("Unable to add tenant to the database")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
         if rethrow_exception:
             raise
     return tenant_id
@@ -1593,6 +1637,7 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, out
             logger.warning(f"Found {len(designation_issues)} Property/Block designation issues - see Excel file for details")
 
     num_bank_accounts_added_to_db = 0
+    csr = None
 
     try:
         csr = db_conn.cursor()
@@ -1657,14 +1702,20 @@ def importBankAccounts(db_conn: sqlite3.Connection, bank_accounts_file: str, out
         logger.error(str(err))
         logger.error("The data which caused the failure is: " + str((reference, sort_code, account_number, account_type, property_or_block)))
         logger.error("No bank accounts have been added to the database")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
         # Database constraint violations indicate critical errors - don't raise, let caller handle
         has_critical_errors = True
     except Exception as ex:
         logger.error(str(ex))
         logger.error("The data which caused the failure is: " + str((reference, sort_code, account_number, account_type, property_or_block)))
         logger.error("No bank accounts have been added to the database.")
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
         # Other exceptions indicate critical errors - don't raise, let caller handle
         has_critical_errors = True
 
@@ -1685,6 +1736,8 @@ def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_
 
     num_anomalous_refs_added_to_db = 0
     tenant_reference = ""
+    payment_reference_pattern = ""
+    csr = None
 
     try:
         csr = db_conn.cursor()
@@ -1713,13 +1766,19 @@ def importIrregularTransactionReferences(db_conn: sqlite3.Connection, anomalous_
         logger.error(str(err))
         logger.error("No irregular transaction reference patterns have been added to the database")
         logger.error("The data which caused the failure is: " + str((tenant_reference, payment_reference_pattern)))
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
         raise
     except Exception as ex:
         logger.error(str(ex))
         logger.error("No irregular transaction reference patterns have been added to the database.")
         logger.error("The data which caused the failure is: " + str((tenant_reference, payment_reference_pattern)))
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
         raise
 
     # General idents validation errors don't stop processing
@@ -1977,13 +2036,19 @@ def importQubeEndOfDayBalancesFile(db_conn: sqlite3.Connection, qube_eod_balance
         logger.error("The data which caused the failure is: " + str((block_ref, fund, category, at_date, auth_creditors, block_id)))
         logger.error("No Qube balances have been added to the database.")
         logger.exception(err)
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {err}")
     except Exception as ex:
         logger.error(str(ex))
         logger.error("The data which caused the failure is: " + str((block_ref, fund, category, at_date, auth_creditors, block_id)))
         logger.error("No Qube balances have been added to the database.")
         logger.exception(ex)
-        csr.execute("rollback")
+        if csr is not None:
+            csr.execute("rollback")
+        else:
+            logger.error(f"Failed to create database cursor: {ex}")
 
     # Return whether critical errors were found (qube import errors are critical)
     return len(qube_import_errors) > 0
@@ -2199,10 +2264,11 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def update_database_core(injected_logger=None, output_handler=None) -> None:
-    """Core database update functionality that can be called from CLI or API.
+def update_database_core(db_provider, injected_logger=None, output_handler=None) -> None:
+    """Core database update functionality that uses a database provider.
 
     Args:
+        db_provider: DatabaseProvider instance to use for database operations
         injected_logger: Logger instance to use. If None, creates default file logger.
         output_handler: OutputHandler instance to use. If None, creates default Excel handler.
     """
@@ -2237,20 +2303,24 @@ def update_database_core(injected_logger=None, output_handler=None) -> None:
 
     logger.info("Beginning Import of data into the database")
 
-    db_conn = get_or_create_db(get_wpp_db_file(), logger)
-    result = importAllData(db_conn, output_handler)
+    # Get database connection from provider
+    db_conn = db_provider.get_connection()
+    importAllData(db_conn, output_handler)
 
     elapsed_time = time.time() - start_time
     time.strftime("%S", time.gmtime(elapsed_time))
 
     logger.info("Import completed")
 
-    print("DEBUG: About to close database connection")
-    # Close database connection
-    db_conn.close()
-    print("DEBUG: Database connection closed")
+    # Close connection only if provider manages lifecycle
+    if db_provider.should_close_connection():
+        print("DEBUG: About to close database connection")
+        db_conn.close()
+        print("DEBUG: Database connection closed")
+    else:
+        print("DEBUG: Database update completed, connection not closed (shared connection)")
 
-    return result
+    return None
 
 
 def main() -> None:
@@ -2260,8 +2330,13 @@ def main() -> None:
     if not args:
         return
 
-    # Call the core function
-    update_database_core()
+    # Create CLI database provider
+    from .db import CliDatabaseProvider
+
+    db_provider = CliDatabaseProvider()
+
+    # Call the core function with provider
+    update_database_core(db_provider)
     logger.info("----------------------------------------------------------------------------------------")
     # input("Press enter to end.")
 
@@ -2283,4 +2358,9 @@ def _handle_database_error(error: Exception, context_data: dict, operation_descr
 
 
 if __name__ == "__main__":
+    # Set up package context for relative imports when running as script
+    import sys
+
+    if not hasattr(sys.modules[__name__], "__package__") or sys.modules[__name__].__package__ is None:
+        sys.modules[__name__].__package__ = "wpp"
     main()

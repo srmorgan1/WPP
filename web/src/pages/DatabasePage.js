@@ -1,39 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, wsService } from '../services/api';
+import { useDatabase } from '../contexts/DatabaseContext';
 import ProgressBar from '../components/ProgressBar';
 import DataTable from '../components/DataTable';
 import LogViewer from '../components/LogViewer';
 
 const DatabasePage = () => {
-  const [isRunning, setIsRunning] = useState(false);
   const [deleteExisting, setDeleteExisting] = useState(true);
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState('');
-  const [status, setStatus] = useState('pending');
-  const [currentTask, setCurrentTask] = useState(null);
-  const [results, setResults] = useState(null);
-  const [issuesData, setIssuesData] = useState(null);
-  const [logContent, setLogContent] = useState(null);
-  const [realtimeLog, setRealtimeLog] = useState([]);
   const logViewerRef = React.useRef(null);
+
+  // Use database context for persistent state
+  const {
+    databaseResults,
+    issuesData,
+    logContent,
+    realtimeLog,
+    isRunning,
+    progress,
+    progressMessage,
+    status,
+    currentTask,
+    clearDatabaseData,
+    updateDatabaseResults,
+    updateIssuesData,
+    updateLogContent,
+    addRealtimeLogEntry,
+    clearRealtimeLog,
+    setIsRunning,
+    setProgress,
+    setProgressMessage,
+    setStatus,
+    setCurrentTask,
+  } = useDatabase();
 
   useEffect(() => {
     // Connect WebSocket for real-time updates
     wsService.connect();
-    
+
     const handleProgress = (message) => {
       if (message.task_id === currentTask) {
         setProgress(message.data.progress || 0);
         setProgressMessage(message.data.message || '');
         setStatus(message.data.status || 'running');
-        
+
         // Accumulate log messages for scrolling display
         if (message.data.message) {
           const timestamp = new Date().toLocaleTimeString();
           const logEntry = `[${timestamp}] ${message.data.message}`;
-          setRealtimeLog(prev => [...prev, logEntry]);
+          addRealtimeLogEntry(logEntry);
         }
-        
+
         if (message.data.status === 'completed') {
           setProgress(100); // Ensure progress shows 100% on completion
           setIsRunning(false);
@@ -46,10 +62,11 @@ const DatabasePage = () => {
     };
 
     wsService.addListener('progress', handleProgress);
-    
+
     return () => {
       wsService.removeListener('progress', handleProgress);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTask]);
 
   // Auto-scroll log viewer to bottom when new messages arrive
@@ -65,10 +82,8 @@ const DatabasePage = () => {
       setProgress(0);
       setProgressMessage('Starting database update...');
       setStatus('running');
-      setResults(null);
-      setIssuesData(null);
-      setLogContent(null);
-      setRealtimeLog([]);
+      clearDatabaseData();
+      clearRealtimeLog();
 
       const response = await apiService.updateDatabase(deleteExisting);
       setCurrentTask(response.task_id);
@@ -83,7 +98,7 @@ const DatabasePage = () => {
   const loadTaskResults = async (taskId) => {
     try {
       const taskResult = await apiService.getTaskStatus(taskId);
-      setResults(taskResult);
+      updateDatabaseResults(taskResult);
 
       // Check for web_sheets data directly in the task result (new system)
       if (taskResult.result_data?.summary?.web_sheets) {
@@ -101,7 +116,7 @@ const DatabasePage = () => {
             is_critical: sheet.is_critical || false
           }))
         };
-        setIssuesData(convertedData);
+        updateIssuesData(convertedData);
       }
 
       // Load files if available (legacy system)
@@ -110,10 +125,10 @@ const DatabasePage = () => {
           try {
             if (fileRef.file_type === 'excel') {
               const issuesData = await apiService.getExcelData(fileRef.filename);
-              setIssuesData(issuesData);
+              updateIssuesData(issuesData);
             } else if (fileRef.file_type === 'log') {
               const logData = await apiService.getLogContent(fileRef.filename);
-              setLogContent(logData.content);
+              updateLogContent(logData.content);
             }
           } catch (error) {
             console.error(`Error loading ${fileRef.file_type} file ${fileRef.filename}:`, error);
@@ -213,7 +228,7 @@ const DatabasePage = () => {
       </div>
 
       {/* Results */}
-      {results && (
+      {databaseResults && (
         <div className="space-y-6">
           {/* Status Summary */}
           <div className="card p-6">
@@ -223,28 +238,28 @@ const DatabasePage = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
-                  {results.status}
+                  {databaseResults.status}
                 </div>
                 <div className="text-sm text-gray-500">Status</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {results.started_at ? new Date(results.started_at).toLocaleTimeString() : 'N/A'}
+                  {databaseResults.started_at ? new Date(databaseResults.started_at).toLocaleTimeString() : 'N/A'}
                 </div>
                 <div className="text-sm text-gray-500">Started</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">
-                  {results.completed_at ? new Date(results.completed_at).toLocaleTimeString() : 'N/A'}
+                  {databaseResults.completed_at ? new Date(databaseResults.completed_at).toLocaleTimeString() : 'N/A'}
                 </div>
                 <div className="text-sm text-gray-500">Completed</div>
               </div>
             </div>
-            
-            {results.error && (
+
+            {databaseResults.error && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
                 <div className="text-red-800 font-medium">Error:</div>
-                <div className="text-red-600">{results.error}</div>
+                <div className="text-red-600">{databaseResults.error}</div>
               </div>
             )}
           </div>

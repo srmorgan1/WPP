@@ -12,9 +12,9 @@ import pandas as pd
 from dateutil import parser
 
 from wpp.calendars import get_business_day_offset
-from wpp.config import get_wpp_db_file, get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
+from wpp.config import get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
 from wpp.data_classes import RunConfiguration
-from wpp.db import get_db_connection, get_single_value, join_sql_queries, run_sql_query, union_sql_queries
+from wpp.db import DatabaseProvider, get_single_value, get_unique_date_from_charges, join_sql_queries, run_sql_query, union_sql_queries
 from wpp.exceptions import safe_pandas_operation
 from wpp.logger import setup_logger
 from wpp.output_handler import ExcelOutputHandler, OutputHandler
@@ -230,10 +230,11 @@ def get_run_date_args(args: argparse.Namespace, config: RunConfiguration) -> tup
     return qube_date, bos_date
 
 
-def run_reports_core(qube_date: dt.date | None = None, bos_date: dt.date | None = None, injected_logger=None, output_handler=None) -> None:
-    """Core report generation functionality that can be called from CLI or API.
+def run_reports_core(db_provider: DatabaseProvider, qube_date: dt.date | None = None, bos_date: dt.date | None = None, injected_logger=None, output_handler=None) -> None:
+    """Core report generation functionality that uses a database provider.
 
     Args:
+        db_provider: DatabaseProvider instance to use for database operations
         qube_date: Date for Qube data
         bos_date: Date for Bank of Scotland data
         injected_logger: Logger instance to use. If None, creates default file logger.
@@ -264,13 +265,26 @@ def run_reports_core(qube_date: dt.date | None = None, bos_date: dt.date | None 
 
     logger.info("Running Reports")
     try:
-        db_conn = get_db_connection(get_wpp_db_file())
+        # Get database connection from provider
+        db_conn = db_provider.get_connection()
         config = RunConfiguration(qube_date, bos_date, business_day_offset=BUSINESS_DAY)
 
         # Use provided dates directly, no command line parsing
         if qube_date is None or bos_date is None:
-            # Use default dates from config if not provided
-            qube_date, bos_date = config.get_dates()
+            # Try to get unique date from charges table first
+            unique_date_str = get_unique_date_from_charges(db_conn, logger)
+            if unique_date_str:
+                # Parse the date string to date objects
+                from dateutil import parser
+
+                unique_date = parser.parse(unique_date_str, dayfirst=False).date()
+                qube_date = unique_date
+                bos_date = unique_date
+                logger.info(f"Using unique date from charges table: {unique_date}")
+            else:
+                # Fall back to config default dates if no unique date found
+                qube_date, bos_date = config.get_dates()
+                logger.info(f"Using default dates from config: QUBE={qube_date}, BOS={bos_date}")
 
         result = runReports(db_conn, qube_date, bos_date, output_handler)
     except Exception as ex:
@@ -282,6 +296,11 @@ def run_reports_core(qube_date: dt.date | None = None, bos_date: dt.date | None 
 
     # logger.info(f"Done in {round(elapsed_time, 1)} seconds.")
     logger.info("----------------------------------------------------------------------------------------")
+
+    # Close connection only if provider manages lifecycle
+    if db_provider.should_close_connection():
+        db_conn.close()
+
     return result
 
 
@@ -296,9 +315,19 @@ def main(qube_date: dt.date | None = None, bos_date: dt.date | None = None) -> N
     if hasattr(args, "bos_date") and args.bos_date:
         bos_date = args.bos_date
 
-    # Call the core function
-    run_reports_core(qube_date, bos_date)
+    # Create CLI database provider
+    from wpp.db import CliDatabaseProvider
+
+    db_provider = CliDatabaseProvider()
+
+    # Call the core function with provider
+    run_reports_core(db_provider, qube_date, bos_date)
 
 
 if __name__ == "__main__":
+    # Set up package context for relative imports when running as script
+    import sys
+
+    if not hasattr(sys.modules[__name__], "__package__") or sys.modules[__name__].__package__ is None:
+        sys.modules[__name__].__package__ = "wpp"
     main()

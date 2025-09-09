@@ -60,27 +60,30 @@ const ReportsPage = () => {
     }
   }, [realtimeLog]);
 
-  // Fetch latest charges date on component mount and when page becomes visible
+  // Fetch latest charges date on component mount
   const fetchChargesDate = async () => {
     try {
+      console.log('🔄 Fetching charges date from API...');
       const response = await apiService.getChargesDate();
-      if (response.charges_date) {
-        setReportDate(response.charges_date);
+      console.log('📡 API Response:', response);
+      if (response.date) {
+        console.log('✅ Setting report date to:', response.date);
+        setReportDate(response.date);
+      } else {
+        console.log('⚠️ No date found in response, keeping current date');
       }
       // If no charges date (database not updated yet), keep today's date as fallback
     } catch (error) {
-      console.error('Error fetching charges date:', error);
+      console.error('❌ Error fetching charges date:', error);
       // Keep today's date as fallback if API call fails
     }
   };
 
+  // Combined hook: fetch charges date on mount and when navigating to reports page
   useEffect(() => {
-    fetchChargesDate();
-  }, []);
-
-  // Refresh charges date when navigating to this page (after switching from other pages)
-  useEffect(() => {
+    console.log('📍 Location changed to:', location.pathname);
     if (location.pathname === '/reports') {
+      console.log('🎯 On reports page, fetching charges date...');
       fetchChargesDate();
     }
   }, [location.pathname]);

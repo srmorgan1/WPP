@@ -54,7 +54,7 @@ class UpdateDatabaseResponse(BaseModel):
 class GenerateReportsRequest(BaseModel):
     """Request model for report generation."""
 
-    report_date: date = Field(description="Date for report generation")
+    report_date: date | None = Field(default=None, description="Date for report generation (optional, defaults to unique date from charges table)")
 
 
 class GenerateReportsResponse(BaseModel):
@@ -101,6 +101,10 @@ class SystemStatus(BaseModel):
     database_exists: bool
     data_directory: str
     data_directory_exists: bool
+    input_directory: str
+    input_directory_exists: bool
+    static_input_directory: str
+    static_input_directory_exists: bool
     running_tasks: list[str] = Field(default_factory=list)
     uptime: float
 
@@ -131,6 +135,20 @@ class TaskResult(BaseModel):
     result_data: TaskResultData | None = None
     error: str | None = None
     logs: list[LogEntry] = Field(default_factory=list)
+
+
+class UpdateDirectoryRequest(BaseModel):
+    """Request model for updating directory paths."""
+
+    directory_path: str = Field(description="New directory path")
+
+
+class UpdateDirectoryResponse(BaseModel):
+    """Response model for updating directory paths."""
+
+    success: bool
+    message: str
+    directory_type: str  # "input" or "static_input"
 
 
 class WebSocketMessage(BaseModel):

@@ -8,7 +8,6 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 
 def check_pyinstaller():
@@ -32,7 +31,7 @@ def clean_build_dirs():
                 shutil.rmtree(dir_name)
             except PermissionError as e:
                 print(f"Warning: Could not clean {dir_name} - {e}")
-                print(f"   This is usually safe to ignore - PyInstaller will overwrite files")
+                print("   This is usually safe to ignore - PyInstaller will overwrite files")
                 continue
 
 
@@ -59,7 +58,7 @@ a = Analysis(
         'fastapi',
         'uvicorn',
         'uvicorn.lifespan.on',
-        'uvicorn.lifespan.off', 
+        'uvicorn.lifespan.off',
         'uvicorn.protocols.websockets.auto',
         'uvicorn.protocols.http.auto',
         'uvicorn.logging',
@@ -95,7 +94,7 @@ a = Analysis(
         'tkinter',
         'PyQt5',
         'PyQt6',
-        'PySide2', 
+        'PySide2',
         'PySide6',
         'pytest',
         'pygments',
@@ -176,18 +175,18 @@ def main():
 
     # Check if React frontend was already built by PowerShell script
     react_already_built = os.environ.get("REACT_BUILD_DONE") == "true"
-    
+
     if not react_already_built:
         print("React frontend not pre-built. Run the PowerShell script first.")
         sys.exit(1)
-        
+
     print("React frontend already built by PowerShell script")
 
     # Build Python executable
     if not check_pyinstaller():
         print("PyInstaller not available - ensure it's in pyproject.toml dependencies")
         sys.exit(1)
-    
+
     clean_build_dirs()
     create_fast_web_spec()
     build_executable()
