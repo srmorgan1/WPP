@@ -21,8 +21,8 @@ echo   - Mobile-friendly responsive design
 echo   - No installation required on target machines
 echo.
 
-if not exist "web_build_simple.ps1" (
-    echo ERROR: web_build_simple.ps1 not found!
+if not exist "build_and_deploy_simple.ps1" (
+    echo ERROR: build_and_deploy_simple.ps1 not found!
     pause
     exit /b 1
 )
@@ -30,7 +30,7 @@ if not exist "web_build_simple.ps1" (
 echo Starting quick web application build (skipping tests)...
 echo.
 
-powershell.exe -ExecutionPolicy RemoteSigned -File "web_build_simple.ps1" -SkipTests
+powershell.exe -ExecutionPolicy RemoteSigned -File "build_and_deploy_simple.ps1" -SkipTests
 
 if %errorlevel% equ 0 (
     echo.

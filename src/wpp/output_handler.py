@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from wpp.excel import format_all_excel_sheets_comprehensive
+from .excel import format_all_excel_sheets_comprehensive
 
 if TYPE_CHECKING:
     from wpp.api.models import TaskResultData

@@ -8,8 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from wpp.config import get_wpp_log_dir
-from wpp.logger_interface import setup_file_logger
+from .config import get_wpp_log_dir
 
 
 #

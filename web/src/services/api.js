@@ -5,10 +5,53 @@ const API_BASE_URL = 'http://localhost:8000';
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 10000, // 10 second timeout
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Connection status callbacks
+let connectionStatusCallbacks = [];
+
+// Add interceptor to handle connection errors
+api.interceptors.response.use(
+  (response) => {
+    // Successful response - server is reachable
+    notifyConnectionStatus(true);
+    return response;
+  },
+  (error) => {
+    // Check if it's a connection error
+    if (error.code === 'ECONNREFUSED' || 
+        error.code === 'ERR_NETWORK' || 
+        error.message === 'Network Error' ||
+        !error.response) {
+      // Server is unreachable
+      notifyConnectionStatus(false, error);
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Helper function to notify connection status
+function notifyConnectionStatus(isConnected, error = null) {
+  connectionStatusCallbacks.forEach(callback => {
+    try {
+      callback(isConnected, error);
+    } catch (err) {
+      console.error('Error in connection status callback:', err);
+    }
+  });
+}
+
+// Export function to register connection status callbacks
+export const onConnectionStatusChange = (callback) => {
+  connectionStatusCallbacks.push(callback);
+  return () => {
+    connectionStatusCallbacks = connectionStatusCallbacks.filter(cb => cb !== callback);
+  };
+};
 
 // API service functions
 export const apiService = {
@@ -19,7 +62,7 @@ export const apiService = {
   },
 
   async getChargesDate() {
-    const response = await api.get('/api/database/unique-charges-date');
+    const response = await api.get('/api/system/charges-date');
     return response.data;
   },
 
@@ -93,6 +136,9 @@ export class WebSocketService {
           this.reconnectInterval = null;
         }
         
+        // Notify that server is reachable via WebSocket
+        notifyConnectionStatus(true);
+        
         // Start heartbeat when connection is established
         this.startHeartbeat();
       };
@@ -109,11 +155,14 @@ export class WebSocketService {
       this.ws.onclose = () => {
         console.log('WebSocket disconnected');
         this.stopHeartbeat();
+        // Don't immediately notify connection failure - it might just be WebSocket specific
         this.scheduleReconnect();
       };
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        // WebSocket error might indicate server is down
+        notifyConnectionStatus(false, error);
       };
     } catch (error) {
       console.error('Error connecting to WebSocket:', error);

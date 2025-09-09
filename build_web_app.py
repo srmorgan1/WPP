@@ -80,12 +80,19 @@ def clean_build_dirs():
                 shutil.rmtree(dir_name)
             except PermissionError as e:
                 print(f"⚠️  Warning: Could not clean {dir_name} - {e}")
-                print(f"   This is usually safe to ignore - PyInstaller will overwrite files")
+                print("   This is usually safe to ignore - PyInstaller will overwrite files")
                 continue
 
 
 def create_web_app_spec():
-    """Create PyInstaller spec file for the web application."""
+    """Create PyInstaller spec file for the web application if it doesn't exist."""
+    spec_file = "wpp_web.spec"
+
+    if os.path.exists(spec_file):
+        print(f"ℹ️ Using existing PyInstaller spec file: {spec_file}")
+        return
+
+    print(f"✅ Creating new PyInstaller spec file: {spec_file}")
     spec_content = """# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -116,15 +123,35 @@ a = Analysis(
         'websockets.client',
         'pydantic',
         # Core WPP modules
+        'wpp',
         'wpp.api',
         'wpp.api.main',
-        'wpp.api.models', 
+        'wpp.api.models',
         'wpp.api.services',
         'wpp.ui',
         'wpp.ui.react',
         'wpp.ui.react.web_app',
         'wpp.config',
         'wpp.logger',
+        'wpp.logger_interface',
+        'wpp.calendars',
+        'wpp.db',
+        'wpp.data_classes',
+        'wpp.exceptions',
+        'wpp.output_handler',
+        'wpp.ref_matcher',
+        'wpp.utils',
+        'wpp.RunReports',
+        'wpp.UpdateDatabase',
+        'wpp.network_security',
+        'wpp.constants',
+        'wpp.sql_queries',
+        'wpp.web_logger',
+        # Additional pandas/data processing modules
+        'pandas',
+        'openpyxl',
+        'numpy',
+        'dateutils',
     ],
     excludes=[
         # Exclude heavy packages not needed for web app
@@ -135,13 +162,13 @@ a = Analysis(
         'notebook',
         'tkinter',
         'PyQt5',
-        'PyQt6', 
+        'PyQt6',
         'PySide2',
         'PySide6',
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_wpp_package.py'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -186,14 +213,22 @@ run_reports_a = Analysis(
         'openpyxl',
         'numpy',
         'dateutils',
+        'wpp',
         'wpp.calendars',
         'wpp.config',
         'wpp.db',
         'wpp.logger',
+        'wpp.logger_interface',
         'wpp.ref_matcher',
         'wpp.utils',
         'wpp.api',
         'wpp.ui',
+        'wpp.data_classes',
+        'wpp.exceptions',
+        'wpp.output_handler',
+        'wpp.constants',
+        'wpp.sql_queries',
+        'wpp.network_security',
     ],
     hookspath=[],
     hooksconfig={},
@@ -241,14 +276,22 @@ update_db_a = Analysis(
         'openpyxl',
         'numpy',
         'dateutils',
+        'wpp',
         'wpp.calendars',
         'wpp.config',
         'wpp.db',
         'wpp.logger',
+        'wpp.logger_interface',
         'wpp.ref_matcher',
         'wpp.utils',
         'wpp.api',
         'wpp.ui',
+        'wpp.data_classes',
+        'wpp.exceptions',
+        'wpp.output_handler',
+        'wpp.constants',
+        'wpp.sql_queries',
+        'wpp.network_security',
     ],
     hookspath=[],
     hooksconfig={},
@@ -301,9 +344,8 @@ coll = COLLECT(
 )
 """
 
-    with open("wpp_web.spec", "w") as f:
+    with open(spec_file, "w") as f:
         f.write(spec_content)
-    print("✅ Created PyInstaller spec file: wpp_web.spec")
 
 
 def build_executable():
@@ -337,7 +379,7 @@ def main():
     # Check if React frontend was already built by PowerShell script
     react_already_built = os.environ.get("REACT_BUILD_DONE") == "true"
     skip_npm = os.environ.get("SKIP_NPM_INSTALL") == "true"
-    
+
     if react_already_built and skip_npm:
         print("✅ React frontend already built by PowerShell script - skipping npm operations")
         # Verify the React build directory exists
@@ -371,7 +413,7 @@ def main():
     if not check_pyinstaller():
         print("❌ PyInstaller not available - ensure it's in pyproject.toml dependencies")
         sys.exit(1)
-    
+
     clean_build_dirs()
     create_web_app_spec()
     build_executable()

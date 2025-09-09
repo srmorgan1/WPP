@@ -67,6 +67,36 @@ try {
         }
     }
 
+    # Install Make for Windows
+    Write-Host ""
+    Write-Host "Checking Make..." -ForegroundColor Yellow
+    if ((Get-Command "make" -ErrorAction SilentlyContinue) -and (-not $Force)) {
+        $makeVersion = make --version | Select-Object -First 1
+        Write-Host "Make already installed: $makeVersion" -ForegroundColor Green
+    } else {
+        Write-Host "Installing Make for Windows..." -ForegroundColor Yellow
+        try {
+            # Try installing GNU Make via winget (GnuWin32 package)
+            winget install --id GnuWin32.Make --exact --silent --accept-package-agreements --accept-source-agreements
+            
+            # Refresh PATH for current session
+            $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+            $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+            $env:PATH = $machinePath + ";" + $userPath
+            
+            # Check if make is now available
+            if (Get-Command "make" -ErrorAction SilentlyContinue) {
+                Write-Host "Make installed successfully" -ForegroundColor Green
+            } else {
+                Write-Host "Make installation attempted but command not found - continuing anyway" -ForegroundColor Yellow
+                Write-Host "Note: You may need to restart your terminal or manually add Make to PATH" -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "Warning: Failed to install Make automatically: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "You can install Make manually or use the PowerShell build scripts instead" -ForegroundColor Yellow
+        }
+    }
+
     # Verify installations
     Write-Host ""
     Write-Host "Verifying installations..." -ForegroundColor Yellow

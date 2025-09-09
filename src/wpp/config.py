@@ -174,6 +174,12 @@ def get_no_connection_shutdown_delay() -> int:
     return config.get("SERVER", {}).get("NO_CONNECTION_SHUTDOWN_DELAY", 20)
 
 
+def get_user_interaction_timeout() -> int:
+    """Get the user interaction timeout in minutes (no API activity)."""
+    config = get_config()
+    return config.get("SERVER", {}).get("USER_INTERACTION_TIMEOUT", 60)
+
+
 def get_web_app_use_memory_db() -> bool:
     """Get whether the web app should use an in-memory database."""
     config = get_config()
@@ -252,7 +258,8 @@ def _get_default_config_path() -> Path:
     if _is_running_as_executable():
         # In PyInstaller executable, use the bundled config location
         import sys
-        base_path = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent
+
+        base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).resolve().parent
         config_path = base_path / "wpp" / "config.toml"
         print(f"DEBUG: Executable mode - looking for config at: {config_path}")
         return config_path
@@ -264,26 +271,52 @@ def _get_default_config_path() -> Path:
 
 
 def _copy_default_config_to_home() -> Path:
-    """Copy the default config.toml to user's home directory as .wpp-config.toml."""
+    """Copy the default config.toml to user's home directory as .wpp-config.toml.
+
+    If an existing config exists but differs from the bundled config, backs it up
+    with install date timestamp before copying the new one. Only updates when
+    configs are actually different.
+    """
     default_config = _get_default_config_path()
     home_config = Path.home() / ".wpp-config.toml"
-    
+
     print(f"DEBUG: Default config path: {default_config}")
     print(f"DEBUG: Default config exists: {default_config.exists()}")
     print(f"DEBUG: Home config path: {home_config}")
     print(f"DEBUG: Home config exists: {home_config.exists()}")
 
-    if default_config.exists() and not home_config.exists():
-        try:
+    if not default_config.exists():
+        print(f"DEBUG: Default config file not found at: {default_config}")
+        return home_config
+
+    try:
+        # If home config doesn't exist, just copy it
+        if not home_config.exists():
             shutil.copy2(default_config, home_config)
-            print(f"Configuration file copied to: {home_config}")
-        except Exception as e:
-            print(f"Warning: Could not copy config file to home directory: {e}")
-    else:
-        if not default_config.exists():
-            print(f"DEBUG: Default config file not found at: {default_config}")
-        if home_config.exists():
-            print(f"DEBUG: Home config already exists at: {home_config}")
+            print(f"✅ Configuration file copied to: {home_config}")
+            return home_config
+
+        # Both configs exist - check if they're different
+        default_content = default_config.read_text(encoding="utf-8")
+        home_content = home_config.read_text(encoding="utf-8")
+
+        if default_content != home_content:
+            # Configs are different - backup old one and copy new one
+            timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_config = Path.home() / f".wpp-config_{timestamp}.toml"
+
+            # Create backup of existing config
+            shutil.copy2(home_config, backup_config)
+            print(f"📋 Existing config backed up to: {backup_config}")
+
+            # Copy new config
+            shutil.copy2(default_config, home_config)
+            print(f"✅ Configuration file updated: {home_config}")
+        else:
+            print(f"ℹ️  Configuration file is already up to date: {home_config}")
+
+    except Exception as e:
+        print(f"Warning: Could not copy config file to home directory: {e}")
 
     return home_config
 
@@ -329,8 +362,8 @@ def get_config(file_path: str | None = None) -> dict:
                 config_file_path = location
                 break
 
-        # If running as executable and no home config exists, copy default to home
-        if _is_running_as_executable() and not home_config.exists() and default_config.exists():
+        # If running as executable, ensure home config is up to date
+        if _is_running_as_executable() and default_config.exists():
             home_config = _copy_default_config_to_home()
             if home_config.exists():
                 config_file_path = home_config

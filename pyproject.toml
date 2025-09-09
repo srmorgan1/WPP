@@ -24,6 +24,7 @@ dependencies = [
 [project.scripts]
 update_database = "wpp.UpdateDatabase:main"
 run_reports = "wpp.RunReports:main"
+web_app = "wpp.ui.react.web_app:main"
 
 [dependency-groups]
 dev = [
@@ -38,6 +39,7 @@ dev = [
     "types-python-dateutil>=2.9.0.20241206",
     "types-toml>=0.10.8.20240310",
 ]
+
 
 [tool.ruff]
 target-version = "py313"

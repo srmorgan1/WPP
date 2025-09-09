@@ -223,6 +223,7 @@ class WebSocketLogHandler(logging.Handler):
                 msg = self.format(record)
                 # Schedule the async callback in the event loop
                 import asyncio
+
                 if asyncio.get_event_loop().is_running():
                     asyncio.create_task(self.websocket_callback(msg))
             except Exception:

@@ -64,19 +64,16 @@ const DataTable = ({ data, maxHeight = '400px' }) => {
     }
   };
 
-  // Excel SVG Icon
+  // Excel SVG Icon - Microsoft Excel style
   const ExcelIcon = () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/>
-      <rect x="3" y="3" width="10" height="2" fill="currentColor" opacity="0.3"/>
-      <line x1="3" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="3" y1="9" x2="13" y2="9" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="3" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="3" y1="13" x2="13" y2="13" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="5" y1="6" x2="5" y2="14" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="7" y1="6" x2="7" y2="14" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="9" y1="6" x2="9" y2="14" stroke="currentColor" strokeWidth="0.5"/>
-      <line x1="11" y1="6" x2="11" y2="14" stroke="currentColor" strokeWidth="0.5"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Excel logo background */}
+      <rect x="1" y="1" width="14" height="14" rx="2" fill="#217346"/>
+      {/* Excel "X" with proper proportions */}
+      <path d="M5 5L11 11M11 5L5 11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      {/* Subtle grid lines to suggest spreadsheet */}
+      <path d="M3 7h10M3 9h10" stroke="white" strokeWidth="0.5" opacity="0.6"/>
+      <path d="M7 3v10M9 3v10" stroke="white" strokeWidth="0.5" opacity="0.6"/>
     </svg>
   );
 

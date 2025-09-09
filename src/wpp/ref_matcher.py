@@ -780,8 +780,6 @@ class PropertyBlockTenantRefMatcher:
     def export_collected_data(self, output_handler):
         """Export collected ref_matcher data to the provided output handler."""
         if hasattr(self, "collected_matches") and self.collected_matches:
-            import pandas as pd
-
             # Convert collected data to DataFrame
             data_rows = []
             for match in self.collected_matches:

@@ -65,6 +65,8 @@ MAX_RUNTIME_MINUTES = 120
 CONNECTION_CHECK_INTERVAL = 10
 # Delay before shutdown when no connections detected (minutes) - 20 minutes
 NO_CONNECTION_SHUTDOWN_DELAY = 20
+# User interaction timeout in minutes (no API activity) - 60 minutes  
+USER_INTERACTION_TIMEOUT = 60
 # Use in-memory SQLite database for web app (data lost on restart)
 WPP_WEB_APP_USE_MEMORY_DB = true
 

@@ -7,7 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from wpp.network_security import get_client_ip_from_request, log_security_event, validate_client_ip
 
-from .models import GenerateReportsRequest, GenerateReportsResponse, ProgressUpdate, SystemStatus, TaskResult, UpdateDatabaseRequest, UpdateDatabaseResponse, UpdateDirectoryRequest, UpdateDirectoryResponse, WebSocketMessage
+from .models import (
+    GenerateReportsRequest,
+    GenerateReportsResponse,
+    ProgressUpdate,
+    SystemStatus,
+    TaskResult,
+    UpdateDatabaseRequest,
+    UpdateDatabaseResponse,
+    UpdateDirectoryRequest,
+    UpdateDirectoryResponse,
+    WebSocketMessage,
+)
 from .services import DatabaseService, FileService, ReportsService, SystemService, task_manager
 
 app = FastAPI(title="WPP Management API", description="API for WPP data management and reporting", version="1.0.0")
@@ -30,11 +41,7 @@ async def network_security_middleware(request: Request, call_next):
 
     if not validate_client_ip(client_ip):
         log_security_event("access_denied", client_ip, f"Blocked request to {request.url.path}")
-        return Response(
-            content='{"detail": "Access denied: IP address not in allowed networks"}',
-            status_code=403,
-            media_type="application/json"
-        )
+        return Response(content='{"detail": "Access denied: IP address not in allowed networks"}', status_code=403, media_type="application/json")
 
     log_security_event("access_allowed", client_ip, f"Allowed request to {request.url.path}")
     response = await call_next(request)
@@ -178,11 +185,7 @@ async def update_input_directory(request: UpdateDirectoryRequest):
     try:
         success = await SystemService.update_input_directory(request.directory_path)
         if success:
-            return UpdateDirectoryResponse(
-                success=True,
-                message=f"Input directory updated to: {request.directory_path}",
-                directory_type="input"
-            )
+            return UpdateDirectoryResponse(success=True, message=f"Input directory updated to: {request.directory_path}", directory_type="input")
         else:
             raise HTTPException(status_code=500, detail="Failed to update input directory")
     except Exception as e:
@@ -195,11 +198,7 @@ async def update_static_input_directory(request: UpdateDirectoryRequest):
     try:
         success = await SystemService.update_static_input_directory(request.directory_path)
         if success:
-            return UpdateDirectoryResponse(
-                success=True,
-                message=f"Static input directory updated to: {request.directory_path}",
-                directory_type="static_input"
-            )
+            return UpdateDirectoryResponse(success=True, message=f"Static input directory updated to: {request.directory_path}", directory_type="static_input")
         else:
             raise HTTPException(status_code=500, detail="Failed to update static input directory")
     except Exception as e:
@@ -209,21 +208,102 @@ async def update_static_input_directory(request: UpdateDirectoryRequest):
 @app.get("/api/database/unique-charges-date")
 async def get_unique_charges_date():
     """Get the unique date from the charges table for auto-populating the reports date picker."""
-    from wpp.db import get_or_create_db, get_unique_date_from_charges
     import logging
 
+    from wpp.db import get_unique_date_from_charges
+
+    logger = logging.getLogger(__name__)
+    logger.info("API endpoint called: get_unique_charges_date")
+
     try:
-        db_conn = get_or_create_db()  # This will use memory DB if configured
-        logger = logging.getLogger(__name__)
+        # Web app uses only in-memory database - cannot access CLI file database
+        logger.info("Getting database connection from web provider...")
+        from wpp.db import WebDatabaseProvider
+
+        db_provider = WebDatabaseProvider()
+        db_conn = db_provider.get_connection()
+        logger.info("Database connection obtained")
+
         unique_date = get_unique_date_from_charges(db_conn, logger)
-        db_conn.close()
+
+        # Close connection only if provider manages lifecycle
+        if db_provider.should_close_connection():
+            db_conn.close()
+        logger.info(f"Database query completed, unique_date: {unique_date}")
 
         if unique_date:
+            logger.info(f"Returning charges date: {unique_date}")
             return {"date": unique_date}
         else:
-            raise HTTPException(status_code=404, detail="No unique date found in charges table")
+            # Return today's date as fallback (expected for empty in-memory DB)
+            from datetime import datetime
+
+            today = datetime.now().date().isoformat()
+            logger.info(f"No charges date found in web DB (expected), using today: {today}")
+            return {"date": today}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting unique charges date: {str(e)}")
+        # Return today's date as fallback instead of error
+        from datetime import datetime
+
+        today = datetime.now().date().isoformat()
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error getting unique charges date, using today: {today} - {str(e)}")
+        return {"date": today}
+
+
+@app.get("/api/database/debug-charges")
+async def debug_charges_table():
+    """Debug endpoint to see what's in the charges table."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Web app uses only in-memory database
+        from wpp.db import WebDatabaseProvider
+
+        db_provider = WebDatabaseProvider()
+        db_conn = db_provider.get_connection()
+        cursor = db_conn.cursor()
+
+        # Check if table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Charges'")
+        table_exists = cursor.fetchone()
+
+        if not table_exists:
+            if db_provider.should_close_connection():
+                db_conn.close()
+            return {"error": "Charges table does not exist in web database"}
+
+        # Get table info
+        cursor.execute("PRAGMA table_info(Charges)")
+        columns = cursor.fetchall()
+
+        # Get sample data
+        cursor.execute("SELECT COUNT(*) FROM Charges")
+        total_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT DISTINCT at_date FROM Charges ORDER BY at_date LIMIT 10")
+        sample_dates = cursor.fetchall()
+
+        cursor.execute("SELECT at_date, COUNT(*) as count FROM Charges GROUP BY at_date ORDER BY at_date")
+        date_counts = cursor.fetchall()
+
+        # Close connection only if provider manages lifecycle
+        if db_provider.should_close_connection():
+            db_conn.close()
+
+        return {
+            "table_exists": True,
+            "total_records": total_count,
+            "columns": [col[1] for col in columns],  # column names
+            "sample_dates": [row[0] for row in sample_dates],
+            "date_counts": [{"date": row[0], "count": row[1]} for row in date_counts],
+        }
+
+    except Exception as e:
+        logger.error(f"Error debugging charges table: {e}")
+        return {"error": str(e)}
 
 
 @app.websocket("/ws")
@@ -234,8 +314,11 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Keep connection alive and handle any client messages
             data = await websocket.receive_text()
-            # Echo back for now - could handle commands here
-            await manager.send_personal_message(f"Message received: {data}", websocket)
+            # Echo back as JSON - frontend expects JSON format
+            import json
+
+            response = {"type": "echo", "message": f"Message received: {data}", "timestamp": datetime.now().isoformat()}
+            await websocket.send_text(json.dumps(response))
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 

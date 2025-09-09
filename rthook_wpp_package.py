@@ -4,15 +4,14 @@ PyInstaller runtime hook for WPP package.
 This ensures proper package context for relative imports in bundled executables.
 """
 
-import sys
 import os
-from pathlib import Path
+import sys
 
 # When PyInstaller creates the executable, it sets up a temporary directory
 # We need to ensure the wpp package can be properly imported with relative imports
 
 # Get the directory where the executable is running from
-if hasattr(sys, '_MEIPASS'):
+if hasattr(sys, "_MEIPASS"):
     # PyInstaller creates a temp folder and stores path in _MEIPASS
     bundle_dir = sys._MEIPASS
 else:
@@ -23,27 +22,45 @@ if bundle_dir not in sys.path:
     sys.path.insert(0, bundle_dir)
 
 # Ensure the wpp package directory is also in the path
-wpp_package_dir = os.path.join(bundle_dir, 'wpp')
+wpp_package_dir = os.path.join(bundle_dir, "wpp")
 if os.path.exists(wpp_package_dir) and wpp_package_dir not in sys.path:
     sys.path.insert(0, os.path.dirname(wpp_package_dir))
+
 
 # Set __package__ for the main module if it's not set
 # This is crucial for relative imports to work
 def setup_package_context():
     """Setup proper package context for relative imports."""
     import sys
-    
-    # If we're running UpdateDatabase, ensure it knows it's part of the wpp package
-    if hasattr(sys.modules.get('__main__'), '__file__'):
-        main_file = sys.modules['__main__'].__file__
-        if main_file and 'UpdateDatabase' in main_file:
-            sys.modules['__main__'].__package__ = 'wpp'
-    
-    # Ensure wpp package is properly initialized
+
+    # Get the main module
+    main_module = sys.modules.get("__main__")
+    if main_module and hasattr(main_module, "__file__"):
+        main_file = main_module.__file__
+
+        # Set package context based on the main file being run
+        if main_file:
+            if "UpdateDatabase" in main_file:
+                main_module.__package__ = "wpp"
+            elif "RunReports" in main_file:
+                main_module.__package__ = "wpp"
+            elif "web_app" in main_file:
+                main_module.__package__ = "wpp.ui.react"
+
+    # Ensure wpp package is properly initialized and importable
     try:
-        import wpp
-    except ImportError:
-        pass
+        import wpp  # noqa: F401
+        import wpp.api  # noqa: F401
+
+        # Pre-import common WPP modules to ensure they're available
+        import wpp.config  # noqa: F401
+        import wpp.db  # noqa: F401
+        import wpp.logger  # noqa: F401
+
+    except ImportError as e:
+        # Don't fail silently in case of import errors
+        print(f"Warning: Could not pre-import wpp modules: {e}")
+
 
 # Execute the setup
 setup_package_context()

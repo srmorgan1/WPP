@@ -126,15 +126,28 @@ try {
         }
     }
     
-    # Run tests if not skipped (same as simple_build.ps1)
+    # Run tests (unless skipped)
     if (-not $SkipTests) {
-        Write-Host "Running tests..." -ForegroundColor Yellow
-        uv run pytest tests/ -v
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Tests failed, continuing with build" -ForegroundColor Yellow
-        } else {
-            Write-Host "Tests passed" -ForegroundColor Green
+        Write-Host "Running Tests..." -ForegroundColor Yellow
+        
+        Write-Host "Running pytest with coverage..." -ForegroundColor Yellow
+        try {
+            $env:GPG_PASSPHRASE = $env:GPG_PASSPHRASE
+            if (-not $env:GPG_PASSPHRASE) {
+                Write-Host "GPG_PASSPHRASE not set. Some tests may fail." -ForegroundColor Yellow
+            }
+            
+            uv run pytest tests/ -v --tb=short
+            if ($LASTEXITCODE -ne 0) {
+                throw "Tests failed"
+            }
+            Write-Host "All tests passed" -ForegroundColor Green
+        } catch {
+            Write-Host "Tests failed: $($_.Exception.Message)" -ForegroundColor Red
+            throw "Test execution failed"
         }
+    } else {
+        Write-Host "Tests skipped (SkipTests flag set)" -ForegroundColor Yellow
     }
     
     # Run linting (same as simple_build.ps1)
@@ -142,6 +155,29 @@ try {
     uv run ruff check src/
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Linting issues found, continuing" -ForegroundColor Yellow
+    }
+    
+    # Build Python wheel
+    Write-Host "Building Python wheel..." -ForegroundColor Yellow
+    try {
+        uv build --wheel
+        if ($LASTEXITCODE -ne 0) {
+            throw "Wheel build failed"
+        }
+        
+        # Verify wheel was created
+        $wheelFiles = Get-ChildItem -Path "dist" -Filter "*.whl" -ErrorAction SilentlyContinue
+        if ($wheelFiles.Count -eq 0) {
+            Write-Host "Warning: No wheel files found in dist/" -ForegroundColor Yellow
+        } else {
+            foreach ($wheel in $wheelFiles) {
+                $wheelSize = [math]::Round($wheel.Length/1MB, 2)
+                Write-Host "Wheel created: $($wheel.Name) ($wheelSize MB)" -ForegroundColor Green
+            }
+        }
+    } catch {
+        Write-Host "Warning: Wheel build failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "Continuing with executable build..." -ForegroundColor Yellow
     }
     
     # Build executables (same approach as simple_build.ps1)
@@ -185,6 +221,100 @@ try {
         }
     } else {
         Write-Host "No build script found, skipping executable build" -ForegroundColor Yellow
+    }
+    
+    # Create Windows deployment zip with wheels
+    Write-Host "Creating comprehensive deployment package..." -ForegroundColor Yellow
+    
+    $distDir = "dist\wpp"
+    $deploymentZip = "wpp-windows-deployment.zip"
+    
+    try {
+        # Remove existing zip if present
+        if (Test-Path $deploymentZip) {
+            Remove-Item $deploymentZip -Force
+            Write-Host "Removed existing deployment package" -ForegroundColor Yellow
+        }
+        
+        # Collect all deployment items
+        $zipItems = @()
+        
+        # Add wheel files from dist/ directory
+        $wheelFiles = Get-ChildItem -Path "dist" -Filter "*.whl" -ErrorAction SilentlyContinue
+        foreach ($wheel in $wheelFiles) {
+            $zipItems += $wheel.FullName
+            Write-Host "  - Including wheel: $($wheel.Name)" -ForegroundColor Cyan
+        }
+        
+        # Check if build output exists and add executables
+        if (Test-Path $distDir) {
+            # Add _internal directory if it exists
+            $internalDir = Join-Path $distDir "_internal"
+            if (Test-Path $internalDir) {
+                $zipItems += $internalDir
+                Write-Host "  - Including dependencies: _internal/" -ForegroundColor Cyan
+            }
+            
+            # Add executables if they exist
+            $executables = @("wpp-web-app.exe", "run-reports.exe", "update-database.exe", "wpp-web-api.exe")
+            foreach ($exe in $executables) {
+                $exePath = Join-Path $distDir $exe
+                if (Test-Path $exePath) {
+                    $zipItems += $exePath
+                    Write-Host "  - Including executable: $exe" -ForegroundColor Cyan
+                }
+            }
+        } else {
+            Write-Host "Warning: Build output directory not found: $distDir" -ForegroundColor Yellow
+        }
+        
+        if ($zipItems.Count -gt 0) {
+            # Create the zip file with maximum compression
+            Write-Host "Compressing $($zipItems.Count) items with maximum compression..." -ForegroundColor Yellow
+            Compress-Archive -Path $zipItems -DestinationPath $deploymentZip -CompressionLevel Optimal
+            
+            if (Test-Path $deploymentZip) {
+                $zipSize = (Get-Item $deploymentZip).Length
+                Write-Host "Deployment package created: $deploymentZip ($([math]::Round($zipSize/1MB, 1)) MB)" -ForegroundColor Green
+                Write-Host "Package contents: $($wheelFiles.Count) wheels + executables + dependencies" -ForegroundColor Green
+                
+                # Clean up intermediate build files after successful zip creation
+                Write-Host "Cleaning up intermediate build files..." -ForegroundColor Yellow
+                
+                $cleanupItems = @("build", ".pytest_cache", "web/node_modules", "web/.cache")
+                $cleanedCount = 0
+                
+                foreach ($item in $cleanupItems) {
+                    if (Test-Path $item) {
+                        Remove-Item -Path $item -Recurse -Force -ErrorAction SilentlyContinue
+                        if (-not (Test-Path $item)) {
+                            $cleanedCount++
+                            Write-Host "  - Cleaned: $item" -ForegroundColor DarkGreen
+                        }
+                    }
+                }
+                
+                # Clean Python cache files
+                Get-ChildItem -Path . -Name "__pycache__" -Recurse -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                
+                Get-ChildItem -Path . -Name "*.pyc" -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+                    Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+                }
+                
+                Write-Host "Cleanup completed: $cleanedCount directories removed" -ForegroundColor Green
+                
+            } else {
+                Write-Host "Warning: Zip creation may have failed" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Warning: No items found to package" -ForegroundColor Yellow
+        }
+        
+    } catch {
+        Write-Host "Warning: Failed to create deployment package: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "Deployment files are still available in: $distDir" -ForegroundColor Yellow
     }
     
     Write-Host "Web application build completed successfully!" -ForegroundColor Green

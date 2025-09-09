@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import { Database, BarChart3, Home } from 'lucide-react';
 
 import { DatabaseProvider } from './contexts/DatabaseContext';
+import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
+import ConnectionErrorOverlay from './components/ConnectionErrorOverlay';
 import Dashboard from './pages/Dashboard';
 import DatabasePage from './pages/DatabasePage';
 import ReportsPage from './pages/ReportsPage';
@@ -74,29 +76,40 @@ const Navigation = () => {
 };
 
 const Layout = ({ children }) => {
+  const { showErrorOverlay, connectionError, handleRetry } = useConnection();
+  
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {children}
       </main>
+      
+      {/* Connection Error Overlay */}
+      <ConnectionErrorOverlay
+        isVisible={showErrorOverlay}
+        error={connectionError}
+        onRetry={handleRetry}
+      />
     </div>
   );
 };
 
 function App() {
   return (
-    <DatabaseProvider>
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/database" element={<DatabasePage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-          </Routes>
-        </Layout>
-      </Router>
-    </DatabaseProvider>
+    <ConnectionProvider>
+      <DatabaseProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/database" element={<DatabasePage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </DatabaseProvider>
+    </ConnectionProvider>
   );
 }
 

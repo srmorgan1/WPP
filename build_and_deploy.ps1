@@ -1,5 +1,6 @@
-# PowerShell CI/CD Script for WPP Project
-# Checks out project from GitHub, runs tests, and builds Windows executables
+# PowerShell CI/CD Script for WPP Project with Web Application
+# Builds the modern FastAPI + React version with full UI experience
+# Automatically installs Node.js if needed for React frontend build
 #
 # Authentication:
 #   - Set GIT_TOKEN environment variable for automated access to private repositories
@@ -11,7 +12,9 @@ param(
     [string]$WorkDir = "C:\temp\wpp-build",
     [switch]$SkipTests,
     [switch]$CleanWorkDir,
-    [switch]$KeepRepo
+    [switch]$KeepRepo,
+    [switch]$SkipNodeInstall,
+    [switch]$ApiOnly
 )
 
 # Set error action preference
@@ -56,6 +59,164 @@ function Test-Command {
     }
 }
 
+# Function to create Windows deployment zip package with wheels
+function New-DeploymentPackage {
+    param(
+        [string]$DistDir,
+        [string]$ExpectedExe,
+        [string]$DeploymentZipName = "wpp-windows-deployment.zip"
+    )
+    
+    Write-Info "Creating comprehensive deployment package: $DeploymentZipName"
+    
+    try {
+        $deploymentPath = Join-Path $PWD $DeploymentZipName
+        
+        # Remove existing zip if present
+        if (Test-Path $deploymentPath) {
+            Remove-Item $deploymentPath -Force
+            Write-Info "Removed existing deployment package"
+        }
+        
+        # Collect all deployment items
+        $zipItems = @()
+        
+        # Add wheel files from dist/ directory
+        $wheelFiles = Get-ChildItem -Path "dist" -Filter "*.whl" -ErrorAction SilentlyContinue
+        foreach ($wheel in $wheelFiles) {
+            $zipItems += $wheel.FullName
+            Write-Info "  - Including wheel: $($wheel.Name)"
+        }
+        
+        # Add executables and _internal directory
+        $exeItems = @(
+            Join-Path $DistDir "_internal",
+            Join-Path $DistDir $ExpectedExe,
+            Join-Path $DistDir "run-reports.exe", 
+            Join-Path $DistDir "update-database.exe"
+        )
+        
+        foreach ($item in $exeItems) {
+            if (Test-Path $item) {
+                $zipItems += $item
+                $itemName = Split-Path $item -Leaf
+                if ($itemName -eq "_internal") {
+                    Write-Info "  - Including dependencies: _internal/"
+                } else {
+                    Write-Info "  - Including executable: $itemName"
+                }
+            }
+        }
+        
+        # Check if we have items to zip
+        if ($zipItems.Count -eq 0) {
+            throw "No items found to include in deployment package"
+        }
+        
+        # Create the zip file with maximum compression
+        Write-Info "Compressing $($zipItems.Count) items with maximum compression..."
+        Compress-Archive -Path $zipItems -DestinationPath $deploymentPath -CompressionLevel Optimal
+        
+        if (Test-Path $deploymentPath) {
+            $zipSize = (Get-Item $deploymentPath).Length
+            Write-Success "[OK] Deployment package created: $DeploymentZipName ($([math]::Round($zipSize/1MB, 1)) MB)"
+            Write-Info "Package contents:"
+            Write-Info "  - Python wheels: $($wheelFiles.Count) files"
+            Write-Info "  - Executables: $(($zipItems | Where-Object { $_ -like '*.exe' }).Count) files"
+            Write-Info "  - Dependencies: _internal directory"
+            return $true
+        } else {
+            throw "Zip creation failed - file not found after compression"
+        }
+        
+    } catch {
+        Write-Warning "[WARN] Failed to create deployment package: $($_.Exception.Message)"
+        Write-Info "Deployment files are still available in: $DistDir"
+        return $false
+    }
+}
+
+# Function to build Python wheel distribution
+function New-PythonWheel {
+    Write-Info "Building wheel distribution..."
+    
+    try {
+        uv build --wheel
+        if ($LASTEXITCODE -ne 0) {
+            throw "Wheel build failed"
+        }
+        
+        # Verify wheel was created
+        $wheelFiles = Get-ChildItem -Path "dist" -Filter "*.whl" -ErrorAction SilentlyContinue
+        if ($wheelFiles.Count -eq 0) {
+            throw "No wheel files found in dist/ after build"
+        }
+        
+        foreach ($wheel in $wheelFiles) {
+            $wheelSize = [math]::Round($wheel.Length/1MB, 2)
+            Write-Success "[OK] Wheel created: $($wheel.Name) (Size: ${wheelSize} MB)"
+        }
+        
+        return $true
+        
+    } catch {
+        Write-Error "Failed to build wheel: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to clean up intermediate build files after successful build
+function Remove-IntermediateBuildFiles {
+    Write-Info "Cleaning up intermediate build files..."
+    
+    try {
+        # Clean up common build artifacts while preserving the final deployment
+        $cleanupItems = @(
+            "build",
+            ".pytest_cache",
+            "web/node_modules",
+            "web/.cache",
+            "src/*.egg-info"
+        )
+        
+        $cleanedCount = 0
+        foreach ($item in $cleanupItems) {
+            if (Test-Path $item) {
+                $itemSize = 0
+                if (Test-Path $item -PathType Container) {
+                    $itemSize = (Get-ChildItem -Path $item -Recurse -File | Measure-Object -Property Length -Sum).Sum
+                }
+                
+                Remove-Item -Path $item -Recurse -Force -ErrorAction SilentlyContinue
+                
+                if (-not (Test-Path $item)) {
+                    $cleanedCount++
+                    $sizeMB = [math]::Round($itemSize / 1MB, 1)
+                    Write-Info "  - Cleaned: $item ($sizeMB MB)"
+                }
+            }
+        }
+        
+        # Clean Python cache files
+        $pycacheFiles = Get-ChildItem -Path . -Name "__pycache__" -Recurse -Directory -ErrorAction SilentlyContinue
+        foreach ($cache in $pycacheFiles) {
+            Remove-Item -Path $cache.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Clean .pyc files
+        $pycFiles = Get-ChildItem -Path . -Name "*.pyc" -Recurse -File -ErrorAction SilentlyContinue
+        foreach ($pyc in $pycFiles) {
+            Remove-Item -Path $pyc.FullName -Force -ErrorAction SilentlyContinue
+        }
+        
+        Write-Success "[OK] Cleanup completed: $cleanedCount directories removed"
+        
+    } catch {
+        Write-Warning "[WARN] Some cleanup operations failed: $($_.Exception.Message)"
+        Write-Info "This doesn't affect the build results"
+    }
+}
+
 # Function to execute command and check result
 function Invoke-SafeCommand {
     param(
@@ -77,8 +238,55 @@ function Invoke-SafeCommand {
     }
 }
 
+# Function to install Node.js
+function Install-NodeJS {
+    Write-Info "Installing Node.js LTS..."
+    
+    # Download and install Node.js LTS
+    $nodeUrl = "https://nodejs.org/dist/v20.10.0/node-v20.10.0-x64.msi"
+    $nodeInstaller = Join-Path $env:TEMP "nodejs-installer.msi"
+    
+    try {
+        Write-Info "Downloading Node.js installer..."
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeInstaller -UseBasicParsing
+        
+        Write-Info "Installing Node.js (this may take a few minutes)..."
+        Start-Process -FilePath "msiexec.exe" -ArgumentList "/i", $nodeInstaller, "/quiet", "/norestart" -Wait
+        
+        # Refresh PATH environment variable
+        $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [Environment]::GetEnvironmentVariable("PATH", "User")
+        
+        # Wait a moment for PATH to update
+        Start-Sleep -Seconds 5
+        
+        # Verify installation
+        if (Test-Command "node") {
+            $nodeVersion = node --version
+            Write-Success "[OK] Node.js installed: $nodeVersion"
+            return $true
+        } else {
+            throw "Node.js installation failed - command not found after installation"
+        }
+        
+    } catch {
+        Write-Error "Failed to install Node.js: $($_.Exception.Message)"
+        return $false
+    } finally {
+        # Clean up installer
+        if (Test-Path $nodeInstaller) {
+            Remove-Item $nodeInstaller -Force
+        }
+    }
+}
+
 try {
-    Write-Section "WPP CI/CD Build Pipeline Starting"
+    Write-Section "WPP Web Application CI/CD Build Pipeline Starting"
+    
+    if ($ApiOnly) {
+        Write-Info "[CONFIG] API-Only Mode: Building without React frontend"
+    } else {
+        Write-Info "[WEB] Full Web Mode: Building with React frontend + API backend"
+    }
     
     # Check prerequisites
     Write-Section "Checking Prerequisites"
@@ -89,12 +297,12 @@ try {
     }
     Write-Success "[OK] Git found: $(git --version)"
     
-    # Setup uv package manager (will handle Python automatically)
+    # Setup uv package manager
     if (-not (Test-Command "uv")) {
         Write-Info "uv package manager not found. Installing uv..."
         Write-Info "Note: uv will automatically download Python 3.13+ as needed for this project"
         try {
-            # Install uv using the official installer (standalone binary)
+            # Install uv using the official installer
             $uvInstaller = Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing
             Invoke-Expression $uvInstaller.Content
             # Refresh PATH
@@ -108,7 +316,30 @@ try {
     }
     $uvVersion = uv --version 2>&1
     Write-Success "[OK] uv found: $uvVersion"
-    Write-Info "uv will automatically manage Python 3.13+ based on pyproject.toml requirements"
+    
+    # Check/Install Node.js (unless API-only or explicitly skipped)
+    if (-not $ApiOnly -and -not $SkipNodeInstall) {
+        if (-not (Test-Command "node")) {
+            Write-Warning "[WARN] Node.js not found. Installing Node.js for React frontend build..."
+            if (-not (Install-NodeJS)) {
+                Write-Error "[ERROR] Failed to install Node.js automatically."
+                Write-Info "Options:"
+                Write-Info "  1. Install Node.js manually from https://nodejs.org/"
+                Write-Info "  2. Use -ApiOnly flag to build without React frontend"
+                Write-Info "  3. Use -SkipNodeInstall and handle Node.js installation separately"
+                throw "Node.js installation failed"
+            }
+        } else {
+            $nodeVersion = node --version
+            $npmVersion = npm --version
+            Write-Success "[OK] Node.js found: $nodeVersion"
+            Write-Success "[OK] npm found: $npmVersion"
+        }
+    } elseif ($ApiOnly) {
+        Write-Info "[CONFIG] Skipping Node.js check (API-only mode)"
+    } else {
+        Write-Info "[CONFIG] Skipping Node.js installation (SkipNodeInstall flag set)"
+    }
     
     # Setup working directory
     Write-Section "Setting Up Working Directory"
@@ -144,7 +375,6 @@ try {
         Write-Info "Repository directory exists, updating..."
         Set-Location $repoDir
         
-        # Check if it's a valid git repository
         if (Test-Path ".git") {
             git fetch origin
             git checkout $Branch
@@ -177,11 +407,18 @@ try {
     Write-Section "Setting Up Python Environment"
     
     Write-Info "Syncing Python environment with uv..."
+    # Add FastAPI dependencies
+    Write-Info "Adding FastAPI and web dependencies..."
+    uv add fastapi uvicorn websockets --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "[WARN] Some web dependencies may already be present"
+    }
+    
     uv sync --dev
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to sync Python environment"
     }
-    Write-Success "[OK] Python environment ready"
+    Write-Success "[OK] Python environment ready with web dependencies"
     
     # Run tests (unless skipped)
     if (-not $SkipTests) {
@@ -189,11 +426,9 @@ try {
         
         Write-Info "Running pytest with coverage..."
         try {
-            # Set GPG_PASSPHRASE for tests (you may need to set this appropriately)
             $env:GPG_PASSPHRASE = $env:GPG_PASSPHRASE
             if (-not $env:GPG_PASSPHRASE) {
                 Write-Warning "[WARN] GPG_PASSPHRASE not set. Some tests may fail."
-                Write-Info "Please set the GPG_PASSPHRASE environment variable if needed."
             }
             
             uv run pytest tests/ -v --tb=short
@@ -220,24 +455,40 @@ try {
         Write-Success "[OK] Code quality checks passed"
     }
     
+    # Build Python wheel
+    Write-Section "Building Python Wheel"
+    
+    if (-not (New-PythonWheel)) {
+        throw "Python wheel build failed"
+    }
+
     # Build executables
     Write-Section "Building Windows Executables"
     
-    Write-Info "Starting executable build process..."
-    
-    # Check if build_executable.ps1 exists
-    if (-not (Test-Path "build_executable.ps1")) {
-        throw "build_executable.ps1 not found in repository"
+    if ($ApiOnly) {
+        Write-Info "[CONFIG] Building API-only executables (no React frontend)..."
+        $buildScript = "build_simple_exe.py"
+        $expectedExe = "wpp-web-api.exe"
+    } else {
+        Write-Info "[WEB] Building full web application (React + FastAPI)..."
+        $buildScript = "build_web_app.py"
+        $expectedExe = "wpp-web-app.exe"
     }
     
-    # Execute the build script
+    # Check if build script exists
+    if (-not (Test-Path $buildScript)) {
+        throw "$buildScript not found in repository"
+    }
+    
+    # Execute the build
     try {
-        & .\build_executable.ps1
+        Write-Info "Starting build process with $buildScript..."
+        uv run python $buildScript
         if ($LASTEXITCODE -ne 0) {
-            throw "Build executable script failed"
+            throw "Build script failed"
         }
     } catch {
-        throw "Failed to execute build_executable.ps1: $($_.Exception.Message)"
+        throw "Failed to execute $buildScript : $($_.Exception.Message)"
     }
     
     # Verify build output
@@ -247,7 +498,7 @@ try {
     }
     
     $executables = @(
-        "wpp-web-app.exe",
+        $expectedExe,
         "run-reports.exe", 
         "update-database.exe"
     )
@@ -268,14 +519,30 @@ try {
         throw "Build verification failed - some executables were not created"
     }
     
+    # Create Windows deployment zip
+    Write-Section "Creating Windows Deployment Package"
+    
+    $deploymentZip = "wpp-windows-deployment.zip"
+    $zipCreated = New-DeploymentPackage -DistDir $distDir -ExpectedExe $expectedExe -DeploymentZipName $deploymentZip
+    
+    # Clean up intermediate build files if deployment package was created successfully
+    if ($zipCreated) {
+        Write-Section "Cleaning Up Build Artifacts"
+        Remove-IntermediateBuildFiles
+    }
+    
     # Success summary
     Write-Section "Build Complete!"
     
     Write-Success "[OK] Repository: $RepoUrl ($Branch)"
     Write-Success "[OK] Commit: $currentCommit"
     Write-Success "[OK] Tests: $(if ($SkipTests) { 'Skipped' } else { 'Passed' })"
+    Write-Success "[OK] Build Type: $(if ($ApiOnly) { 'API-Only' } else { 'Full Web Application' })"
     Write-Success "[OK] Build: Success"
     Write-Success "[OK] Output: $distDir"
+    if (Test-Path (Join-Path $PWD $deploymentZip)) {
+        Write-Success "[OK] Deployment Package: $deploymentZip"
+    }
     
     Write-Info "`nAvailable executables:"
     foreach ($exe in $executables) {
@@ -283,9 +550,29 @@ try {
     }
     
     Write-Info "`nUsage:"
-    Write-Info "  Web App:        .\dist\wpp\wpp-web-app.exe"
+    if ($ApiOnly) {
+        Write-Info "  Web API:          .\dist\wpp\wpp-web-api.exe"
+        Write-Info "  API Docs:         http://localhost:8000/docs (after starting API)"
+    } else {
+        Write-Info "  Web Application:  .\dist\wpp\wpp-web-app.exe"
+        Write-Info "  Browser Opens:    http://localhost:8000 (automatically)"
+        Write-Info "  Full UI:          Modern React interface with real-time updates"
+    }
     Write-Info "  Generate Reports: .\dist\wpp\run-reports.exe"
     Write-Info "  Update Database:  .\dist\wpp\update-database.exe"
+    
+    Write-Info "`nCustomer Experience:"
+    if ($ApiOnly) {
+        Write-Info "  - API server with Swagger documentation"
+        Write-Info "  - REST endpoints for all operations"
+        Write-Info "  - No additional installation required"
+    } else {
+        Write-Info "  - Complete web application with modern UI"
+        Write-Info "  - Real-time progress bars and updates"
+        Write-Info "  - Interactive data tables and log viewers"
+        Write-Info "  - Mobile-friendly responsive design"
+        Write-Info "  - No additional installation required (Python/Node.js bundled)"
+    }
     
     if (-not $KeepRepo) {
         Write-Section "Cleanup"
@@ -293,7 +580,7 @@ try {
         Write-Info "Repository location: $repoDir"
     }
     
-    Write-Success "`n[SUCCESS] Build pipeline completed successfully!"
+    Write-Success "`n[SUCCESS] Web Application Build Pipeline Completed Successfully!"
     
 } catch {
     Write-Error "`n[FAILED] Build pipeline failed!"
@@ -303,8 +590,9 @@ try {
     Write-Info "`nTroubleshooting:"
     Write-Info "- Ensure all prerequisites are installed"
     Write-Info "- Check network connectivity for repository access"
-    Write-Info "- Verify GPG_PASSPHRASE is set if tests require encrypted data"
-    Write-Info "- Check PowerShell execution policy: Set-ExecutionPolicy RemoteSigned"
+    Write-Info "- For Node.js issues, try -ApiOnly flag"
+    Write-Info "- Verify PowerShell execution policy: Set-ExecutionPolicy RemoteSigned"
+    Write-Info "- Check that uv can access the internet for dependencies"
     
     exit 1
 } finally {

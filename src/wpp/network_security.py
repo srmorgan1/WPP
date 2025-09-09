@@ -2,14 +2,13 @@
 
 import ipaddress
 import logging
-from typing import List
 
 from wpp.config import get_allowed_networks, get_enable_network_restrictions
 
 logger = logging.getLogger(__name__)
 
 
-def is_ip_in_allowed_networks(client_ip: str, allowed_networks: List[str]) -> bool:
+def is_ip_in_allowed_networks(client_ip: str, allowed_networks: list[str]) -> bool:
     """
     Check if a client IP address is within any of the allowed networks.
 

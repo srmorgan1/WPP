@@ -8,11 +8,11 @@ from datetime import datetime
 import pandas as pd
 
 from wpp.config import get_wpp_data_dir, get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
-from wpp.db import get_db_connection, get_or_create_db, get_single_value
+from wpp.db import WebDatabaseProvider, get_single_value
+from wpp.logger_interface import setup_web_logger
 from wpp.output_handler import WebOutputHandler
 from wpp.RunReports import run_reports_core
 from wpp.UpdateDatabase import update_database_core
-from wpp.logger_interface import setup_web_logger, setup_file_logger, WPPLogger
 
 from .models import ExcelFileData, FileInfo, FileReference, ProgressUpdate, SpreadsheetData, SystemStatus, TaskResult, TaskResultData, TaskStatus
 
@@ -131,12 +131,15 @@ class DatabaseService:
                     pass
 
             # Create web logger and output handler
-            web_logger = setup_web_logger(__name__, log_callback)
+            web_logger = setup_web_logger(f"{__name__}.reports", log_callback)
             web_output_handler = WebOutputHandler(output_callback)
 
-            # Run the actual update using the core function with injected logger and output handler
+            # Create web database provider (uses shared connection automatically)
+            db_provider = WebDatabaseProvider()
+
+            # Run the actual update using the core function with provider, injected logger and output handler
             web_logger.info(f"Starting core database update for task {task_id}")
-            result = await asyncio.get_event_loop().run_in_executor(None, update_database_core, web_logger, web_output_handler)
+            await asyncio.get_event_loop().run_in_executor(None, update_database_core, db_provider, web_logger, web_output_handler)
             web_logger.info(f"Core database update completed for task {task_id}")
 
             task_manager.notify_progress(task_id, 90, "Database update completed")
@@ -286,16 +289,19 @@ class ReportsService:
                     pass
 
             # Create web logger and output handler
-            web_logger = setup_web_logger(__name__, log_callback)
+            web_logger = setup_web_logger(f"{__name__}.database", log_callback)
             web_output_handler = WebOutputHandler(output_callback)
 
-            # Run the actual report generation using the core function with injected logger and output handler
+            # Create web database provider (uses shared connection automatically)
+            db_provider = WebDatabaseProvider()
+
+            # Run the actual report generation using the core function with provider, injected logger and output handler
             print(f"DEBUG: About to call run_reports_core for task {task_id}")
             # Convert report_date to date objects if provided, otherwise pass None to use database defaults
             qube_date = report_date if report_date else None
             bos_date = report_date if report_date else None
-            result = await asyncio.get_event_loop().run_in_executor(None, run_reports_core, qube_date, bos_date, web_logger, web_output_handler)
-            print(f"DEBUG: run_reports_core completed for task {task_id}, result: {result}")
+            await asyncio.get_event_loop().run_in_executor(None, run_reports_core, db_provider, qube_date, bos_date, web_logger, web_output_handler)
+            print(f"DEBUG: run_reports_core completed for task {task_id}")
 
             task_manager.notify_progress(task_id, 80, "Reports generated, collecting files...")
 
@@ -461,10 +467,11 @@ class SystemService:
     async def update_input_directory(directory_path: str) -> bool:
         """Update the input directory path in config."""
         try:
-            from wpp.config import get_config
-            import toml
-            import os
             from pathlib import Path
+
+            import toml
+
+            from wpp.config import get_config
 
             # Get current config
             config = get_config()
@@ -481,7 +488,7 @@ class SystemService:
                 Path.home() / "wpp-config.toml",
                 Path.cwd() / ".wpp-config.toml",
                 Path.cwd() / "wpp-config.toml",
-                Path(__file__).resolve().parent / "config.toml"
+                Path(__file__).resolve().parent / "config.toml",
             ]
 
             for location in search_locations:
@@ -491,7 +498,7 @@ class SystemService:
 
             if config_path:
                 # Write updated config
-                with open(config_path, 'w') as f:
+                with open(config_path, "w") as f:
                     toml.dump(config, f)
                 return True
             else:
@@ -506,10 +513,11 @@ class SystemService:
     async def update_static_input_directory(directory_path: str) -> bool:
         """Update the static input directory path in config."""
         try:
-            from wpp.config import get_config
-            import toml
-            import os
             from pathlib import Path
+
+            import toml
+
+            from wpp.config import get_config
 
             # Get current config
             config = get_config()
@@ -526,7 +534,7 @@ class SystemService:
                 Path.home() / "wpp-config.toml",
                 Path.cwd() / ".wpp-config.toml",
                 Path.cwd() / "wpp-config.toml",
-                Path(__file__).resolve().parent / "config.toml"
+                Path(__file__).resolve().parent / "config.toml",
             ]
 
             for location in search_locations:
@@ -536,7 +544,7 @@ class SystemService:
 
             if config_path:
                 # Write updated config
-                with open(config_path, 'w') as f:
+                with open(config_path, "w") as f:
                     toml.dump(config, f)
                 return True
             else:
@@ -555,14 +563,20 @@ class SystemService:
             if not os.path.exists(db_file):
                 return None
 
-            db_conn = get_or_create_db(db_file)
+            # Create CLI database provider for this utility function
+            from wpp.db import CliDatabaseProvider
+
+            db_provider = CliDatabaseProvider(db_file)
+            db_conn = db_provider.get_connection()
             csr = db_conn.cursor()
 
             # Get the most recent date from the Charges table
             sql = "SELECT MAX(at_date) FROM Charges"
             latest_date = get_single_value(csr, sql, ())
 
-            db_conn.close()
+            # Close connection since provider manages lifecycle
+            if db_provider.should_close_connection():
+                db_conn.close()
 
             return latest_date if latest_date else None
 
