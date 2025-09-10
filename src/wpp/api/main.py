@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from wpp.network_security import get_client_ip_from_request, log_security_event, validate_client_ip
 
 from .models import (
+    ChargesDateResponse,
     GenerateReportsRequest,
     GenerateReportsResponse,
     ProgressUpdate,
@@ -102,6 +103,13 @@ async def root():
 async def get_system_status():
     """Get current system status."""
     return await SystemService.get_system_status()
+
+
+@app.get("/api/system/charges-date", response_model=ChargesDateResponse)
+async def get_charges_date():
+    """Get the latest charges date from the database."""
+    charges_date = await SystemService.get_latest_charges_date()
+    return ChargesDateResponse(charges_date=charges_date)
 
 
 @app.post("/api/database/update", response_model=UpdateDatabaseResponse)

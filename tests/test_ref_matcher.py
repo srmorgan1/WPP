@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from wpp.db import get_db_connection
+from wpp.database.db import get_db_connection
 from wpp.ref_matcher import (
     PBT_REGEX,
     IrregularTenantRefStrategy,

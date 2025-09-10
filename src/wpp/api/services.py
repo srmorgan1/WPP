@@ -8,9 +8,9 @@ from datetime import datetime
 import pandas as pd
 
 from wpp.config import get_wpp_data_dir, get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
-from wpp.db import WebDatabaseProvider, get_single_value
+from wpp.database.db import WebDatabaseProvider, get_db_connection, get_single_value
 from wpp.logger_interface import setup_web_logger
-from wpp.output_handler import WebOutputHandler
+from wpp.output.output_handler import WebOutputHandler
 from wpp.RunReports import run_reports_core
 from wpp.UpdateDatabase import update_database_core
 

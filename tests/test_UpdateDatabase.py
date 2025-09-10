@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 # Use get_wpp_input_dir and get_wpp_log_dir which respect the WPP_ROOT_DIR set by conftest.py's setup_wpp_root_dir
-from wpp.db import get_data, get_db_connection  # get_or_create_db might be needed if tests create dbs directly
+from wpp.database.db import get_data, get_db_connection  # get_or_create_db might be needed if tests create dbs directly
 from wpp.UpdateDatabase import (
     _determine_account_type,
     _format_pay_date,

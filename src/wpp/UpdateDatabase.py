@@ -20,13 +20,15 @@ from .calendars import get_business_day_offset
 from .config import get_config, get_wpp_input_dir, get_wpp_report_dir, get_wpp_static_input_dir, get_wpp_update_database_log_file
 from .constants import DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_TENANT_NAME_MATCH_LENGTH, MINIMUM_VALID_PROPERTY_REF
 from .data_classes import ChargeData, TransactionReferences
-from .database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
-from .db import checkTenantExists, get_last_insert_id, get_single_value, getTenantName
-from .exceptions import database_transaction, log_database_error
+from .database.database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, InsertTransactionCommand, UpdateTenantNameCommand
+from .database.db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
+from .utils.exceptions import database_transaction, log_database_error
 from .logger import setup_logger
-from .output_handler import ExcelOutputHandler, OutputHandler
+from .output.output_handler import ExcelOutputHandler, OutputHandler
 from .ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
-from .utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
+from .utils.utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
+from .input.xml import importBankOfScotlandTransactionsXMLFile, importBankOfScotlandBalancesXMLFile
+from .input.excel import importPropertiesFile, importEstatesFile, importBankAccounts, importIrregularTransactionReferences, importQubeEndOfDayBalancesFile
 
 #
 # Constants
@@ -2331,7 +2333,7 @@ def main() -> None:
         return
 
     # Create CLI database provider
-    from .db import CliDatabaseProvider
+    from .database.db import CliDatabaseProvider
 
     db_provider = CliDatabaseProvider()
 

@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 import pandas as pd
 
-from .config import get_wpp_db_dir
+from ..config import get_wpp_db_dir
 
 # ============================================================================
 # Database Provider Pattern

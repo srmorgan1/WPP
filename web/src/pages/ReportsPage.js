@@ -4,20 +4,26 @@ import { apiService, wsService } from '../services/api';
 import ProgressBar from '../components/ProgressBar';
 import DataTable from '../components/DataTable';
 import LogViewer from '../components/LogViewer';
+import { useAppContext } from '../contexts/AppContext';
 
 const ReportsPage = () => {
   const location = useLocation();
-  const [isRunning, setIsRunning] = useState(false);
+  const { reportsPageState, updateReportsPageState } = useAppContext();
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState('');
-  const [status, setStatus] = useState('pending');
-  const [currentTask, setCurrentTask] = useState(null);
-  const [results, setResults] = useState(null);
-  const [reportData, setReportData] = useState(null);
-  const [logContent, setLogContent] = useState(null);
-  const [realtimeLog, setRealtimeLog] = useState([]);
   const logViewerRef = React.useRef(null);
+  
+  // Destructure state from context
+  const {
+    results,
+    reportData,
+    logContent,
+    realtimeLog,
+    progress,
+    progressMessage,
+    status,
+    currentTask,
+    isRunning
+  } = reportsPageState;
 
   useEffect(() => {
     // Connect WebSocket for real-time updates
@@ -25,23 +31,29 @@ const ReportsPage = () => {
     
     const handleProgress = (message) => {
       if (message.task_id === currentTask) {
-        setProgress(message.data.progress || 0);
-        setProgressMessage(message.data.message || '');
-        setStatus(message.data.status || 'running');
+        updateReportsPageState({
+          progress: message.data.progress || 0,
+          progressMessage: message.data.message || '',
+          status: message.data.status || 'running'
+        });
         
         // Accumulate log messages for scrolling display
         if (message.data.message) {
           const timestamp = new Date().toLocaleTimeString();
           const logEntry = `[${timestamp}] ${message.data.message}`;
-          setRealtimeLog(prev => [...prev, logEntry]);
+          updateReportsPageState({
+            realtimeLog: [...realtimeLog, logEntry]
+          });
         }
         
         if (message.data.status === 'completed') {
-          setProgress(100); // Ensure progress shows 100% on completion
-          setIsRunning(false);
+          updateReportsPageState({
+            progress: 100,
+            isRunning: false
+          });
           loadTaskResults(message.task_id);
         } else if (message.data.status === 'failed') {
-          setIsRunning(false);
+          updateReportsPageState({ isRunning: false });
         }
       }
     };
@@ -90,29 +102,33 @@ const ReportsPage = () => {
 
   const handleGenerateReports = async () => {
     try {
-      setIsRunning(true);
-      setProgress(0);
-      setProgressMessage('Starting report generation...');
-      setStatus('running');
-      setResults(null);
-      setReportData(null);
-      setLogContent(null);
-      setRealtimeLog([]);
+      updateReportsPageState({
+        isRunning: true,
+        progress: 0,
+        progressMessage: 'Starting report generation...',
+        status: 'running',
+        results: null,
+        reportData: null,
+        logContent: null,
+        realtimeLog: []
+      });
 
       const response = await apiService.generateReports(reportDate);
-      setCurrentTask(response.task_id);
+      updateReportsPageState({ currentTask: response.task_id });
     } catch (error) {
       console.error('Error starting report generation:', error);
-      setIsRunning(false);
-      setStatus('failed');
-      setProgressMessage(`Error: ${error.message}`);
+      updateReportsPageState({
+        isRunning: false,
+        status: 'failed',
+        progressMessage: `Error: ${error.message}`
+      });
     }
   };
 
   const loadTaskResults = async (taskId) => {
     try {
       const taskResult = await apiService.getTaskStatus(taskId);
-      setResults(taskResult);
+      updateReportsPageState({ results: taskResult });
 
       // Check for web_sheets data directly in the task result (new system)
       if (taskResult.result_data?.summary?.web_sheets) {
@@ -130,7 +146,7 @@ const ReportsPage = () => {
             is_critical: sheet.is_critical || false
           }))
         };
-        setReportData(convertedData);
+        updateReportsPageState({ reportData: convertedData });
       }
 
       // Load files if available (legacy system)
@@ -139,10 +155,10 @@ const ReportsPage = () => {
           try {
             if (fileRef.file_type === 'excel') {
               const reportData = await apiService.getExcelData(fileRef.filename);
-              setReportData(reportData);
+              updateReportsPageState({ reportData });
             } else if (fileRef.file_type === 'log') {
               const logData = await apiService.getLogContent(fileRef.filename);
-              setLogContent(logData.content);
+              updateReportsPageState({ logContent: logData.content });
             }
           } catch (error) {
             console.error(`Error loading ${fileRef.file_type} file ${fileRef.filename}:`, error);

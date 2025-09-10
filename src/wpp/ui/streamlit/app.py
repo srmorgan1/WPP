@@ -10,7 +10,7 @@ import streamlit as st
 from wpp.calendars import get_business_day_offset
 from wpp.config import get_max_runtime_minutes, get_no_connection_shutdown_delay, get_wpp_data_dir, get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
 from wpp.RunReports import main as run_reports_main
-from wpp.simple_shutdown import start_shutdown_monitor, update_session_activity
+from wpp.ui.streamlit.simple_shutdown import start_shutdown_monitor, update_session_activity
 from wpp.UpdateDatabase import main as update_database_main
 
 

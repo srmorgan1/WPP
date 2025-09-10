@@ -35,8 +35,8 @@ from wpp.constants import (
     SPECIAL_PROPERTY_RECODING,
 )
 from wpp.data_classes import MatchLogData
-from wpp.db import checkTenantExists, get_single_value, getTenantName
-from wpp.utils import getLongestCommonSubstring
+from wpp.database.db import checkTenantExists, get_single_value, getTenantName
+from wpp.utils.utils import getLongestCommonSubstring
 
 
 #

@@ -8,65 +8,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Function to prompt for build directory cleanup with timeout
-function Prompt-BuildCleanup {
-    param(
-        [string]$WorkDir,
-        [int]$TimeoutSeconds = 10
-    )
-    
-    Write-Host "`n========================================" -ForegroundColor Cyan
-    Write-Host "Build Directory Cleanup" -ForegroundColor Cyan
-    Write-Host "========================================`n" -ForegroundColor Cyan
-    Write-Host "Build completed successfully!" -ForegroundColor Green
-    Write-Host "Build directory: $WorkDir" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Delete build directory and temporary files? [Y/n] (default: Y, timeout: ${TimeoutSeconds}s): " -NoNewline -ForegroundColor Yellow
-    
-    # Use ReadKey with timeout
-    $timeout = New-TimeSpan -Seconds $TimeoutSeconds
-    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $response = ""
-    
-    while ($stopwatch.Elapsed -lt $timeout -and $response -eq "") {
-        if ([Console]::KeyAvailable) {
-            $key = [Console]::ReadKey($true)
-            if ($key.Key -eq "Enter") {
-                $response = "Y"  # Default to Yes on Enter
-                break
-            } elseif ($key.KeyChar -match "[YyNn]") {
-                $response = $key.KeyChar.ToString().ToUpper()
-                Write-Host $response
-                break
-            }
-        }
-        Start-Sleep -Milliseconds 100
-    }
-    
-    $stopwatch.Stop()
-    
-    # If no response within timeout, use default
-    if ($response -eq "") {
-        $response = "Y"
-        Write-Host "Y (timeout - using default)"
-    }
-    
-    if ($response -eq "Y") {
-        Write-Host "Removing build directory: $WorkDir" -ForegroundColor Yellow
-        try {
-            if (Test-Path $WorkDir) {
-                Remove-Item -Path $WorkDir -Recurse -Force
-                Write-Host "[OK] Build directory cleaned up" -ForegroundColor Green
-            }
-        } catch {
-            Write-Host "[WARN] Could not remove build directory: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "You may need to manually delete: $WorkDir" -ForegroundColor White
-        }
-    } else {
-        Write-Host "Build directory preserved: $WorkDir" -ForegroundColor White
-    }
-}
-
 Write-Host "Starting WPP Web Application Build" -ForegroundColor Cyan
 
 try {
@@ -282,119 +223,11 @@ try {
         Write-Host "No build script found, skipping executable build" -ForegroundColor Yellow
     }
     
-    # Function to check if Inno Setup is available and install if needed
-    function Ensure-InnoSetup {
-        # Check if Inno Setup is already installed
-        $innoSetupPaths = @(
-            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
-            "${env:ProgramFiles(x86)}\Inno Setup 5\ISCC.exe",
-            "${env:ProgramFiles}\Inno Setup 5\ISCC.exe"
-        )
-        
-        foreach ($path in $innoSetupPaths) {
-            if (Test-Path $path) {
-                Write-Host "Inno Setup found: $path" -ForegroundColor Green
-                return $path
-            }
-        }
-        
-        Write-Host "Inno Setup not found. Downloading and installing..." -ForegroundColor Yellow
-        
-        try {
-            # Download Inno Setup installer
-            $innoUrl = "https://jrsoftware.org/download.php/is.exe"
-            $innoInstaller = Join-Path $env:TEMP "innosetup-installer.exe"
-            
-            Write-Host "Downloading Inno Setup..." -ForegroundColor Yellow
-            Invoke-WebRequest -Uri $innoUrl -OutFile $innoInstaller -UseBasicParsing
-            
-            Write-Host "Installing Inno Setup (silent install)..." -ForegroundColor Yellow
-            Start-Process -FilePath $innoInstaller -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
-            
-            # Check again for installation
-            foreach ($path in $innoSetupPaths) {
-                if (Test-Path $path) {
-                    Write-Host "Inno Setup installed successfully: $path" -ForegroundColor Green
-                    return $path
-                }
-            }
-            
-            throw "Inno Setup installation verification failed"
-            
-        } catch {
-            Write-Host "Failed to install Inno Setup automatically: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "Please install Inno Setup manually from https://jrsoftware.org/isinfo.php" -ForegroundColor Yellow
-            return $null
-        } finally {
-            if (Test-Path $innoInstaller) {
-                Remove-Item $innoInstaller -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }
-    
-    # Function to create Windows installer using Inno Setup
-    function New-WindowsInstaller {
-        param(
-            [string]$ScriptPath = "wpp-installer.iss"
-        )
-        
-        Write-Host "Creating Windows installer using Inno Setup..." -ForegroundColor Yellow
-        
-        # Ensure Inno Setup is available
-        $innoPath = Ensure-InnoSetup
-        if (-not $innoPath) {
-            Write-Host "Skipping installer creation - Inno Setup not available" -ForegroundColor Yellow
-            return $false
-        }
-        
-        # Check if the Inno Setup script exists
-        if (-not (Test-Path $ScriptPath)) {
-            Write-Host "Inno Setup script not found: $ScriptPath" -ForegroundColor Red
-            return $false
-        }
-        
-        try {
-            # Create installer directory if it doesn't exist
-            $installerDir = "installer"
-            if (-not (Test-Path $installerDir)) {
-                New-Item -Path $installerDir -ItemType Directory -Force | Out-Null
-            }
-            
-            Write-Host "Compiling installer with Inno Setup..." -ForegroundColor Yellow
-            
-            # Run Inno Setup compiler
-            $process = Start-Process -FilePath $innoPath -ArgumentList $ScriptPath, "/Q" -Wait -PassThru -NoNewWindow
-            
-            if ($process.ExitCode -eq 0) {
-                # Find the created installer
-                $installerFile = Get-ChildItem -Path $installerDir -Filter "WPP-Setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($installerFile) {
-                    $installerSize = [math]::Round($installerFile.Length/1MB, 1)
-                    Write-Host "Windows installer created: $($installerFile.FullName) ($installerSize MB)" -ForegroundColor Green
-                    return $true
-                } else {
-                    Write-Host "Installer compilation succeeded but output file not found" -ForegroundColor Yellow
-                    return $false
-                }
-            } else {
-                Write-Host "Inno Setup compiler failed with exit code: $($process.ExitCode)" -ForegroundColor Red
-                return $false
-            }
-            
-        } catch {
-            Write-Host "Failed to create Windows installer: $($_.Exception.Message)" -ForegroundColor Red
-            return $false
-        }
-    }
-
     # Create Windows deployment zip with wheels
     Write-Host "Creating comprehensive deployment package..." -ForegroundColor Yellow
     
     $distDir = "dist\wpp"
-    # Save zip file in the same directory as the script itself  
-    $scriptDir = Split-Path -Parent $PSCommandPath
-    $deploymentZip = Join-Path $scriptDir "wpp-windows-deployment.zip"
+    $deploymentZip = "wpp-windows-deployment.zip"
     
     try {
         # Remove existing zip if present
@@ -484,18 +317,7 @@ try {
         Write-Host "Deployment files are still available in: $distDir" -ForegroundColor Yellow
     }
     
-    # Create Windows installer
-    Write-Host "`nCreating Windows installer..." -ForegroundColor Yellow
-    $installerCreated = New-WindowsInstaller -ScriptPath "wpp-installer.iss"
-    
     Write-Host "Web application build completed successfully!" -ForegroundColor Green
-    
-    if ($installerCreated -and (Test-Path "installer\WPP-Setup.exe")) {
-        Write-Host "Windows installer available: installer\WPP-Setup.exe" -ForegroundColor Green
-    }
-    
-    # Prompt for cleanup of build directory
-    Prompt-BuildCleanup -WorkDir $WorkDir
     
 } catch {
     Write-Host "Build failed: $($_.Exception.Message)" -ForegroundColor Red

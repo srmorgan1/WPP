@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from wpp.utils import getLatestMatchingFileName, getLatestMatchingFileNameInDir, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file, open_files
+from wpp.utils.utils import getLatestMatchingFileName, getLatestMatchingFileNameInDir, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file, open_files
 
 
 def test_getLongestCommonSubstring():

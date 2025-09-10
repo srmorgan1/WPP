@@ -1,72 +1,67 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, wsService } from '../services/api';
-import { useDatabase } from '../contexts/DatabaseContext';
 import ProgressBar from '../components/ProgressBar';
 import DataTable from '../components/DataTable';
 import LogViewer from '../components/LogViewer';
+import { useAppContext } from '../contexts/AppContext';
 
 const DatabasePage = () => {
+  const { databasePageState, updateDatabasePageState } = useAppContext();
   const [deleteExisting, setDeleteExisting] = useState(true);
   const logViewerRef = React.useRef(null);
-
-  // Use database context for persistent state
+  
+  // Destructure state from context
   const {
-    databaseResults,
+    results,
     issuesData,
     logContent,
     realtimeLog,
-    isRunning,
     progress,
     progressMessage,
     status,
     currentTask,
-    clearDatabaseData,
-    updateDatabaseResults,
-    updateIssuesData,
-    updateLogContent,
-    addRealtimeLogEntry,
-    clearRealtimeLog,
-    setIsRunning,
-    setProgress,
-    setProgressMessage,
-    setStatus,
-    setCurrentTask,
-  } = useDatabase();
+    isRunning
+  } = databasePageState;
 
   useEffect(() => {
     // Connect WebSocket for real-time updates
     wsService.connect();
-
+    
     const handleProgress = (message) => {
       if (message.task_id === currentTask) {
-        setProgress(message.data.progress || 0);
-        setProgressMessage(message.data.message || '');
-        setStatus(message.data.status || 'running');
-
+        updateDatabasePageState({
+          progress: message.data.progress || 0,
+          progressMessage: message.data.message || '',
+          status: message.data.status || 'running'
+        });
+        
         // Accumulate log messages for scrolling display
         if (message.data.message) {
           const timestamp = new Date().toLocaleTimeString();
           const logEntry = `[${timestamp}] ${message.data.message}`;
-          addRealtimeLogEntry(logEntry);
+          updateDatabasePageState({
+            realtimeLog: [...realtimeLog, logEntry]
+          });
         }
-
+        
         if (message.data.status === 'completed') {
-          setProgress(100); // Ensure progress shows 100% on completion
-          setIsRunning(false);
+          updateDatabasePageState({
+            progress: 100,
+            isRunning: false
+          });
           loadTaskResults(message.task_id);
         } else if (message.data.status === 'failed') {
-          setIsRunning(false);
+          updateDatabasePageState({ isRunning: false });
           loadTaskResults(message.task_id);
         }
       }
     };
 
     wsService.addListener('progress', handleProgress);
-
+    
     return () => {
       wsService.removeListener('progress', handleProgress);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTask]);
 
   // Auto-scroll log viewer to bottom when new messages arrive
@@ -78,27 +73,33 @@ const DatabasePage = () => {
 
   const handleUpdateDatabase = async () => {
     try {
-      setIsRunning(true);
-      setProgress(0);
-      setProgressMessage('Starting database update...');
-      setStatus('running');
-      clearDatabaseData();
-      clearRealtimeLog();
+      updateDatabasePageState({
+        isRunning: true,
+        progress: 0,
+        progressMessage: 'Starting database update...',
+        status: 'running',
+        results: null,
+        issuesData: null,
+        logContent: null,
+        realtimeLog: []
+      });
 
       const response = await apiService.updateDatabase(deleteExisting);
-      setCurrentTask(response.task_id);
+      updateDatabasePageState({ currentTask: response.task_id });
     } catch (error) {
       console.error('Error starting database update:', error);
-      setIsRunning(false);
-      setStatus('failed');
-      setProgressMessage(`Error: ${error.message}`);
+      updateDatabasePageState({
+        isRunning: false,
+        status: 'failed',
+        progressMessage: `Error: ${error.message}`
+      });
     }
   };
 
   const loadTaskResults = async (taskId) => {
     try {
       const taskResult = await apiService.getTaskStatus(taskId);
-      updateDatabaseResults(taskResult);
+      updateDatabasePageState({ results: taskResult });
 
       // Check for web_sheets data directly in the task result (new system)
       if (taskResult.result_data?.summary?.web_sheets) {
@@ -116,7 +117,7 @@ const DatabasePage = () => {
             is_critical: sheet.is_critical || false
           }))
         };
-        updateIssuesData(convertedData);
+        updateDatabasePageState({ issuesData: convertedData });
       }
 
       // Load files if available (legacy system)
@@ -125,10 +126,10 @@ const DatabasePage = () => {
           try {
             if (fileRef.file_type === 'excel') {
               const issuesData = await apiService.getExcelData(fileRef.filename);
-              updateIssuesData(issuesData);
+              updateDatabasePageState({ issuesData });
             } else if (fileRef.file_type === 'log') {
               const logData = await apiService.getLogContent(fileRef.filename);
-              updateLogContent(logData.content);
+              updateDatabasePageState({ logContent: logData.content });
             }
           } catch (error) {
             console.error(`Error loading ${fileRef.file_type} file ${fileRef.filename}:`, error);
@@ -228,7 +229,7 @@ const DatabasePage = () => {
       </div>
 
       {/* Results */}
-      {databaseResults && (
+      {results && (
         <div className="space-y-6">
           {/* Status Summary */}
           <div className="card p-6">
@@ -238,28 +239,28 @@ const DatabasePage = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
-                  {databaseResults.status}
+                  {results.status}
                 </div>
                 <div className="text-sm text-gray-500">Status</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {databaseResults.started_at ? new Date(databaseResults.started_at).toLocaleTimeString() : 'N/A'}
+                  {results.started_at ? new Date(results.started_at).toLocaleTimeString() : 'N/A'}
                 </div>
                 <div className="text-sm text-gray-500">Started</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">
-                  {databaseResults.completed_at ? new Date(databaseResults.completed_at).toLocaleTimeString() : 'N/A'}
+                  {results.completed_at ? new Date(results.completed_at).toLocaleTimeString() : 'N/A'}
                 </div>
                 <div className="text-sm text-gray-500">Completed</div>
               </div>
             </div>
-
-            {databaseResults.error && (
+            
+            {results.error && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
                 <div className="text-red-800 font-medium">Error:</div>
-                <div className="text-red-600">{databaseResults.error}</div>
+                <div className="text-red-600">{results.error}</div>
               </div>
             )}
           </div>
