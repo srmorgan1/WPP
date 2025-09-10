@@ -44,6 +44,11 @@ a = Analysis(
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/database/', 'wpp/database/'),
+        ('src/wpp/input/', 'wpp/input/'),
+        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/utils/', 'wpp/utils/'),
+        ('src/wpp/schemas/', 'wpp/schemas/'),
     ],
     hiddenimports=[
         'fastapi',
@@ -117,6 +122,11 @@ run_reports_a = Analysis(
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/database/', 'wpp/database/'),
+        ('src/wpp/input/', 'wpp/input/'),
+        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/utils/', 'wpp/utils/'),
+        ('src/wpp/schemas/', 'wpp/schemas/'),
     ],
     hiddenimports=[
         'pandas',
@@ -168,6 +178,11 @@ update_db_a = Analysis(
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/database/', 'wpp/database/'),
+        ('src/wpp/input/', 'wpp/input/'),
+        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/utils/', 'wpp/utils/'),
+        ('src/wpp/schemas/', 'wpp/schemas/'),
     ],
     hiddenimports=[
         'pandas',

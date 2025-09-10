@@ -51,6 +51,11 @@ a = Analysis(
         ('src/wpp/*.py', 'wpp/'),
         ('src/wpp/api/', 'wpp/api/'),
         ('src/wpp/ui/', 'wpp/ui/'),
+        ('src/wpp/database/', 'wpp/database/'),
+        ('src/wpp/input/', 'wpp/input/'),
+        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/utils/', 'wpp/utils/'),
+        ('src/wpp/schemas/', 'wpp/schemas/'),
         ('web/build/', 'web/build/'),
     ],
     hiddenimports=[

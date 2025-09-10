@@ -204,6 +204,14 @@ function New-DeploymentPackage {
             Write-Info "  - Including wheel: $($wheel.Name)"
         }
         
+        # Add Windows installer if it exists
+        $installerFile = "installer\WPP-Setup.exe"
+        if (Test-Path $installerFile) {
+            $zipItems += $installerFile
+            $installerSize = [math]::Round((Get-Item $installerFile).Length/1MB, 1)
+            Write-Info "  - Including installer: WPP-Setup.exe ($installerSize MB)"
+        }
+        
         # Add executables and _internal directory
         $exeItems = @(
             Join-Path $DistDir "_internal",
@@ -238,7 +246,10 @@ function New-DeploymentPackage {
             Write-Success "[OK] Deployment package created: $DeploymentZipName ($([math]::Round($zipSize/1MB, 1)) MB)"
             Write-Info "Package contents:"
             Write-Info "  - Python wheels: $($wheelFiles.Count) files"
-            Write-Info "  - Executables: $(($zipItems | Where-Object { $_ -like '*.exe' }).Count) files"
+            Write-Info "  - Executables: $(($zipItems | Where-Object { $_ -like '*.exe' -and $_ -notlike '*WPP-Setup.exe' }).Count) files"
+            if (Test-Path "installer\WPP-Setup.exe") {
+                Write-Info "  - Windows installer: WPP-Setup.exe"
+            }
             Write-Info "  - Dependencies: _internal directory"
             return $true
         } else {
