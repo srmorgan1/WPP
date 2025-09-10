@@ -246,6 +246,14 @@ try {
             Write-Host "  - Including wheel: $($wheel.Name)" -ForegroundColor Cyan
         }
         
+        # Add Windows installer if it exists
+        $installerFile = "installer\WPP-Setup.exe"
+        if (Test-Path $installerFile) {
+            $zipItems += $installerFile
+            $installerSize = [math]::Round((Get-Item $installerFile).Length/1MB, 1)
+            Write-Host "  - Including installer: WPP-Setup.exe ($installerSize MB)" -ForegroundColor Cyan
+        }
+        
         # Check if build output exists and add executables
         if (Test-Path $distDir) {
             # Add _internal directory if it exists
@@ -276,7 +284,8 @@ try {
             if (Test-Path $deploymentZip) {
                 $zipSize = (Get-Item $deploymentZip).Length
                 Write-Host "Deployment package created: $deploymentZip ($([math]::Round($zipSize/1MB, 1)) MB)" -ForegroundColor Green
-                Write-Host "Package contents: $($wheelFiles.Count) wheels + executables + dependencies" -ForegroundColor Green
+                $installerText = if (Test-Path "installer\WPP-Setup.exe") { " + installer" } else { "" }
+                Write-Host "Package contents: $($wheelFiles.Count) wheels + executables + dependencies$installerText" -ForegroundColor Green
                 
                 # Clean up intermediate build files after successful zip creation
                 Write-Host "Cleaning up intermediate build files..." -ForegroundColor Yellow
