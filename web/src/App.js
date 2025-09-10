@@ -8,6 +8,7 @@ import ConnectionErrorOverlay from './components/ConnectionErrorOverlay';
 import Dashboard from './pages/Dashboard';
 import DatabasePage from './pages/DatabasePage';
 import ReportsPage from './pages/ReportsPage';
+import { AppContextProvider } from './contexts/AppContext';
 
 const Navigation = () => {
   const location = useLocation();
@@ -97,19 +98,17 @@ const Layout = ({ children }) => {
 
 function App() {
   return (
-    <ConnectionProvider>
-      <DatabaseProvider>
-        <Router>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/database" element={<DatabasePage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-            </Routes>
-          </Layout>
-        </Router>
-      </DatabaseProvider>
-    </ConnectionProvider>
+    <AppContextProvider>
+      <Router>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/database" element={<DatabasePage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+          </Routes>
+        </Layout>
+      </Router>
+    </AppContextProvider>
   );
 }
 

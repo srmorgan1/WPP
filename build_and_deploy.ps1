@@ -59,120 +59,6 @@ function Test-Command {
     }
 }
 
-# Function to check if Inno Setup is available and install if needed
-function Ensure-InnoSetup {
-    # Check if Inno Setup is already installed
-    $innoSetupPaths = @(
-        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
-        "${env:ProgramFiles(x86)}\Inno Setup 5\ISCC.exe",
-        "${env:ProgramFiles}\Inno Setup 5\ISCC.exe"
-    )
-    
-    foreach ($path in $innoSetupPaths) {
-        if (Test-Path $path) {
-            Write-Success "[OK] Inno Setup found: $path"
-            return $path
-        }
-    }
-    
-    Write-Warning "[WARN] Inno Setup not found. Downloading and installing..."
-    
-    try {
-        # Download Inno Setup installer
-        $innoUrl = "https://jrsoftware.org/download.php/is.exe"
-        $innoInstaller = Join-Path $env:TEMP "innosetup-installer.exe"
-        
-        Write-Info "Downloading Inno Setup from $innoUrl..."
-        Invoke-WebRequest -Uri $innoUrl -OutFile $innoInstaller -UseBasicParsing
-        
-        Write-Info "Installing Inno Setup (silent install)..."
-        Start-Process -FilePath $innoInstaller -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
-        
-        # Check again for installation
-        foreach ($path in $innoSetupPaths) {
-            if (Test-Path $path) {
-                Write-Success "[OK] Inno Setup installed successfully: $path"
-                return $path
-            }
-        }
-        
-        throw "Inno Setup installation verification failed"
-        
-    } catch {
-        Write-Warning "[WARN] Failed to install Inno Setup automatically: $($_.Exception.Message)"
-        Write-Info "Please install Inno Setup manually from https://jrsoftware.org/isinfo.php"
-        return $null
-    } finally {
-        if (Test-Path $innoInstaller) {
-            Remove-Item $innoInstaller -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
-
-# Function to create Windows installer using Inno Setup
-function New-WindowsInstaller {
-    param(
-        [string]$DistDir,
-        [string]$ScriptPath = "wpp-installer.iss"
-    )
-    
-    Write-Info "Creating Windows installer using Inno Setup..."
-    
-    # Ensure Inno Setup is available
-    $innoPath = Ensure-InnoSetup
-    if (-not $innoPath) {
-        Write-Warning "[WARN] Skipping installer creation - Inno Setup not available"
-        return $false
-    }
-    
-    # Check if the Inno Setup script exists
-    if (-not (Test-Path $ScriptPath)) {
-        Write-Error "[ERROR] Inno Setup script not found: $ScriptPath"
-        return $false
-    }
-    
-    try {
-        # Create installer directory if it doesn't exist
-        $installerDir = "installer"
-        if (-not (Test-Path $installerDir)) {
-            New-Item -Path $installerDir -ItemType Directory -Force | Out-Null
-        }
-        
-        Write-Info "Compiling installer with Inno Setup..."
-        Write-Info "Script: $ScriptPath"
-        Write-Info "Source: $DistDir"
-        
-        # Run Inno Setup compiler
-        $isccArgs = @(
-            $ScriptPath,
-            "/Q"  # Quiet mode
-        )
-        
-        $process = Start-Process -FilePath $innoPath -ArgumentList $isccArgs -Wait -PassThru -NoNewWindow
-        
-        if ($process.ExitCode -eq 0) {
-            # Find the created installer
-            $installerFile = Get-ChildItem -Path $installerDir -Filter "WPP-Setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($installerFile) {
-                $installerSize = [math]::Round($installerFile.Length/1MB, 1)
-                Write-Success "[OK] Windows installer created: $($installerFile.FullName) ($installerSize MB)"
-                return $true
-            } else {
-                Write-Warning "[WARN] Installer compilation succeeded but output file not found"
-                return $false
-            }
-        } else {
-            Write-Error "[ERROR] Inno Setup compiler failed with exit code: $($process.ExitCode)"
-            return $false
-        }
-        
-    } catch {
-        Write-Error "[ERROR] Failed to create Windows installer: $($_.Exception.Message)"
-        return $false
-    }
-}
-
 # Function to create Windows deployment zip package with wheels
 function New-DeploymentPackage {
     param(
@@ -709,10 +595,6 @@ try {
     $deploymentZip = "wpp-windows-deployment.zip"
     $zipCreated = New-DeploymentPackage -DistDir $distDir -ExpectedExe $expectedExe -DeploymentZipName $deploymentZip
     
-    # Create Windows installer
-    Write-Section "Creating Windows Installer"
-    $installerCreated = New-WindowsInstaller -DistDir $distDir -ScriptPath "wpp-installer.iss"
-    
     # Clean up intermediate build files if deployment package was created successfully
     if ($zipCreated) {
         Write-Section "Cleaning Up Build Artifacts"
@@ -730,9 +612,6 @@ try {
     Write-Success "[OK] Output: $distDir"
     if (Test-Path (Join-Path $PWD $deploymentZip)) {
         Write-Success "[OK] Deployment Package: $deploymentZip"
-    }
-    if ($installerCreated -and (Test-Path "installer\WPP-Setup.exe")) {
-        Write-Success "[OK] Windows Installer: installer\WPP-Setup.exe"
     }
     
     Write-Info "`nAvailable executables:"

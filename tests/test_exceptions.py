@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from wpp.db import get_db_connection
-from wpp.exceptions import (
+from wpp.database.db import get_db_connection
+from wpp.utils.exceptions import (
     ConfigurationError,
     DatabaseIntegrityError,
     DatabaseOperationError,

@@ -10,7 +10,7 @@ import pytest
 from dateutil import parser
 
 from wpp.config import get_wpp_db_dir, get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir, set_wpp_root_dir
-from wpp.db import get_or_create_db
+from wpp.database.db import get_or_create_db
 from wpp.ref_matcher import _reset_matcher
 
 # Override deprecated SQLite date adapters for tests to prevent Python 3.12+ warnings

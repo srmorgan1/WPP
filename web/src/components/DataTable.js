@@ -1,4 +1,5 @@
 import React from 'react';
+import excelIcon from '../assets/excel-icon.svg';
 
 const DataTable = ({ data, maxHeight = '400px' }) => {
   // Always call hooks at the top level, before any returns
@@ -64,17 +65,9 @@ const DataTable = ({ data, maxHeight = '400px' }) => {
     }
   };
 
-  // Excel SVG Icon - Microsoft Excel style
+  // Excel Icon - Using imported SVG asset
   const ExcelIcon = () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Excel logo background */}
-      <rect x="1" y="1" width="14" height="14" rx="2" fill="#217346"/>
-      {/* Excel "X" with proper proportions */}
-      <path d="M5 5L11 11M11 5L5 11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-      {/* Subtle grid lines to suggest spreadsheet */}
-      <path d="M3 7h10M3 9h10" stroke="white" strokeWidth="0.5" opacity="0.6"/>
-      <path d="M7 3v10M9 3v10" stroke="white" strokeWidth="0.5" opacity="0.6"/>
-    </svg>
+    <img src={excelIcon} alt="Export to Excel" className="w-6 h-6" />
   );
 
   if (!data || !data.sheets || data.sheets.length === 0) {
@@ -145,7 +138,7 @@ const DataTable = ({ data, maxHeight = '400px' }) => {
             onClick={handleExportToExcel}
             disabled={isExporting}
             title={isExporting ? 'Exporting...' : 'Export to Excel'}
-            className="inline-flex items-center p-2 border border-gray-300 shadow-sm rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center p-2 text-gray-700 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
           >
             <ExcelIcon />
           </button>

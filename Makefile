@@ -14,7 +14,7 @@ SCRIPT_FILES := $(wildcard *.sh *.ps1)
 	@mkdir -p .build-markers
 
 # Phony targets (always run, no file dependencies)
-.PHONY: clean help test lint format force-clean
+.PHONY: clean help test lint format force-clean deploy-to-windows
 
 # Default target shows help
 all: help
@@ -163,6 +163,22 @@ bundle-windows-build:
 	@echo "  1. Double-click BUILD_WPP_SIMPLE.bat (recommended)"
 	@echo "  2. Or: BUILD_WPP.bat for full build"
 
+# Deploy Windows build bundle to Parallels shared directory
+deploy-to-windows: bundle-windows-build
+	@echo "🚚 Deploying Windows build bundle to Parallels..."
+	@mkdir -p ~/Documents/Work/WPP
+	@cp dist/wpp-windows-build.zip ~/Documents/Work/WPP/
+	@echo "✅ Deployment completed!"
+	@echo ""
+	@echo "📁 Deployed to: ~/Documents/Work/WPP/wpp-windows-build.zip"
+	@echo "🖥️  Parallels users: File is now available in Windows"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Open Windows in Parallels"
+	@echo "  2. Navigate to the shared WPP folder"
+	@echo "  3. Extract wpp-windows-build.zip"
+	@echo "  4. Double-click BUILD_WPP_SIMPLE.bat"
+
 # Show build status and dependencies
 status:
 	@echo "📊 WPP Build Status"
@@ -209,6 +225,7 @@ help:
 	@echo "  make force-rebuild - Force rebuild everything (ignore timestamps)"
 	@echo "  make create-deployment-zip - Create deployment package (if needed)"
 	@echo "  make bundle-windows-build - Bundle Windows build files"
+	@echo "  make deploy-to-windows - Deploy Windows build to Parallels shared folder"
 	@echo "  make status        - Show current build status"
 	@echo "  make test          - Run tests"
 	@echo "  make lint          - Run linter" 

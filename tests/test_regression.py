@@ -259,7 +259,7 @@ def test_regression(mock_data_dir, scenario: str, setup_wpp_root_dir) -> None:
     from conftest import get_unique_date_from_charges
 
     from wpp.config import get_wpp_db_file
-    from wpp.db import get_or_create_db
+    from wpp.database.db import get_or_create_db
 
     # Connect to the database that UpdateDatabase just populated
     db_path = get_wpp_db_file()  # This is the database UpdateDatabase writes to

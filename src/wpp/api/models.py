@@ -109,6 +109,12 @@ class SystemStatus(BaseModel):
     uptime: float
 
 
+class ChargesDateResponse(BaseModel):
+    """Response model for latest charges date."""
+
+    charges_date: str | None = Field(description="Latest charges date in YYYY-MM-DD format, or null if no data")
+
+
 class FileReference(BaseModel):
     """Reference to a file in the system."""
 

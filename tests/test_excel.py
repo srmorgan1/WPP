@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from openpyxl import Workbook
 
-from wpp.excel import format_all_excel_sheets, format_all_excel_sheets_comprehensive, format_excel_sheet, format_excel_sheet_comprehensive
+from wpp.utils.excel import format_all_excel_sheets, format_all_excel_sheets_comprehensive, format_excel_sheet, format_excel_sheet_comprehensive
 
 
 @pytest.fixture

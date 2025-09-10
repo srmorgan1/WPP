@@ -321,7 +321,7 @@ def create_app(api_only=False):
         import pandas as pd
         from fastapi.responses import FileResponse
 
-        from wpp.output_handler import ExcelOutputHandler
+        from wpp.output.output_handler import ExcelOutputHandler
 
         try:
             # Create temporary Excel file

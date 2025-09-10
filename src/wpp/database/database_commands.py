@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from .data_classes import ChargeData
+from ..data_classes import ChargeData
 from .db import get_last_insert_id
 
 

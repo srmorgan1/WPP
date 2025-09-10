@@ -8,7 +8,7 @@ from pandas.tseries.offsets import CDay, DateOffset
 
 # Assuming these imports are available from other wpp modules
 from .config import get_wpp_static_input_dir
-from .utils import getLatestMatchingFileName
+from .utils.utils import getLatestMatchingFileName
 
 
 @lru_cache(maxsize=1)
