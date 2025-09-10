@@ -70,7 +70,9 @@ function New-DeploymentPackage {
     Write-Info "Creating comprehensive deployment package: $DeploymentZipName"
     
     try {
-        $deploymentPath = Join-Path $PWD $DeploymentZipName
+        # Save zip file in the same directory as the script itself
+        $scriptDir = Split-Path -Parent $PSCommandPath
+        $deploymentPath = Join-Path $scriptDir $DeploymentZipName
         
         # Remove existing zip if present
         if (Test-Path $deploymentPath) {
@@ -214,6 +216,63 @@ function Remove-IntermediateBuildFiles {
     } catch {
         Write-Warning "[WARN] Some cleanup operations failed: $($_.Exception.Message)"
         Write-Info "This doesn't affect the build results"
+    }
+}
+
+# Function to prompt for build directory cleanup with timeout
+function Prompt-BuildCleanup {
+    param(
+        [string]$WorkDir,
+        [int]$TimeoutSeconds = 10
+    )
+    
+    Write-Section "Build Directory Cleanup"
+    Write-Info "Build completed successfully!"
+    Write-Info "Build directory: $WorkDir"
+    Write-Info ""
+    Write-Host "Delete build directory and temporary files? [Y/n] (default: Y, timeout: ${TimeoutSeconds}s): " -NoNewline -ForegroundColor Yellow
+    
+    # Use ReadKey with timeout
+    $timeout = New-TimeSpan -Seconds $TimeoutSeconds
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $response = ""
+    
+    while ($stopwatch.Elapsed -lt $timeout -and $response -eq "") {
+        if ([Console]::KeyAvailable) {
+            $key = [Console]::ReadKey($true)
+            if ($key.Key -eq "Enter") {
+                $response = "Y"  # Default to Yes on Enter
+                break
+            } elseif ($key.KeyChar -match "[YyNn]") {
+                $response = $key.KeyChar.ToString().ToUpper()
+                Write-Host $response
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    
+    $stopwatch.Stop()
+    
+    # If no response within timeout, use default
+    if ($response -eq "") {
+        $response = "Y"
+        Write-Host "Y (timeout - using default)"
+    }
+    
+    if ($response -eq "Y") {
+        Write-Info "Removing build directory: $WorkDir"
+        try {
+            if (Test-Path $WorkDir) {
+                Remove-Item -Path $WorkDir -Recurse -Force
+                Write-Success "[OK] Build directory cleaned up"
+            }
+        } catch {
+            Write-Warning "[WARN] Could not remove build directory: $($_.Exception.Message)"
+            Write-Info "You may need to manually delete: $WorkDir"
+        }
+    } else {
+        Write-Info "Build directory preserved: $WorkDir"
     }
 }
 
@@ -581,6 +640,9 @@ try {
     }
     
     Write-Success "`n[SUCCESS] Web Application Build Pipeline Completed Successfully!"
+    
+    # Prompt for cleanup of build directory
+    Prompt-BuildCleanup -WorkDir $WorkDir
     
 } catch {
     Write-Error "`n[FAILED] Build pipeline failed!"

@@ -8,6 +8,65 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Function to prompt for build directory cleanup with timeout
+function Prompt-BuildCleanup {
+    param(
+        [string]$WorkDir,
+        [int]$TimeoutSeconds = 10
+    )
+    
+    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "Build Directory Cleanup" -ForegroundColor Cyan
+    Write-Host "========================================`n" -ForegroundColor Cyan
+    Write-Host "Build completed successfully!" -ForegroundColor Green
+    Write-Host "Build directory: $WorkDir" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Delete build directory and temporary files? [Y/n] (default: Y, timeout: ${TimeoutSeconds}s): " -NoNewline -ForegroundColor Yellow
+    
+    # Use ReadKey with timeout
+    $timeout = New-TimeSpan -Seconds $TimeoutSeconds
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $response = ""
+    
+    while ($stopwatch.Elapsed -lt $timeout -and $response -eq "") {
+        if ([Console]::KeyAvailable) {
+            $key = [Console]::ReadKey($true)
+            if ($key.Key -eq "Enter") {
+                $response = "Y"  # Default to Yes on Enter
+                break
+            } elseif ($key.KeyChar -match "[YyNn]") {
+                $response = $key.KeyChar.ToString().ToUpper()
+                Write-Host $response
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    
+    $stopwatch.Stop()
+    
+    # If no response within timeout, use default
+    if ($response -eq "") {
+        $response = "Y"
+        Write-Host "Y (timeout - using default)"
+    }
+    
+    if ($response -eq "Y") {
+        Write-Host "Removing build directory: $WorkDir" -ForegroundColor Yellow
+        try {
+            if (Test-Path $WorkDir) {
+                Remove-Item -Path $WorkDir -Recurse -Force
+                Write-Host "[OK] Build directory cleaned up" -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "[WARN] Could not remove build directory: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "You may need to manually delete: $WorkDir" -ForegroundColor White
+        }
+    } else {
+        Write-Host "Build directory preserved: $WorkDir" -ForegroundColor White
+    }
+}
+
 Write-Host "Starting WPP Web Application Build" -ForegroundColor Cyan
 
 try {
@@ -227,7 +286,9 @@ try {
     Write-Host "Creating comprehensive deployment package..." -ForegroundColor Yellow
     
     $distDir = "dist\wpp"
-    $deploymentZip = "wpp-windows-deployment.zip"
+    # Save zip file in the same directory as the script itself  
+    $scriptDir = Split-Path -Parent $PSCommandPath
+    $deploymentZip = Join-Path $scriptDir "wpp-windows-deployment.zip"
     
     try {
         # Remove existing zip if present
@@ -318,6 +379,9 @@ try {
     }
     
     Write-Host "Web application build completed successfully!" -ForegroundColor Green
+    
+    # Prompt for cleanup of build directory
+    Prompt-BuildCleanup -WorkDir $WorkDir
     
 } catch {
     Write-Host "Build failed: $($_.Exception.Message)" -ForegroundColor Red
