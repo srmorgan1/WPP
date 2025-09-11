@@ -3,21 +3,17 @@
 import logging
 import re
 import sqlite3
-from typing import Any
 
 import pandas as pd
 from dateutil import parser
 from openpyxl import load_workbook
 
-from ..calendars import get_business_day_offset
-from ..constants import DEBIT_CARD_SUFFIX, EXCLUDED_TENANT_REF_CHARACTERS, MINIMUM_TENANT_NAME_MATCH_LENGTH, MINIMUM_VALID_PROPERTY_REF
-from ..data_classes import ChargeData, TransactionReferences
-from ..database.database_commands import DatabaseCommandExecutor, InsertBlockCommand, InsertChargeCommand, InsertPropertyCommand, InsertTenantCommand, UpdateTenantNameCommand
-from ..database.db import checkTenantExists, get_last_insert_id, get_or_create_db, get_single_value, getTenantName
-from ..utils.exceptions import database_transaction, log_database_error
+from ..data_classes import ChargeData
+from ..database.database_commands import DatabaseCommandExecutor, InsertChargeCommand, InsertTenantCommand, UpdateTenantNameCommand
+from ..database.db import get_last_insert_id, get_single_value
 from ..output.output_handler import OutputHandler
 from ..ref_matcher import getPropertyBlockAndTenantRefs as getPropertyBlockAndTenantRefs_strategy
-from ..utils.utils import getLatestMatchingFileName, getLongestCommonSubstring, getMatchingFileNames, is_running_via_pytest, open_file
+from ..utils.exceptions import database_transaction
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -65,6 +61,7 @@ SC_FUND = "SC Fund"
 #
 # Helper functions
 #
+
 
 def getPropertyBlockAndTenantRefs(reference: str) -> tuple[str | None, str | None, str | None]:
     """Wrapper for the strategy pattern function import."""
@@ -208,22 +205,22 @@ def _validate_account_uniqueness(bank_accounts_df: pd.DataFrame, bank_accounts_f
         for (reference, account_type), count in duplicate_cl_accounts.items():
             matching_rows = cl_accounts[cl_accounts["Reference"] == reference]
             for _, row in matching_rows.iterrows():
-                duplicate_details.append({
-                    "Reference": reference,
-                    "Account Type": account_type,
-                    "Sort Code": row["Sort Code"],
-                    "Account Number": row["Account Number"],
-                    "Account Name": row["Account Name"],
-                    "Client Reference": row["Client Reference"],
-                    "Property Or Block": row["Property Or Block"],
-                    "Error": f"Duplicate CL account found {count} times for reference {reference}"
-                })
+                duplicate_details.append(
+                    {
+                        "Reference": reference,
+                        "Account Type": account_type,
+                        "Sort Code": row["Sort Code"],
+                        "Account Number": row["Account Number"],
+                        "Account Name": row["Account Name"],
+                        "Client Reference": row["Client Reference"],
+                        "Property Or Block": row["Property Or Block"],
+                        "Error": f"Duplicate CL account found {count} times for reference {reference}",
+                    }
+                )
 
         # Report to output handler
         errors_df = pd.DataFrame(duplicate_details)
-        output_handler.add_sheet("Bank Account Duplicate Problems", errors_df, 
-                                {"file_path": bank_accounts_file, "error_count": len(duplicate_details)}, 
-                                is_critical=True)
+        output_handler.add_sheet("Bank Account Duplicate Problems", errors_df, {"file_path": bank_accounts_file, "error_count": len(duplicate_details)}, is_critical=True)
 
         raise ValueError(f"Found {len(duplicate_cl_accounts)} duplicate CL account(s) - import halted")
 
@@ -278,25 +275,26 @@ def _validate_account_designation_consistency(bank_accounts_df: pd.DataFrame, ba
         # Check for inconsistency
         if expected_designation and current_designation and expected_designation != current_designation:
             designation_names = {"P": "Property", "B": "Block"}
-            validation_issues.append({
-                "Row Number": index + 2,  # +2 because pandas is 0-indexed and Excel has header row
-                "Reference": reference,
-                "Account Name": account_name,
-                "Sort Code": sort_code,
-                "Account Number": account_number,
-                "Client Reference": client_ref,
-                "Current Designation": property_or_block,
-                "Expected Designation": designation_names.get(expected_designation, expected_designation),
-                "Property Ref": property_ref or "N/A",
-                "Block Ref": block_ref or "N/A",
-                "Error": f"Reference format suggests {designation_names.get(expected_designation)} but marked as {property_or_block}"
-            })
+            validation_issues.append(
+                {
+                    "Row Number": index + 2,  # +2 because pandas is 0-indexed and Excel has header row
+                    "Reference": reference,
+                    "Account Name": account_name,
+                    "Sort Code": sort_code,
+                    "Account Number": account_number,
+                    "Client Reference": client_ref,
+                    "Current Designation": property_or_block,
+                    "Expected Designation": designation_names.get(expected_designation, expected_designation),
+                    "Property Ref": property_ref or "N/A",
+                    "Block Ref": block_ref or "N/A",
+                    "Error": f"Reference format suggests {designation_names.get(expected_designation)} but marked as {property_or_block}",
+                }
+            )
 
     if validation_issues:
         logger.warning(f"Found {len(validation_issues)} Property/Block designation issues in {bank_accounts_file}")
         errors_df = pd.DataFrame(validation_issues)
-        output_handler.add_sheet("Bank Account Designation Problems", errors_df, 
-                                {"file_path": bank_accounts_file, "error_count": len(validation_issues)})
+        output_handler.add_sheet("Bank Account Designation Problems", errors_df, {"file_path": bank_accounts_file, "error_count": len(validation_issues)})
 
     return validation_issues
 
@@ -340,7 +338,7 @@ def _process_tenant(csr: sqlite3.Cursor, tenant_ref: str, tenant_name: str, bloc
     """Process a tenant reference, creating or updating it if needed. Returns tenants_added."""
     executor = DatabaseCommandExecutor(csr, logger)
     tenant_id = get_id_from_ref(csr, "Tenants", "tenant", tenant_ref)
-    
+
     if not tenant_id:
         # Create new tenant
         command = InsertTenantCommand(tenant_ref, tenant_name, block_id, INSERT_TENANT_SQL)
@@ -379,7 +377,7 @@ def _validate_qube_spreadsheet(workbook_sheet) -> None:
     cell_values_expected = [
         "Property / Fund",
         "Bank",
-        "Excluded VAT", 
+        "Excluded VAT",
         AUTH_CREDITORS,
         AVAILABLE_FUNDS,
     ]
@@ -402,29 +400,22 @@ def _extract_qube_date(workbook_sheet) -> str:
 def _prepare_qube_dataframe(qube_eod_balances_xls_file: str) -> pd.DataFrame:
     """Prepare the Qube dataframe for processing."""
     # Read from row 5 (0-indexed row 4) to skip headers
-    qube_eod_balances_df = pd.read_excel(
-        qube_eod_balances_xls_file, 
-        skiprows=4,
-        dtype={"Property / Fund": str}
-    )
+    qube_eod_balances_df = pd.read_excel(qube_eod_balances_xls_file, skiprows=4, dtype={"Property / Fund": str})
     qube_eod_balances_df.fillna("", inplace=True)
-    
+
     # Rename columns for consistency
-    column_mapping = {
-        "Property / Fund": "PropertyCode / Fund",
-        "Bank": "PropertyName / Category"
-    }
+    column_mapping = {"Property / Fund": "PropertyCode / Fund", "Bank": "PropertyName / Category"}
     qube_eod_balances_df = qube_eod_balances_df.rename(columns=column_mapping)
-    
+
     return qube_eod_balances_df
 
 
-def _process_qube_data(csr, property_code_or_fund: str, property_ref: str, block_ref: str, block_name: str, 
-                       fund: str, category: str, auth_creditors: float, available_funds: float, 
-                       at_date: str, type_ids: dict) -> tuple[int, dict | None]:
+def _process_qube_data(
+    csr, property_code_or_fund: str, property_ref: str, block_ref: str, block_name: str, fund: str, category: str, auth_creditors: float, available_funds: float, at_date: str, type_ids: dict
+) -> tuple[int, dict | None]:
     """
     Process Qube fund/category data and add charges to database.
-    
+
     Returns:
         Tuple of (charges_added, error_info)
     """
@@ -437,22 +428,15 @@ def _process_qube_data(csr, property_code_or_fund: str, property_ref: str, block
             # Cannot proceed without property
             error_msg = f"Property '{property_ref}' does not exist in database"
             logger.error(f"Cannot process Qube balances for block '{block_ref}'. {error_msg}")
-            error_details = {
-                "Property Reference": property_ref,
-                "Block Reference": block_ref,
-                "Block Name": block_name,
-                "Fund": fund,
-                "Category": category,
-                "Error": error_msg
-            }
+            error_details = {"Property Reference": property_ref, "Block Reference": block_ref, "Block Name": block_name, "Fund": fund, "Category": category, "Error": error_msg}
             return 0, error_details
-        
+
         # Create the block
         block_type = "P" if block_ref and block_ref.endswith("00") else "B"
         csr.execute(INSERT_BLOCK_SQL2, (block_ref, block_name, block_type, property_id))
         block_id = get_id_from_ref(csr, "Blocks", "block", block_ref)
         logger.debug(f"\tCreated block {block_ref} for Qube processing")
-    
+
     # Update block name if it's empty
     existing_block_name = get_single_value(csr, SELECT_BLOCK_NAME_SQL, (block_ref,))
     if not existing_block_name and block_name:
@@ -521,6 +505,7 @@ def _report_qube_import_errors(qube_import_errors: list[dict], qube_file: str, o
 #
 # Main import functions
 #
+
 
 def importPropertiesFile(db_conn: sqlite3.Connection, properties_xls_file: str, output_handler: OutputHandler | None = None) -> bool:
     """Import properties data from Excel file into database."""

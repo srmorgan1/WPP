@@ -14,8 +14,7 @@ from dateutil import parser
 from wpp.calendars import get_business_day_offset
 from wpp.config import get_wpp_report_dir, get_wpp_report_file, get_wpp_run_reports_log_file
 from wpp.data_classes import RunConfiguration
-from wpp.database.db import DatabaseProvider, get_db_connection, get_single_value, get_unique_date_from_charges, join_sql_queries, run_sql_query, union_sql_queries
-from wpp.utils.exceptions import safe_pandas_operation
+from wpp.database.db import DatabaseProvider, get_single_value, get_unique_date_from_charges, join_sql_queries, run_sql_query, union_sql_queries
 from wpp.logger import setup_logger
 from wpp.output.output_handler import ExcelOutputHandler, OutputHandler
 from wpp.sql_queries import (
@@ -32,6 +31,7 @@ from wpp.sql_queries import (
     SELECT_TOTAL_PAID_SC_BY_PROPERTY_SQL,
     SELECT_TOTAL_PAID_SC_BY_TENANT_SQL,
 )
+from wpp.utils.exceptions import safe_pandas_operation
 from wpp.utils.utils import is_running_via_pytest
 
 # Set up logger

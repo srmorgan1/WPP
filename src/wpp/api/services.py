@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 
 from wpp.config import get_wpp_data_dir, get_wpp_db_file, get_wpp_log_dir, get_wpp_report_dir
-from wpp.database.db import WebDatabaseProvider, get_db_connection, get_single_value
+from wpp.database.db import WebDatabaseProvider, get_single_value
 from wpp.logger_interface import setup_web_logger
 from wpp.output.output_handler import WebOutputHandler
 from wpp.RunReports import run_reports_core
@@ -559,14 +559,8 @@ class SystemService:
     async def get_latest_charges_date() -> str | None:
         """Get the latest date from the Charges table, if any data exists."""
         try:
-            db_file = get_wpp_db_file()
-            if not os.path.exists(db_file):
-                return None
-
-            # Create CLI database provider for this utility function
-            from wpp.db import CliDatabaseProvider
-
-            db_provider = CliDatabaseProvider(db_file)
+            # Use web database provider for in-memory database
+            db_provider = WebDatabaseProvider()
             db_conn = db_provider.get_connection()
             csr = db_conn.cursor()
 
@@ -574,10 +568,7 @@ class SystemService:
             sql = "SELECT MAX(at_date) FROM Charges"
             latest_date = get_single_value(csr, sql, ())
 
-            # Close connection since provider manages lifecycle
-            if db_provider.should_close_connection():
-                db_conn.close()
-
+            # Don't close connection for web provider (shared connection)
             return latest_date if latest_date else None
 
         except Exception as e:

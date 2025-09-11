@@ -12,13 +12,12 @@ from dateutil import parser
 from lxml import etree
 
 from ..config import get_config
-from ..constants import DEBIT_CARD_SUFFIX
 from ..data_classes import TransactionReferences
 from ..database.database_commands import DatabaseCommandExecutor, InsertTransactionCommand
-from ..database.db import get_single_value, getTenantName
-from ..utils.exceptions import database_transaction, log_database_error
-from ..utils.utils import open_file
+from ..database.db import get_single_value
 from ..ref_matcher import getPropertyBlockAndTenantRefs
+from ..utils.exceptions import log_database_error
+from ..utils.utils import open_file
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -150,7 +149,7 @@ def _prepare_bos_transaction_xml(transactions_xml_file: str) -> et.Element:
         f"<{schema}>",
         xml,
     )
-    
+
     root = et.fromstring(xml)
     _validate_transaction_xml_structure(root)
     return root
@@ -187,7 +186,7 @@ def _prepare_bos_xml(balances_xml_file: str) -> et.Element:
             f"<{schema}>",
             xml,
         )
-    
+
     root = et.fromstring(xml)
     _validate_balance_xml_structure(root)
     return root
@@ -327,7 +326,7 @@ def _prepare_bos_transaction_xml(transactions_xml_file: str) -> et.Element:
         f"<{schema}>",
         xml,
     )
-    
+
     root = et.fromstring(xml)
     _validate_transaction_xml_structure(root)
     return root
@@ -364,7 +363,7 @@ def _prepare_bos_xml(balances_xml_file: str) -> et.Element:
             f"<{schema}>",
             xml,
         )
-    
+
     root = et.fromstring(xml)
     _validate_balance_xml_structure(root)
     return root

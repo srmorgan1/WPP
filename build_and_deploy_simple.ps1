@@ -223,11 +223,71 @@ try {
         Write-Host "No build script found, skipping executable build" -ForegroundColor Yellow
     }
     
+    # Build Windows installer using Inno Setup
+    Write-Host "Building Windows installer..." -ForegroundColor Yellow
+    
+    if (Test-Path "wpp-installer.iss") {
+        # Check if Inno Setup is available
+        $innoSetupPath = $null
+        $possiblePaths = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+            "ISCC.exe"  # If it's in PATH
+        )
+        
+        foreach ($path in $possiblePaths) {
+            if (Test-Path $path -ErrorAction SilentlyContinue) {
+                $innoSetupPath = $path
+                break
+            } elseif ($path -eq "ISCC.exe") {
+                # Check if ISCC is in PATH
+                try {
+                    $null = Get-Command "ISCC" -ErrorAction Stop
+                    $innoSetupPath = "ISCC.exe"
+                    break
+                } catch {
+                    continue
+                }
+            }
+        }
+        
+        if ($innoSetupPath) {
+            Write-Host "Using Inno Setup: $innoSetupPath" -ForegroundColor Green
+            & $innoSetupPath "wpp-installer.iss"
+            if ($LASTEXITCODE -eq 0) {
+                if (Test-Path "installer\WPP-Setup.exe") {
+                    $installerSize = [math]::Round((Get-Item "installer\WPP-Setup.exe").Length/1MB, 1)
+                    Write-Host "Windows installer built successfully: WPP-Setup.exe ($installerSize MB)" -ForegroundColor Green
+                    
+                    # Move installer to install_files directory (will be created later in the script)
+                    $tempInstallerPath = "installer\WPP-Setup.exe"
+                    Write-Host "Installer will be moved to install_files directory after zip creation" -ForegroundColor Cyan
+                } else {
+                    Write-Host "Installer build succeeded but WPP-Setup.exe not found" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "Installer build failed with exit code $LASTEXITCODE" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Inno Setup not found - skipping installer build" -ForegroundColor Yellow
+            Write-Host "Install Inno Setup from: https://jrsoftware.org/isdl.php" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "wpp-installer.iss not found - skipping installer build" -ForegroundColor Yellow
+    }
+    
     # Create Windows deployment zip with wheels
     Write-Host "Creating comprehensive deployment package..." -ForegroundColor Yellow
     
+    # Create install_files directory in the script's parent directory
+    $installFilesDir = Join-Path $PSScriptRoot "install_files"
+    if (-not (Test-Path $installFilesDir)) {
+        New-Item -ItemType Directory -Path $installFilesDir -Force | Out-Null
+        Write-Host "Created install_files directory: $installFilesDir" -ForegroundColor Green
+    }
+    
     $distDir = "dist\wpp"
-    $deploymentZip = "wpp-windows-deployment.zip"
+    $deploymentZip = Join-Path $installFilesDir "wpp-windows-deployment.zip"
     
     try {
         # Remove existing zip if present
@@ -313,6 +373,37 @@ try {
                 }
                 
                 Write-Host "Cleanup completed: $cleanedCount directories removed" -ForegroundColor Green
+                
+                # Check if we have both successful build artifacts before cleanup
+                $zipSuccessful = Test-Path $deploymentZip
+                $installerExists = Test-Path "installer\WPP-Setup.exe"
+                $installerSuccessful = $false
+                
+                # Move installer to install_files directory if it exists
+                if ($installerExists) {
+                    $installerDestPath = Join-Path $installFilesDir "WPP-Setup.exe"
+                    Move-Item "installer\WPP-Setup.exe" $installerDestPath -Force
+                    $installerSize = [math]::Round((Get-Item $installerDestPath).Length/1MB, 1)
+                    Write-Host "Moved installer to: $installerDestPath ($installerSize MB)" -ForegroundColor Green
+                    $installerSuccessful = $true
+                }
+                
+                # Only clean up the wpp-build folder if we have successful build artifacts
+                if ($zipSuccessful -and ($installerSuccessful -or -not $installerExists)) {
+                    Write-Host "Both zip and installer (if applicable) created successfully - cleaning up temporary build directory" -ForegroundColor Green
+                    if (Test-Path $WorkDir) {
+                        Write-Host "Removing temporary build directory: $WorkDir" -ForegroundColor Yellow
+                        Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
+                        if (-not (Test-Path $WorkDir)) {
+                            Write-Host "Successfully removed temporary build directory" -ForegroundColor Green
+                        } else {
+                            Write-Host "Warning: Could not fully remove temporary build directory" -ForegroundColor Yellow
+                        }
+                    }
+                } else {
+                    Write-Host "Build artifacts incomplete - keeping temporary build directory for debugging" -ForegroundColor Yellow
+                    Write-Host "Zip successful: $zipSuccessful, Installer successful: $installerSuccessful" -ForegroundColor Yellow
+                }
                 
             } else {
                 Write-Host "Warning: Zip creation may have failed" -ForegroundColor Yellow

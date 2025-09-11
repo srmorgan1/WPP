@@ -70,9 +70,14 @@ function New-DeploymentPackage {
     Write-Info "Creating comprehensive deployment package: $DeploymentZipName"
     
     try {
-        # Save zip file in the same directory as the script itself
+        # Save zip file in the install_files directory within the script directory
         $scriptDir = Split-Path -Parent $PSCommandPath
-        $deploymentPath = Join-Path $scriptDir $DeploymentZipName
+        $installFilesDir = Join-Path $scriptDir "install_files"
+        if (-not (Test-Path $installFilesDir)) {
+            New-Item -ItemType Directory -Path $installFilesDir -Force | Out-Null
+            Write-Info "Created install_files directory: $installFilesDir"
+        }
+        $deploymentPath = Join-Path $installFilesDir $DeploymentZipName
         
         # Remove existing zip if present
         if (Test-Path $deploymentPath) {
@@ -174,6 +179,69 @@ function New-PythonWheel {
         
     } catch {
         Write-Error "Failed to build wheel: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to build Windows installer using Inno Setup
+function Build-WindowsInstaller {
+    Write-Info "Building Windows installer using Inno Setup..."
+    
+    if (-not (Test-Path "wpp-installer.iss")) {
+        Write-Warning "wpp-installer.iss not found - skipping installer build"
+        return $false
+    }
+    
+    # Check if Inno Setup is available
+    $innoSetupPath = $null
+    $possiblePaths = @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+        "ISCC.exe"  # If it's in PATH
+    )
+    
+    foreach ($path in $possiblePaths) {
+        if (Test-Path $path -ErrorAction SilentlyContinue) {
+            $innoSetupPath = $path
+            break
+        } elseif ($path -eq "ISCC.exe") {
+            # Check if ISCC is in PATH
+            try {
+                $null = Get-Command "ISCC" -ErrorAction Stop
+                $innoSetupPath = "ISCC.exe"
+                break
+            } catch {
+                continue
+            }
+        }
+    }
+    
+    if (-not $innoSetupPath) {
+        Write-Warning "Inno Setup not found - skipping installer build"
+        Write-Info "Install Inno Setup from: https://jrsoftware.org/isdl.php"
+        return $false
+    }
+    
+    try {
+        Write-Info "Using Inno Setup: $innoSetupPath"
+        & $innoSetupPath "wpp-installer.iss"
+        
+        if ($LASTEXITCODE -eq 0) {
+            if (Test-Path "installer\WPP-Setup.exe") {
+                $installerSize = [math]::Round((Get-Item "installer\WPP-Setup.exe").Length/1MB, 1)
+                Write-Success "[OK] Windows installer built successfully: WPP-Setup.exe ($installerSize MB)"
+                return $true
+            } else {
+                Write-Warning "Installer build succeeded but WPP-Setup.exe not found"
+                return $false
+            }
+        } else {
+            Write-Error "Installer build failed with exit code $LASTEXITCODE"
+            return $false
+        }
+        
+    } catch {
+        Write-Error "Failed to build installer: $($_.Exception.Message)"
         return $false
     }
 }
@@ -589,16 +657,46 @@ try {
         throw "Build verification failed - some executables were not created"
     }
     
+    # Build Windows installer using Inno Setup
+    Write-Section "Building Windows Installer"
+    $installerCreated = Build-WindowsInstaller
+    
     # Create Windows deployment zip
     Write-Section "Creating Windows Deployment Package"
     
     $deploymentZip = "wpp-windows-deployment.zip"
     $zipCreated = New-DeploymentPackage -DistDir $distDir -ExpectedExe $expectedExe -DeploymentZipName $deploymentZip
     
-    # Clean up intermediate build files if deployment package was created successfully
-    if ($zipCreated) {
+    # Move installer to install_files directory if it was created successfully
+    if ($installerCreated -and (Test-Path "installer\WPP-Setup.exe")) {
+        $scriptDir = Split-Path -Parent $PSCommandPath
+        $installFilesDir = Join-Path $scriptDir "install_files"
+        $installerDestPath = Join-Path $installFilesDir "WPP-Setup.exe"
+        Move-Item "installer\WPP-Setup.exe" $installerDestPath -Force
+        $installerSize = [math]::Round((Get-Item $installerDestPath).Length/1MB, 1)
+        Write-Success "[OK] Moved installer to: $installerDestPath ($installerSize MB)"
+    }
+    
+    # Clean up intermediate build files only if both zip and installer (if attempted) were created successfully
+    if ($zipCreated -and ($installerCreated -or -not (Test-Path "wpp-installer.iss"))) {
         Write-Section "Cleaning Up Build Artifacts"
+        Write-Success "[OK] Both deployment zip and installer (if applicable) created successfully"
         Remove-IntermediateBuildFiles
+        
+        # Also remove the temporary work directory if it exists
+        $WorkDir = "wpp-build"  # Default work directory name
+        if (Test-Path $WorkDir) {
+            Write-Info "Removing temporary build directory: $WorkDir"
+            Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path $WorkDir)) {
+                Write-Success "[OK] Successfully removed temporary build directory"
+            } else {
+                Write-Warning "[WARN] Could not fully remove temporary build directory"
+            }
+        }
+    } else {
+        Write-Warning "[WARN] Build artifacts incomplete - keeping intermediate files for debugging"
+        Write-Info "Zip created: $zipCreated, Installer created: $installerCreated"
     }
     
     # Success summary

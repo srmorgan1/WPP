@@ -2,7 +2,6 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Database, BarChart3, Home } from 'lucide-react';
 
-import { DatabaseProvider } from './contexts/DatabaseContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import ConnectionErrorOverlay from './components/ConnectionErrorOverlay';
 import Dashboard from './pages/Dashboard';
@@ -98,17 +97,19 @@ const Layout = ({ children }) => {
 
 function App() {
   return (
-    <AppContextProvider>
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/database" element={<DatabasePage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-          </Routes>
-        </Layout>
-      </Router>
-    </AppContextProvider>
+    <ConnectionProvider>
+      <AppContextProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/database" element={<DatabasePage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </AppContextProvider>
+    </ConnectionProvider>
   );
 }
 

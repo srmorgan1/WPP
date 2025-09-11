@@ -6,7 +6,7 @@ This module now uses the new WPPLogger interface internally.
 import asyncio
 import logging
 import sys
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from wpp.logger_interface import setup_web_logger as _setup_web_logger
 

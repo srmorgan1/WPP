@@ -226,7 +226,7 @@ async def get_unique_charges_date():
     try:
         # Web app uses only in-memory database - cannot access CLI file database
         logger.info("Getting database connection from web provider...")
-        from wpp.db import WebDatabaseProvider
+        from wpp.database.db import WebDatabaseProvider
 
         db_provider = WebDatabaseProvider()
         db_conn = db_provider.get_connection()
@@ -268,7 +268,7 @@ async def debug_charges_table():
 
     try:
         # Web app uses only in-memory database
-        from wpp.db import WebDatabaseProvider
+        from wpp.database.db import WebDatabaseProvider
 
         db_provider = WebDatabaseProvider()
         db_conn = db_provider.get_connection()

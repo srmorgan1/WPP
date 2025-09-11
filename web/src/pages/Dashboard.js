@@ -8,8 +8,8 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [inputDirValue, setInputDirValue] = useState('');
   const [staticInputDirValue, setStaticInputDirValue] = useState('');
-  const [updatingInputDir, setUpdatingInputDir] = useState(false);
-  const [updatingStaticInputDir, setUpdatingStaticInputDir] = useState(false);
+  // const [updatingInputDir, setUpdatingInputDir] = useState(false);
+  // const [updatingStaticInputDir, setUpdatingStaticInputDir] = useState(false);
 
   useEffect(() => {
     loadSystemStatus();
@@ -45,37 +45,37 @@ const Dashboard = () => {
     }
   };
 
-  const handleUpdateInputDirectory = async () => {
-    if (!inputDirValue.trim()) return;
+  // const handleUpdateInputDirectory = async () => {
+  //   if (!inputDirValue.trim()) return;
+  //
+  //   setUpdatingInputDir(true);
+  //   try {
+  //     await apiService.updateInputDirectory(inputDirValue.trim());
+  //     // Reload system status to reflect changes
+  //     await loadSystemStatus();
+  //   } catch (err) {
+  //     console.error('Error updating input directory:', err);
+  //     setError('Failed to update input directory');
+  //   } finally {
+  //     setUpdatingInputDir(false);
+  //   }
+  // };
 
-    setUpdatingInputDir(true);
-    try {
-      await apiService.updateInputDirectory(inputDirValue.trim());
-      // Reload system status to reflect changes
-      await loadSystemStatus();
-    } catch (err) {
-      console.error('Error updating input directory:', err);
-      setError('Failed to update input directory');
-    } finally {
-      setUpdatingInputDir(false);
-    }
-  };
-
-  const handleUpdateStaticInputDirectory = async () => {
-    if (!staticInputDirValue.trim()) return;
-
-    setUpdatingStaticInputDir(true);
-    try {
-      await apiService.updateStaticInputDirectory(staticInputDirValue.trim());
-      // Reload system status to reflect changes
-      await loadSystemStatus();
-    } catch (err) {
-      console.error('Error updating static input directory:', err);
-      setError('Failed to update static input directory');
-    } finally {
-      setUpdatingStaticInputDir(false);
-    }
-  };
+  // const handleUpdateStaticInputDirectory = async () => {
+  //   if (!staticInputDirValue.trim()) return;
+  //
+  //   setUpdatingStaticInputDir(true);
+  //   try {
+  //     await apiService.updateStaticInputDirectory(staticInputDirValue.trim());
+  //     // Reload system status to reflect changes
+  //     await loadSystemStatus();
+  //   } catch (err) {
+  //     console.error('Error updating static input directory:', err);
+  //     setError('Failed to update static input directory');
+  //   } finally {
+  //     setUpdatingStaticInputDir(false);
+  //   }
+  // };
 
   if (loading) {
     return (

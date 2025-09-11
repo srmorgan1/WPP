@@ -42,10 +42,24 @@ def setup_package_context():
         if main_file:
             if "UpdateDatabase" in main_file:
                 main_module.__package__ = "wpp"
+                main_module.__name__ = "wpp.UpdateDatabase"
             elif "RunReports" in main_file:
                 main_module.__package__ = "wpp"
+                main_module.__name__ = "wpp.RunReports"
             elif "web_app" in main_file:
                 main_module.__package__ = "wpp.ui.react"
+                main_module.__name__ = "wpp.ui.react.web_app"
+                
+    # Also set up package context for any wpp modules
+    for module_name, module in list(sys.modules.items()):
+        if module_name.startswith("wpp.") and hasattr(module, "__file__"):
+            if not hasattr(module, "__package__") or not module.__package__:
+                # Derive package from module name
+                parts = module_name.split(".")
+                if len(parts) > 1:
+                    module.__package__ = ".".join(parts[:-1])
+                else:
+                    module.__package__ = "wpp"
 
     # Ensure wpp package is properly initialized and importable
     try:
@@ -54,7 +68,7 @@ def setup_package_context():
 
         # Pre-import common WPP modules to ensure they're available
         import wpp.config  # noqa: F401
-        import wpp.db  # noqa: F401
+        import wpp.database.db  # noqa: F401
         import wpp.logger  # noqa: F401
 
     except ImportError as e:

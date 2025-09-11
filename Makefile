@@ -13,6 +13,9 @@ SCRIPT_FILES := $(wildcard *.sh *.ps1)
 .build-markers:
 	@mkdir -p .build-markers
 
+# Define the actual executable files we expect
+EXECUTABLES := dist/wpp/wpp-web-app dist/wpp/run-reports dist/wpp/update-database
+
 # Phony targets (always run, no file dependencies)
 .PHONY: clean help test lint format force-clean deploy-to-windows
 
@@ -56,14 +59,18 @@ clean:
 	@echo "✅ React frontend built successfully"
 	@touch $@
 
-# PyInstaller executables - only rebuild if wheel, React, or spec changed
-.build-markers/executables-built: .build-markers/wheel-built .build-markers/react-built wpp_web.spec $(SCRIPT_FILES) | .build-markers
+# PyInstaller executables - rebuild if dependencies changed OR if executables don't exist
+.build-markers/executables-built: .build-markers/wheel-built .build-markers/react-built wpp_web.spec $(SCRIPT_FILES) $(EXECUTABLES) | .build-markers
 	@echo "🔨 Building PyInstaller executables (dependencies changed)..."
 	uv run pyinstaller wpp_web.spec --clean --noconfirm
 	@echo "🎯 Executables built:"
 	@ls -lh dist/wpp/*.exe dist/wpp/wpp-* dist/wpp/run-* dist/wpp/update-* 2>/dev/null || ls -lh dist/wpp/
 	@echo "📁 Total size: $(shell du -sh dist/wpp/ | cut -f1)"
 	@touch $@
+
+# Force executables to be rebuilt if they don't exist
+$(EXECUTABLES):
+	@echo "📁 Executable missing: $@ - will trigger rebuild"
 
 # Deployment package - only rebuild if executables changed
 .build-markers/deployment-built: .build-markers/executables-built | .build-markers

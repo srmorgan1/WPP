@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiService, wsService } from '../services/api';
 import ProgressBar from '../components/ProgressBar';
@@ -25,107 +25,8 @@ const ReportsPage = () => {
     isRunning
   } = reportsPageState;
 
-  useEffect(() => {
-    // Connect WebSocket for real-time updates
-    wsService.connect();
-    
-    const handleProgress = (message) => {
-      if (message.task_id === currentTask) {
-        updateReportsPageState({
-          progress: message.data.progress || 0,
-          progressMessage: message.data.message || '',
-          status: message.data.status || 'running'
-        });
-        
-        // Accumulate log messages for scrolling display
-        if (message.data.message) {
-          const timestamp = new Date().toLocaleTimeString();
-          const logEntry = `[${timestamp}] ${message.data.message}`;
-          updateReportsPageState({
-            realtimeLog: [...realtimeLog, logEntry]
-          });
-        }
-        
-        if (message.data.status === 'completed') {
-          updateReportsPageState({
-            progress: 100,
-            isRunning: false
-          });
-          loadTaskResults(message.task_id);
-        } else if (message.data.status === 'failed') {
-          updateReportsPageState({ isRunning: false });
-        }
-      }
-    };
-
-    wsService.addListener('progress', handleProgress);
-    
-    return () => {
-      wsService.removeListener('progress', handleProgress);
-    };
-  }, [currentTask]);
-
-  // Auto-scroll log viewer to bottom when new messages arrive
-  React.useEffect(() => {
-    if (logViewerRef.current) {
-      logViewerRef.current.scrollTop = logViewerRef.current.scrollHeight;
-    }
-  }, [realtimeLog]);
-
-  // Fetch latest charges date on component mount
-  const fetchChargesDate = async () => {
-    try {
-      console.log('🔄 Fetching charges date from API...');
-      const response = await apiService.getChargesDate();
-      console.log('📡 API Response:', response);
-      if (response.date) {
-        console.log('✅ Setting report date to:', response.date);
-        setReportDate(response.date);
-      } else {
-        console.log('⚠️ No date found in response, keeping current date');
-      }
-      // If no charges date (database not updated yet), keep today's date as fallback
-    } catch (error) {
-      console.error('❌ Error fetching charges date:', error);
-      // Keep today's date as fallback if API call fails
-    }
-  };
-
-  // Combined hook: fetch charges date on mount and when navigating to reports page
-  useEffect(() => {
-    console.log('📍 Location changed to:', location.pathname);
-    if (location.pathname === '/reports') {
-      console.log('🎯 On reports page, fetching charges date...');
-      fetchChargesDate();
-    }
-  }, [location.pathname]);
-
-  const handleGenerateReports = async () => {
-    try {
-      updateReportsPageState({
-        isRunning: true,
-        progress: 0,
-        progressMessage: 'Starting report generation...',
-        status: 'running',
-        results: null,
-        reportData: null,
-        logContent: null,
-        realtimeLog: []
-      });
-
-      const response = await apiService.generateReports(reportDate);
-      updateReportsPageState({ currentTask: response.task_id });
-    } catch (error) {
-      console.error('Error starting report generation:', error);
-      updateReportsPageState({
-        isRunning: false,
-        status: 'failed',
-        progressMessage: `Error: ${error.message}`
-      });
-    }
-  };
-
-  const loadTaskResults = async (taskId) => {
+  // Define loadTaskResults before useEffect that uses it
+  const loadTaskResults = useCallback(async (taskId) => {
     try {
       const taskResult = await apiService.getTaskStatus(taskId);
       updateReportsPageState({ results: taskResult });
@@ -167,6 +68,116 @@ const ReportsPage = () => {
       }
     } catch (error) {
       console.error('Error loading task results:', error);
+    }
+  }, [updateReportsPageState]);
+
+  useEffect(() => {
+    // Connect WebSocket for real-time updates
+    wsService.connect();
+    
+    const handleProgress = (message) => {
+      console.log('📨 WebSocket message received:', message);
+      if (message.task_id === currentTask) {
+        console.log('✅ Message matches current task:', currentTask);
+        updateReportsPageState({
+          progress: message.data.progress || 0,
+          progressMessage: message.data.message || '',
+          status: message.data.status || 'running'
+        });
+        
+        // Accumulate log messages for scrolling display
+        if (message.data.message) {
+          const timestamp = new Date().toLocaleTimeString();
+          const logEntry = `[${timestamp}] ${message.data.message}`;
+          updateReportsPageState({
+            realtimeLog: [...realtimeLog, logEntry]
+          });
+        }
+        
+        if (message.data.status === 'completed') {
+          console.log('🎉 Task completed! Loading results...');
+          updateReportsPageState({
+            progress: 100,
+            isRunning: false
+          });
+          loadTaskResults(message.task_id);
+        } else if (message.data.status === 'failed') {
+          console.log('❌ Task failed! Loading error details...');
+          updateReportsPageState({ isRunning: false });
+          loadTaskResults(message.task_id);
+        }
+      }
+    };
+
+    wsService.addListener('progress', handleProgress);
+    
+    return () => {
+      wsService.removeListener('progress', handleProgress);
+    };
+  }, [currentTask, loadTaskResults, realtimeLog, updateReportsPageState]);
+
+  // Auto-scroll log viewer to bottom when new messages arrive
+  React.useEffect(() => {
+    if (logViewerRef.current) {
+      logViewerRef.current.scrollTop = logViewerRef.current.scrollHeight;
+    }
+  }, [realtimeLog]);
+
+  // Fetch latest charges date on component mount
+  const fetchChargesDate = useCallback(async () => {
+    try {
+      console.log('🔄 Fetching charges date from API...');
+      const response = await apiService.getChargesDate();
+      console.log('📡 API Response:', response);
+      if (response.charges_date) {
+        console.log('✅ Setting report date to:', response.charges_date);
+        setReportDate(response.charges_date);
+        // Force a re-render to ensure date picker updates
+        setTimeout(() => {
+          console.log('🔄 Current reportDate state after update:', response.charges_date);
+        }, 100);
+      } else {
+        console.log('⚠️ No date found in response, keeping current date');
+      }
+      // If no charges date (database not updated yet), keep today's date as fallback
+    } catch (error) {
+      console.error('❌ Error fetching charges date:', error);
+      // Keep today's date as fallback if API call fails
+    }
+  }, []);
+
+  // Fetch charges date on component mount
+  useEffect(() => {
+    console.log('🎯 ReportsPage mounted, fetching charges date...');
+    fetchChargesDate();
+  }, [fetchChargesDate]);
+
+  const handleGenerateReports = async () => {
+    try {
+      console.log('🚀 Starting report generation with date:', reportDate);
+      updateReportsPageState({
+        isRunning: true,
+        progress: 0,
+        progressMessage: 'Starting report generation...',
+        status: 'running',
+        results: null,
+        reportData: null,
+        logContent: null,
+        realtimeLog: []
+      });
+
+      console.log('📡 Calling generateReports API...');
+      const response = await apiService.generateReports(reportDate);
+      console.log('✅ API Response received:', response);
+      updateReportsPageState({ currentTask: response.task_id });
+      console.log('🔄 Task ID set:', response.task_id);
+    } catch (error) {
+      console.error('Error starting report generation:', error);
+      updateReportsPageState({
+        isRunning: false,
+        status: 'failed',
+        progressMessage: `Error: ${error.message}`
+      });
     }
   };
 

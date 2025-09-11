@@ -395,6 +395,15 @@ def create_app(api_only=False):
         # Mount static files
         app.mount("/static", StaticFiles(directory=static_dir / "static"), name="static")
 
+        # Serve favicon
+        @app.get("/favicon.ico")
+        async def serve_favicon():
+            favicon_path = static_dir / "favicon.ico"
+            if favicon_path.exists():
+                return FileResponse(favicon_path)
+            else:
+                return {"error": "Favicon not found"}
+
         # Serve React app
         @app.get("/{path:path}")
         async def serve_react_app(path: str = ""):

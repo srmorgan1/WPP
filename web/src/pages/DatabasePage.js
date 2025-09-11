@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { apiService, wsService } from '../services/api';
 import ProgressBar from '../components/ProgressBar';
 import DataTable from '../components/DataTable';
@@ -23,80 +23,8 @@ const DatabasePage = () => {
     isRunning
   } = databasePageState;
 
-  useEffect(() => {
-    // Connect WebSocket for real-time updates
-    wsService.connect();
-    
-    const handleProgress = (message) => {
-      if (message.task_id === currentTask) {
-        updateDatabasePageState({
-          progress: message.data.progress || 0,
-          progressMessage: message.data.message || '',
-          status: message.data.status || 'running'
-        });
-        
-        // Accumulate log messages for scrolling display
-        if (message.data.message) {
-          const timestamp = new Date().toLocaleTimeString();
-          const logEntry = `[${timestamp}] ${message.data.message}`;
-          updateDatabasePageState({
-            realtimeLog: [...realtimeLog, logEntry]
-          });
-        }
-        
-        if (message.data.status === 'completed') {
-          updateDatabasePageState({
-            progress: 100,
-            isRunning: false
-          });
-          loadTaskResults(message.task_id);
-        } else if (message.data.status === 'failed') {
-          updateDatabasePageState({ isRunning: false });
-          loadTaskResults(message.task_id);
-        }
-      }
-    };
-
-    wsService.addListener('progress', handleProgress);
-    
-    return () => {
-      wsService.removeListener('progress', handleProgress);
-    };
-  }, [currentTask]);
-
-  // Auto-scroll log viewer to bottom when new messages arrive
-  React.useEffect(() => {
-    if (logViewerRef.current) {
-      logViewerRef.current.scrollTop = logViewerRef.current.scrollHeight;
-    }
-  }, [realtimeLog]);
-
-  const handleUpdateDatabase = async () => {
-    try {
-      updateDatabasePageState({
-        isRunning: true,
-        progress: 0,
-        progressMessage: 'Starting database update...',
-        status: 'running',
-        results: null,
-        issuesData: null,
-        logContent: null,
-        realtimeLog: []
-      });
-
-      const response = await apiService.updateDatabase(deleteExisting);
-      updateDatabasePageState({ currentTask: response.task_id });
-    } catch (error) {
-      console.error('Error starting database update:', error);
-      updateDatabasePageState({
-        isRunning: false,
-        status: 'failed',
-        progressMessage: `Error: ${error.message}`
-      });
-    }
-  };
-
-  const loadTaskResults = async (taskId) => {
+  // Define loadTaskResults before useEffect that uses it
+  const loadTaskResults = useCallback(async (taskId) => {
     try {
       const taskResult = await apiService.getTaskStatus(taskId);
       updateDatabasePageState({ results: taskResult });
@@ -138,6 +66,79 @@ const DatabasePage = () => {
       }
     } catch (error) {
       console.error('Error loading task results:', error);
+    }
+  }, [updateDatabasePageState]);
+
+  useEffect(() => {
+    // Connect WebSocket for real-time updates
+    wsService.connect();
+    
+    const handleProgress = (message) => {
+      if (message.task_id === currentTask) {
+        updateDatabasePageState({
+          progress: message.data.progress || 0,
+          progressMessage: message.data.message || '',
+          status: message.data.status || 'running'
+        });
+        
+        // Accumulate log messages for scrolling display
+        if (message.data.message) {
+          const timestamp = new Date().toLocaleTimeString();
+          const logEntry = `[${timestamp}] ${message.data.message}`;
+          updateDatabasePageState({
+            realtimeLog: [...realtimeLog, logEntry]
+          });
+        }
+        
+        if (message.data.status === 'completed') {
+          updateDatabasePageState({
+            progress: 100,
+            isRunning: false
+          });
+          loadTaskResults(message.task_id);
+        } else if (message.data.status === 'failed') {
+          updateDatabasePageState({ isRunning: false });
+          loadTaskResults(message.task_id);
+        }
+      }
+    };
+
+    wsService.addListener('progress', handleProgress);
+    
+    return () => {
+      wsService.removeListener('progress', handleProgress);
+    };
+  }, [currentTask, loadTaskResults, realtimeLog, updateDatabasePageState]);
+
+  // Auto-scroll log viewer to bottom when new messages arrive
+  React.useEffect(() => {
+    if (logViewerRef.current) {
+      logViewerRef.current.scrollTop = logViewerRef.current.scrollHeight;
+    }
+  }, [realtimeLog]);
+
+  const handleUpdateDatabase = async () => {
+    try {
+      updateDatabasePageState({
+        isRunning: true,
+        progress: 0,
+        progressMessage: 'Starting database update...',
+        status: 'running',
+        results: null,
+        issuesData: null,
+        logContent: null,
+        realtimeLog: []
+      });
+
+      const response = await apiService.updateDatabase(deleteExisting);
+      updateDatabasePageState({ currentTask: response.task_id });
+    } catch (error) {
+      console.error('Error starting database update:', error);
+      updateDatabasePageState({
+        isRunning: false,
+        status: 'failed',
+        progressMessage: `Error: ${error.message}`
+      });
     }
   };
 

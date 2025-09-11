@@ -37,44 +37,42 @@ block_cipher = None
 
 # Main application analysis
 a = Analysis(
-    ['src/wpp/ui/streamlit/app.py'],
+    ['src/wpp/ui/react/web_app.py'],
     pathex=['.'],
     binaries=[],
     datas=[
         ('src/wpp/config.toml', 'wpp/'),
         ('src/wpp/*.py', 'wpp/'),
+        ('src/wpp/api/', 'wpp/api/'),
         ('src/wpp/database/', 'wpp/database/'),
         ('src/wpp/input/', 'wpp/input/'),
-        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/output/__init__.py', 'wpp/output/'),
+        ('src/wpp/output/*.py', 'wpp/output/'),
         ('src/wpp/utils/', 'wpp/utils/'),
         ('src/wpp/schemas/', 'wpp/schemas/'),
-        ('src/wpp/database/', 'wpp/database/'),
-        ('src/wpp/input/', 'wpp/input/'),
-        ('src/wpp/output/', 'wpp/output/'),
-        ('src/wpp/utils/', 'wpp/utils/'),
-        ('src/wpp/schemas/', 'wpp/schemas/'),
-        ('src/wpp/ui/streamlit/assets/css/*', 'src/wpp/ui/streamlit/assets/css/'),
-        ('src/wpp/ui/streamlit/assets/images/*', 'src/wpp/ui/streamlit/assets/images/'),
-        ('src/wpp/ui/streamlit/assets/js/*', 'src/wpp/ui/streamlit/assets/js/'),
-        ('.streamlit/*', '.streamlit/'),
+        ('src/wpp/ui/', 'wpp/ui/'),
+        ('web/build/', 'web/build/'),
     ],
     hiddenimports=[
-        'streamlit',
+        'fastapi',
+        'uvicorn',
         'pandas',
         'openpyxl',
         'numpy',
         'dateutils',
-        'watchdog',
+        'toml',
         'wpp.RunReports',
         'wpp.UpdateDatabase',
         'wpp.calendars',
         'wpp.config',
+        'wpp.constants',
+        'wpp.data_classes',
+        'wpp.sql_queries',
         'wpp.database',
         'wpp.database.db',
         'wpp.database.database_commands',
         'wpp.logger',
         'wpp.ref_matcher',
-        'wpp.ui.streamlit.simple_shutdown',
         'wpp.utils',
         'wpp.utils.utils',
         'wpp.utils.excel',
@@ -84,10 +82,13 @@ a = Analysis(
         'wpp.input.excel',
         'wpp.output',
         'wpp.output.output_handler',
+        'wpp.api',
+        'wpp.api.services',
+        'wpp.ui.react.web_app',
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_wpp_package.py'],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -104,7 +105,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='wpp-streamlit',
+    name='wpp-web-app',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -119,7 +120,7 @@ exe = EXE(
 
 # RunReports analysis
 run_reports_a = Analysis(
-    ['src/wpp/RunReports.py'],
+    ['run_reports_wrapper.py'],
     pathex=['.'],
     binaries=[],
     datas=[
@@ -127,7 +128,8 @@ run_reports_a = Analysis(
         ('src/wpp/*.py', 'wpp/'),
         ('src/wpp/database/', 'wpp/database/'),
         ('src/wpp/input/', 'wpp/input/'),
-        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/output/__init__.py', 'wpp/output/'),
+        ('src/wpp/output/*.py', 'wpp/output/'),
         ('src/wpp/utils/', 'wpp/utils/'),
         ('src/wpp/schemas/', 'wpp/schemas/'),
     ],
@@ -136,8 +138,12 @@ run_reports_a = Analysis(
         'openpyxl',
         'numpy',
         'dateutils',
+        'toml',
         'wpp.calendars',
         'wpp.config',
+        'wpp.constants',
+        'wpp.data_classes',
+        'wpp.sql_queries',
         'wpp.database',
         'wpp.database.db',
         'wpp.database.database_commands',
@@ -155,7 +161,7 @@ run_reports_a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_wpp_package.py'],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -185,7 +191,7 @@ run_reports_exe = EXE(
 
 # UpdateDatabase analysis
 update_db_a = Analysis(
-    ['src/wpp/UpdateDatabase.py'],
+    ['update_database_wrapper.py'],
     pathex=['.'],
     binaries=[],
     datas=[
@@ -193,7 +199,8 @@ update_db_a = Analysis(
         ('src/wpp/*.py', 'wpp/'),
         ('src/wpp/database/', 'wpp/database/'),
         ('src/wpp/input/', 'wpp/input/'),
-        ('src/wpp/output/', 'wpp/output/'),
+        ('src/wpp/output/__init__.py', 'wpp/output/'),
+        ('src/wpp/output/*.py', 'wpp/output/'),
         ('src/wpp/utils/', 'wpp/utils/'),
         ('src/wpp/schemas/', 'wpp/schemas/'),
     ],
@@ -202,8 +209,12 @@ update_db_a = Analysis(
         'openpyxl',
         'numpy',
         'dateutils',
+        'toml',
         'wpp.calendars',
         'wpp.config',
+        'wpp.constants',
+        'wpp.data_classes',
+        'wpp.sql_queries',
         'wpp.database',
         'wpp.database.db',
         'wpp.database.database_commands',
@@ -221,7 +232,7 @@ update_db_a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rthook_wpp_package.py'],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -283,14 +294,9 @@ def build_executable():
         print("Build completed successfully!")
         print("Executable created in: dist/wpp/")
         print("Available executables:")
-        print("  - wpp-streamlit (Streamlit web app with assets)")
+        print("  - wpp-web-app (React web app)")
         print("  - run-reports (Reports CLI)")
         print("  - update-database (Database update CLI)")
-        print("\nIncluded assets:")
-        print("  - CSS styling (src/wpp/ui/streamlit/assets/css/)")
-        print("  - Banner images (src/wpp/ui/streamlit/assets/images/)")
-        print("  - JavaScript functionality (src/wpp/ui/streamlit/assets/js/)")
-        print("  - Streamlit config (.streamlit/)")
     except subprocess.CalledProcessError as e:
         print(f"Build failed with error: {e}")
         sys.exit(1)
@@ -311,7 +317,7 @@ def main():
     build_executable()
 
     print("\nBuild process completed!")
-    print("To run the web app: ./dist/wpp/wpp-streamlit")
+    print("To run the web app: ./dist/wpp/wpp-web-app")
     print("To run reports: ./dist/wpp/run-reports")
     print("To update database: ./dist/wpp/update-database")
 
